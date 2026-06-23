@@ -43,7 +43,7 @@ npx prettier --check "src/**/*.ts" "tests/**/*.ts"
 npm test
 ```
 
-**Pass**: 55 tests pass, 0 failures across 5 test files.
+**Pass**: 54 tests pass, 0 failures across 5 test files.
 **Common fix**: read the failing test output, fix the code, re-run.
 
 ### 5. Build

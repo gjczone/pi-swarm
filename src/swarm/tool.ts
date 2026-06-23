@@ -156,7 +156,7 @@ export function registerAgentSwarmTool(
         );
 
         // Run with controller
-        const maxConcurrency = resolveSwarmMaxConcurrency();
+        const maxConcurrency = resolveSwarmMaxConcurrency(process.cwd());
         const controller = new SubagentBatchController<SwarmSpec>(
           { spawn: spawnSubagent, resume: resumeSubagent, retry: retrySubagent },
           tasks,

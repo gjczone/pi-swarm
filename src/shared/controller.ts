@@ -21,6 +21,8 @@ import type {
   SubagentHandle,
   SubagentCompletion,
 } from "./types.js";
+import * as fs from "node:fs";
+import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
 // Constants (from kimi-code)
@@ -811,23 +813,76 @@ export class SubagentBatchController<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve the optional swarm max concurrency from the environment.
+ * Resolve the optional swarm max concurrency from pi settings.json
+ * or the environment variable.
+ *
+ * Priority:
+ *   1. `.pi/settings.json` → `pi-swarm.maxConcurrency` (project-local)
+ *   2. `~/.pi/agent/settings.json` → `pi-swarm.maxConcurrency` (global)
+ *   3. `PI_SWARM_MAX_CONCURRENCY` env var
  *
  * Returns `undefined` when unset.  A present value must be a positive
  * integer; invalid input throws so a misconfigured cap never silently
  * reverts to uncapped.
  */
 export function resolveSwarmMaxConcurrency(
-  env: Readonly<Record<string, string | undefined>> = process.env,
+  cwd?: string,
 ): number | undefined {
-  const raw = env[AGENT_SWARM_MAX_CONCURRENCY_ENV];
-  if (raw === undefined || raw.trim() === "") return undefined;
+  // 1. Project-local settings
+  const projectSettings = readPiSettings(
+    path.join(cwd ?? process.cwd(), ".pi", "settings.json"),
+  );
+  const projectValue = getSettingsMaxConcurrency(projectSettings);
+  if (projectValue !== undefined) {
+    return validateConcurrency(projectValue, ".pi/settings.json");
+  }
 
-  const value = Number(raw);
-  if (!Number.isInteger(value) || value <= 0) {
+  // 2. Global settings
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "~";
+  const globalSettings = readPiSettings(
+    path.join(home, ".pi", "agent", "settings.json"),
+  );
+  const globalValue = getSettingsMaxConcurrency(globalSettings);
+  if (globalValue !== undefined) {
+    return validateConcurrency(globalValue, "~/.pi/agent/settings.json");
+  }
+
+  // 3. Environment variable
+  const raw = process.env[AGENT_SWARM_MAX_CONCURRENCY_ENV];
+  if (raw === undefined || raw.trim() === "") return undefined;
+  return validateConcurrency(Number(raw), AGENT_SWARM_MAX_CONCURRENCY_ENV);
+}
+
+function validateConcurrency(
+  value: unknown,
+  source: string,
+): number | undefined {
+  if (value === undefined || value === null) return undefined;
+  const num = Number(value);
+  if (!Number.isInteger(num) || num <= 0) {
     throw new Error(
-      `${AGENT_SWARM_MAX_CONCURRENCY_ENV} must be a positive integer, got ${JSON.stringify(raw)}.`,
+      `pi-swarm.maxConcurrency in ${source} must be a positive integer, got ${JSON.stringify(value)}.`,
     );
   }
-  return value;
+  return num;
+}
+
+function readPiSettings(
+  filePath: string,
+): Record<string, unknown> | null {
+  try {
+    if (!fs.existsSync(filePath)) return null;
+    const raw = fs.readFileSync(filePath, "utf-8");
+    return JSON.parse(raw) as Record<string, unknown>;
+  } catch {
+    return null;
+  }
+}
+
+function getSettingsMaxConcurrency(
+  settings: Record<string, unknown> | null,
+): unknown {
+  if (!settings) return undefined;
+  const swarm = settings["pi-swarm"] as Record<string, unknown> | undefined;
+  return swarm?.maxConcurrency;
 }

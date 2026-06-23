@@ -1,6 +1,19 @@
 # pi-swarm
 
-Agent Swarm & Team orchestration extension for [pi-coding-agent](https://github.com/earendil-works/pi). Launch multiple subagents in parallel, or orchestrate collaborative role-based teams with mailbox communication.
+Agent Swarm & Team for [pi](https://github.com/earendil-works/pi) — the first **100% dynamic multi-agent extension**. No preset agent definitions. The main agent spawns temporary subagents on-the-fly based on the task at hand.
+
+Think of it as **kimi-code's AgentSwarm** + **Claude Code's subagent delegation** + **CrewAI's role-based teams** — all inside pi, with zero static configuration.
+
+## What It Does
+
+Two modes, one extension:
+
+| Mode | Like... | What happens |
+|------|---------|-------------|
+| **Swarm** | kimi-code AgentSwarm, OpenAI Swarm | Same task on many items, all in parallel. 5 agents launch immediately, more every 700ms. |
+| **Team** | CrewAI, LangGraph Supervisor | Complex tasks broken into phases. Agents collaborate through a shared mailbox. Each gets context from previous phases. |
+
+**All agents are dynamically created.** No `agents/*.md` files, no static profiles. The main agent decides what subagents to spawn based on the task.
 
 ## Install
 
@@ -8,236 +21,125 @@ Agent Swarm & Team orchestration extension for [pi-coding-agent](https://github.
 pi install npm:pi-swarm@latest
 ```
 
-Or add to `~/.pi/agent/settings.json` (global) or `.pi/settings.json` (project):
+Restart pi. You're done.
 
-```json
-{
-  "packages": ["pi-swarm"]
-}
-```
+## How to Use
 
-The extension auto-loads on next pi session. Verify with:
+### Swarm — "Do this to all of these"
 
-```bash
-pi -p "/swarm on"
-# Should show "Swarm mode enabled" — no "Extension error"
-```
-
-## What You Get
-
-Two LLM-visible tools and two slash commands:
-
-| Tool | Command | When to Use |
-|------|---------|-------------|
-| `AgentSwarm` | `/swarm` | Same task, many items — run them in parallel |
-| `AgentTeam` | `/swarm-team` | Complex task needing multiple roles in sequence |
-
-## Usage
-
-### Swarm — Parallel Agents
-
-**Natural language** (no slash command needed):
+Just talk naturally:
 
 ```
-Review every file in src/ for bugs — launch a swarm
+Review every file in src/ for bugs — use a swarm
 ```
 
 ```
-Check these five packages for outdated dependencies in parallel: pkg-a, pkg-b, pkg-c, pkg-d, pkg-e
+Run a security audit on these five packages in parallel: auth, api, db, cache, middleware
 ```
 
 ```
-Run the same audit on all 20 TypeScript files — use AgentSwarm
+Check all 20 TypeScript files for type errors — AgentSwarm
 ```
 
-**With slash command**:
+Or use the slash command:
 
 ```
-/swarm Review all .ts files in src/ for security issues
+/swarm Find deprecated API usage across the entire codebase
 ```
 
-**With tool call** (LLM makes this automatically):
+### Team — "Plan this, build it, review it"
 
 ```
-AgentSwarm({
-  description: "Security review",
-  prompt_template: "Review {{item}} for security vulnerabilities.",
-  items: ["src/auth.ts", "src/api.ts", "src/db.ts"]
-})
-```
-
-**Resume failed agents**:
-
-```
-AgentSwarm({
-  description: "Retry failed reviews",
-  resume_agent_ids: { "swarm-abc": "continue from where you left off" }
-})
-```
-
-### Team — Collaborative Agents
-
-**Natural language**:
-
-```
-Implement user login with JWT and tests — use a team with planner, coder, and reviewer
+Implement user login with JWT — use a team with planner, coder, and reviewer
 ```
 
 ```
-Add Redis caching — explore the codebase first, then plan, then implement, then review
+Add Redis caching — first explore the codebase, then plan, implement, review, and test
 ```
 
-**With slash command**:
+Or use the slash command:
 
 ```
 /swarm-team Add end-to-end encryption to the messaging module
 ```
 
-**With tool call**:
+### Resume Failed Work
+
+If some agents fail (rate limits, errors), the LLM sees which ones failed and can resume them:
 
 ```
-AgentTeam({
-  goal: "Add Redis caching layer to the session store",
-  description: "Redis session cache",
-  phases: [
-    { name: "explore", role: "explorer" },
-    { name: "implement", role: "coder" }
-  ]
-})
+AgentSwarm failed 2 out of 5 reviews — retry those
 ```
 
-### Parameters
-
-#### AgentSwarm Parameters
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `description` | Yes | What this swarm does (shown in TUI) |
-| `prompt_template` | Yes* | Template with `{{item}}` placeholder. *Required when `items` is provided |
-| `items` | Yes* | Array of values to fill `{{item}}`. *At least 2, unless `resume_agent_ids` is given |
-| `subagent_type` | No | Agent profile name. Default: `coder` |
-| `resume_agent_ids` | No | Map of `agentId → prompt` to resume failed agents |
-
-#### AgentTeam Parameters
-
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `goal` | Yes | High-level goal for the team |
-| `description` | Yes | Short description for the run |
-| `phases` | No | Custom phases. Default: explore → plan → implement → review → test |
-| `roles` | No | Per-role model/tools overrides |
-| `max_agents` | No | Max concurrent agents. Default: 4 |
-| `resume_agent_ids` | No | Resume failed phase agents |
-
-## How They Work
-
-### Swarm Mode
-
-Agents run **independently in parallel** — no communication between them. Each gets the same template with a different item. Results aggregate into one XML report.
-
-```
-Template: "Review {{item}} for bugs"
-Items:    [file-a.ts, file-b.ts, file-c.ts]
-
-Agent #1 ── Review file-a.ts ──→ result
-Agent #2 ── Review file-b.ts ──→ result    ← all at once
-Agent #3 ── Review file-c.ts ──→ result
-
-→ <agent_swarm_result> completed: 3, failed: 0 </agent_swarm_result>
-```
-
-### Team Mode
-
-Agents work **sequentially** through phases. Each phase agent receives output from previous phases as context. Communication happens via a shared mailbox (JSONL files).
-
-```
-explore → plan → implement → review → test
-   ↓        ↓        ↓          ↓       ↓
-explorer  planner   coder    reviewer  tester
-   ↓        ↓        ↓          ↓       ↓
-context:  context:  context:   context:  context:
-(none)   explore   explore+   explore+  explore+
-          output    plan       plan+     plan+
-                   output     impl      impl+
-                              output    review
-                                        output
-
-→ <agent_team_result> Phases completed: 5/5 </agent_team_result>
-```
-
-## TUI
-
-During swarm or team execution, a live progress panel appears above the input:
-
-```
-┌─ Agent Swarm ──────────────────────────────────────┐
-│  Working...                                          │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━  │
-│  #1 ⣿⣿⣿⣿⣿⣶⣀  Working...  src/auth/login.ts    │
-│  #2 ✓ Completed.                 src/auth/types.ts  │
-│  #3 ✗ Failed: syntax error       src/auth/middle.ts │
-│  completed: 1, failed: 1, working: 1, queued: 1     │
-└─────────────────────────────────────────────────────┘
-```
-
-- Braille bars animate at 80ms intervals
-- Completed agents show full bars and results
-- Failed agents show errors inline
-- Summary line tracks totals
+The tool output includes `resume_agent_ids` — the LLM just passes them back.
 
 ## Settings
 
-All configuration via environment variables — no settings file needed:
+Add to `~/.pi/agent/settings.json` (global) or `.pi/settings.json` (project):
 
-| Variable | Default | Description |
-|----------|---------|-------------|
-| `PI_SWARM_MAX_CONCURRENCY` | unlimited | Hard cap on parallel agents |
-
-### Concurrency Tuning
-
-By default, swarm launches aggressively:
-- 5 agents start immediately
-- 1 more every 700ms
-- No upper limit
-
-To cap concurrency (e.g., to avoid API rate limits):
-
-```bash
-PI_SWARM_MAX_CONCURRENCY=3 pi
+```json
+{
+  "pi-swarm": {
+    "maxConcurrency": 5
+  }
+}
 ```
 
-Invalid values (non-integer, zero, negative) fail the AgentSwarm call immediately so misconfiguration never silently degrades.
+| Setting | Default | Description |
+|---------|---------|-------------|
+| `maxConcurrency` | unlimited | Hard cap on parallel agents. Set lower to avoid API rate limits. |
 
-### State Directory
+If not set in `settings.json`, falls back to `PI_SWARM_MAX_CONCURRENCY` env var.
 
-Runs persist to `.pi/swarm/state/` (or `.crew/state/` if no `.pi/` exists). The state directory contains run manifests, task state, event logs, and mailbox files. Completed runs auto-clean after 7 days. Stale runs (30+ min no heartbeat) are marked abandoned on session start.
+## How It Compares
 
-## Output Format
+| Feature | pi-swarm | pi subagent | kimi-code swarm | CrewAI |
+|---------|----------|-------------|-----------------|--------|
+| Parallel agents | Yes | Limited | Yes | Via tasks |
+| Team collaboration | Yes (mailbox) | No | No | Yes (hierarchical) |
+| Dynamic agents | 100% dynamic | Preset profiles | Item-template | Role definitions |
+| TUI progress | Braille bars | Overlay | Braille bars | CLI logs |
+| Rate-limit handling | Auto retry | No | Auto retry | No |
+| Crash recovery | Auto-detect | No | No | No |
 
-Results return as structured XML the LLM can parse:
+## Output
 
-**AgentSwarm**:
+Results return as structured XML the LLM reads directly:
+
+**Swarm**:
 ```xml
 <agent_swarm_result>
 <summary>completed: 3, failed: 1</summary>
 <subagent agent_id="swarm-abc" item="src/auth.ts" outcome="completed">
-All good — no vulnerabilities.
+No vulnerabilities found.
 </subagent>
 </agent_swarm_result>
 ```
 
-**AgentTeam**:
+**Team**:
 ```xml
 <agent_team_result>
 <summary>Phases completed: 5/5. Succeeded: 5.</summary>
-<phase name="explore" role="explorer" outcome="completed">Found auth module.</phase>
-<phase name="plan" role="planner" outcome="completed">Create 2 files, modify 3.</phase>
+<phase name="plan" role="planner" outcome="completed">Design ready.</phase>
 </agent_team_result>
 ```
 
+## How Agents Are Created
+
+Every subagent is a fresh `pi --print` child process. The main agent passes:
+- The task prompt (template with `{{item}}` filled in, or phase-specific instructions)
+- Model configuration (inherits from main agent, overridable)
+- Tool access (all tools available)
+- No context inheritance — each agent has a clean context window
+
+This means:
+- **No static agent files.** No `agents/planner.md`, no `agents/coder.md`. 100% dynamic.
+- **No context pollution.** Each agent sees only its task, not the full conversation.
+- **Crash isolation.** One agent crashing doesn't affect others or the main session.
+
 ## Vibe Coding
 
-100% vibe-coded with deepseek-v4-pro. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) (AgentSwarm, SubagentBatch, TUI progress). Team patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew) (mailbox, supervisor). Multi-agent design informed by LangGraph, CrewAI, OpenAI Swarm, and AutoGen research.
+100% vibe-coded with deepseek-v4-pro. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) (AgentSwarm, SubagentBatch, TUI). Team patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew). Design informed by LangGraph, CrewAI, OpenAI Swarm, and AutoGen.
 
 ## License
 

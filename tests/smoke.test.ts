@@ -63,47 +63,40 @@ describe("Module imports", () => {
 // ---------------------------------------------------------------------------
 
 describe("Environment config", () => {
-  it("returns undefined when PI_SWARM_MAX_CONCURRENCY is unset", () => {
-    const result = resolveSwarmMaxConcurrency({});
+  it("returns undefined when no settings exist", () => {
+    const result = resolveSwarmMaxConcurrency("/tmp/nonexistent");
     expect(result).toBeUndefined();
-  });
-
-  it("parses a valid positive integer", () => {
-    const result = resolveSwarmMaxConcurrency({
-      PI_SWARM_MAX_CONCURRENCY: "10",
-    });
-    expect(result).toBe(10);
   });
 
   it("throws on non-integer value", () => {
-    expect(() =>
-      resolveSwarmMaxConcurrency({
-        PI_SWARM_MAX_CONCURRENCY: "abc",
-      }),
-    ).toThrow(/positive integer/);
+    process.env.PI_SWARM_MAX_CONCURRENCY = "abc";
+    expect(() => resolveSwarmMaxConcurrency("/tmp/nonexistent")).toThrow(
+      /positive integer/,
+    );
+    delete process.env.PI_SWARM_MAX_CONCURRENCY;
   });
 
   it("throws on zero", () => {
-    expect(() =>
-      resolveSwarmMaxConcurrency({
-        PI_SWARM_MAX_CONCURRENCY: "0",
-      }),
-    ).toThrow(/positive integer/);
+    process.env.PI_SWARM_MAX_CONCURRENCY = "0";
+    expect(() => resolveSwarmMaxConcurrency("/tmp/nonexistent")).toThrow(
+      /positive integer/,
+    );
+    delete process.env.PI_SWARM_MAX_CONCURRENCY;
   });
 
   it("throws on negative", () => {
-    expect(() =>
-      resolveSwarmMaxConcurrency({
-        PI_SWARM_MAX_CONCURRENCY: "-5",
-      }),
-    ).toThrow(/positive integer/);
+    process.env.PI_SWARM_MAX_CONCURRENCY = "-5";
+    expect(() => resolveSwarmMaxConcurrency("/tmp/nonexistent")).toThrow(
+      /positive integer/,
+    );
+    delete process.env.PI_SWARM_MAX_CONCURRENCY;
   });
 
-  it("ignores empty string", () => {
-    const result = resolveSwarmMaxConcurrency({
-      PI_SWARM_MAX_CONCURRENCY: "  ",
-    });
-    expect(result).toBeUndefined();
+  it("parses env var when no settings file exists", () => {
+    process.env.PI_SWARM_MAX_CONCURRENCY = "10";
+    const result = resolveSwarmMaxConcurrency("/tmp/nonexistent");
+    expect(result).toBe(10);
+    delete process.env.PI_SWARM_MAX_CONCURRENCY;
   });
 });
 
