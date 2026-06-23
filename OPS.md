@@ -21,6 +21,7 @@ Check and update these files before every release:
 - [ ] `PLAN.md` — completed phases marked
 - [ ] `docs/architecture.md` — design changes reflected
 - [ ] `LOCAL_CI.md` — test count, steps match current state
+- [ ] `LLM-REVIEW-GUIDE.md` — LOC count, test count, file lists, tier assignments match current code
 - [ ] `OPS.md` — this file, no stale steps
 
 ### 2. Version Bump
