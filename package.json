@@ -1,6 +1,6 @@
 {
   "name": "@gjczone/pi-swarm",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Agent Swarm for pi-coding-agent — launch multiple subagents from a prompt template with live TUI progress. Ported from MoonshotAI/kimi-code swarm with gratitude.",
   "type": "module",
   "main": "dist/index.js",
