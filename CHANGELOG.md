@@ -2,6 +2,17 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.1.2] - 2026-06-24
+
+### Changed
+
+- **Scoped package**: Renamed to `@gjczone/pi-swarm`. Install with `pi install npm:@gjczone/pi-swarm@latest`.
+- **State directory**: Always uses `.pi/swarm/state/`. Creates `.pi/` if it doesn't exist. No longer falls back to `.crew/`.
+
+### Documentation
+
+- README: Fixed settings.json location table. Renamed "Vibe Coding" to "Credits".
+
 ## [0.1.1] - 2026-06-24
 
 ### Changed
@@ -17,8 +28,8 @@ All notable changes to pi-swarm will be documented in this file.
 
 ### Documentation
 
-- README: Simplified to pi-native usage. Removed code-heavy sections. Added git worktree explanation, runtime file layout, and cancel mid-run behaviour.
-- README: Added stability warning banner. Added "Runtime Files" section documenting state directory structure.
+- README: Simplified to pi-native usage. Added git worktree explanation, runtime file layout, and cancel mid-run behaviour.
+- README: Added stability warning banner. Added "Runtime Files" section.
 - OPS.md: Streamlined 10-step release checklist with GitHub Release auto-generation.
 - LOCAL_CI.md: Updated for 54-test suite.
 
