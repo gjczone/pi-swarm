@@ -2,6 +2,12 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.1.4] - 2026-06-24
+
+### Changed
+
+- **Single-agent support**: AgentSwarm now accepts 1 item (was minimum 2). Use for single subagent delegation with the same tool interface. 1-128 items supported.
+
 ## [0.1.3] - 2026-06-24
 
 ### Fixed

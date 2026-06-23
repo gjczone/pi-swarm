@@ -6,7 +6,7 @@ Think of it as **kimi-code's AgentSwarm + Claude Code's agent teams** — inside
 
 ## What It Does
 
-**Swarm** — parallel agents. Like kimi-code's AgentSwarm: one template, many items, running simultaneously. Each agent is an isolated `pi --print` child process with its own context window.
+**Swarm** — 1 to 128 parallel agents. Like kimi-code's AgentSwarm: one template, many items, running simultaneously. Also works for single subagent delegation. Each agent is an isolated `pi --print` child process with its own context window.
 
 **Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Every agent runs as an independent child process.
 
@@ -20,9 +20,13 @@ pi install npm:@gjczone/pi-swarm@latest
 
 ## How to Use
 
-### Swarm — "Do this to all of these"
+### Swarm — "Do this to all of these" (or just one)
 
-Just talk naturally:
+Use for 1 to 128 items — same interface, same isolation.
+
+```
+Audit src/auth.ts for security issues — use a subagent
+```
 
 ```
 Review every file in src/ for bugs — use a swarm

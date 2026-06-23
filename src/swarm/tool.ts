@@ -41,7 +41,7 @@ Use AgentSwarm when many subagents should run the same kind of task over differe
 
 Use \`resume_agent_ids\` to continue subagents that already exist from earlier work, such as ones that failed or timed out: map each agent id to the prompt for that resumed subagent (usually \`continue\` if no extra information is needed). You may combine \`resume_agent_ids\` with \`items\` in the same call to resume existing subagents and launch new ones. Do not duplicate resumed work in \`items\`.
 
-Use enough subagents to keep the work focused and parallel. AgentSwarm supports up to 128 subagents, and launches are queued automatically, so it is safe to split large tasks into many clear, independent items.
+AgentSwarm also works for single subagents (1 item).  Use it for any task you want to delegate to a fresh subagent with an isolated context — from 1 to 128 items.  Launches are queued automatically.  Single-agent calls still require \`prompt_template\` with \`{{item}}\` and at least one item.
 
 If \`AgentSwarm\` is called, that call must be the only tool call in the response.`;
 
@@ -77,7 +77,7 @@ export function registerAgentSwarmTool(
           Type.Array(Type.String(), {
             maxItems: MAX_AGENT_SWARM_SUBAGENTS,
             description:
-              "Values used to fill the {{item}} placeholder. Each item launches one new subagent.",
+              "Values used to fill the {{item}} placeholder. Each item launches one new subagent. Supports 1 to 128 items.",
           }),
         ),
         resume_agent_ids: Type.Optional(
@@ -207,7 +207,7 @@ function createAgentSwarmSpecs(args: {
 
   if (!hasMinimumAgentSwarmInputs(itemCount, resumeCount)) {
     throw new Error(
-      "AgentSwarm requires at least 2 items unless resume_agent_ids is provided.",
+      "AgentSwarm requires at least 1 item or a resume_agent_ids entry.",
     );
   }
 
@@ -283,7 +283,7 @@ function hasMinimumAgentSwarmInputs(
   itemCount: number,
   resumeCount: number,
 ): boolean {
-  return resumeCount > 0 || itemCount >= 2;
+  return resumeCount > 0 || itemCount >= 1;
 }
 
 function childDescription(

@@ -46,9 +46,9 @@ function createAgentSwarmSpecs(args: {
   const resumeCount = resumeEntries.length;
   const totalCount = resumeCount + itemCount;
 
-  if (resumeCount === 0 && itemCount < 2) {
+  if (resumeCount === 0 && itemCount < 1) {
     throw new Error(
-      "AgentSwarm requires at least 2 items unless resume_agent_ids is provided.",
+      "AgentSwarm requires at least 1 item or a resume_agent_ids entry.",
     );
   }
 
@@ -146,13 +146,24 @@ describe("createAgentSwarmSpecs", () => {
     });
   });
 
-  it("throws when fewer than 2 items and no resume ids", () => {
+  it("allows a single item without resume ids", () => {
+    const specs = createAgentSwarmSpecs({
+      prompt_template: "Process {{item}}",
+      items: ["only-one"],
+    });
+
+    expect(specs).toHaveLength(1);
+    expect(specs[0]!.kind).toBe("spawn");
+    expect(specs[0]!.item).toBe("only-one");
+  });
+
+  it("throws when 0 items and no resume ids", () => {
     expect(() =>
       createAgentSwarmSpecs({
         prompt_template: "Process {{item}}",
-        items: ["only-one"],
+        items: [],
       }),
-    ).toThrow(/at least 2 items/);
+    ).toThrow(/at least 1 item/);
   });
 
   it("allows 1 item when resume_agent_ids is provided", () => {
