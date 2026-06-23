@@ -2,6 +2,26 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.1.1] - 2026-06-24
+
+### Changed
+
+- **Default max concurrency**: 5 (was unlimited). Configurable via settings.json or env var with no upper bound. Recommended range: 3-10.
+- **Settings priority**: `.pi/settings.json` (project) > `~/.pi/agent/settings.json` (global) > `PI_SWARM_MAX_CONCURRENCY` env var > default 5.
+
+### Fixed
+
+- **Team abort handling**: Ctrl+C now stops team runs mid-execution. Completed phases are preserved and returned as partial results.
+- **Team partial state**: Catastrophic errors return completed phase output instead of only an error message.
+- **`isUserCancellation`**: Now handles string abort reasons (not just Error instances).
+
+### Documentation
+
+- README: Simplified to pi-native usage. Removed code-heavy sections. Added git worktree explanation, runtime file layout, and cancel mid-run behaviour.
+- README: Added stability warning banner. Added "Runtime Files" section documenting state directory structure.
+- OPS.md: Streamlined 10-step release checklist with GitHub Release auto-generation.
+- LOCAL_CI.md: Updated for 54-test suite.
+
 ## [0.1.0] - 2026-06-23
 
 ### Features

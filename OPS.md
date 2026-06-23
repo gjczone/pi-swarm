@@ -1,32 +1,35 @@
 # OPS.md
 
-Release operations checklist for pi-swarm. Run through EVERY step in order when publishing a new version.
+Release operations checklist for pi-swarm.
 
 ## Prerequisites
 
-- All code changes merged to `master`
-- Working directory clean (`git status` shows no uncommitted changes)
-- LOCAL_CI passed (all steps)
-- GitHub CLI (`gh`) authenticated
-- npm account with publish access (`NPM_TOKEN` set in repo secrets)
+- All changes merged to `master`, working directory clean
+- `LOCAL_CI.md` passed (all steps)
+- `gh` CLI authenticated
+- `NPM_TOKEN` set in repo Secrets → Actions
 
-## Release Checklist
+## Release Steps
 
-### 1. Documentation Sync
+### 1. Documentation Audit
 
-- [ ] `CHANGELOG.md` — add `## [X.Y.Z] - YYYY-MM-DD` section at top with all changes since last tag
-- [ ] `README.md` — update if features, env vars, or usage changed
-- [ ] `AGENTS.md` — update if new modules, tools, or commands added
-- [ ] `PLAN.md` — mark completed phases
-- [ ] `docs/architecture.md` — update if design changed
+Check and update these files before every release:
+
+- [ ] `README.md` — install instructions, usage examples, settings, runtime files correct
+- [ ] `CHANGELOG.md` — new version section at top with all changes since last tag
+- [ ] `AGENTS.md` — architecture tree, change map match current code
+- [ ] `PLAN.md` — completed phases marked
+- [ ] `docs/architecture.md` — design changes reflected
+- [ ] `LOCAL_CI.md` — test count, steps match current state
+- [ ] `OPS.md` — this file, no stale steps
 
 ### 2. Version Bump
 
 ```bash
-npm version patch   # or minor, major
+npm version patch   # or minor / major
 ```
 
-This updates `package.json`, creates a git tag `vX.Y.Z`, and commits.
+Updates `package.json`, creates git tag, commits.
 
 ### 3. Local CI
 
@@ -34,7 +37,7 @@ This updates `package.json`, creates a git tag `vX.Y.Z`, and commits.
 npm run ci
 ```
 
-Must pass: typecheck → 55 tests → build → dist verified.
+Must pass: typecheck → 54 tests → build → dist verified.
 
 ### 4. Push
 
@@ -50,16 +53,15 @@ gh release create vX.Y.Z \
   --notes "$(sed -n '/^## \[X.Y.Z\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
 ```
 
-This auto-extracts the current version section from CHANGELOG.md as release notes.
-Creating a Release triggers the `publish.yml` workflow → npm publish.
+Creates the Release + auto-triggers `publish.yml` → npm publish.
 
 ### 6. Verify npm Publish
 
-Wait ~30s for Actions to complete, then:
+Wait ~30s for Actions:
 
 ```bash
-npm view pi-swarm version    # should match X.Y.Z
-npm view pi-swarm dist-tags  # should show 'latest': 'X.Y.Z'
+npm view pi-swarm version     # must match X.Y.Z
+npm view pi-swarm dist-tags   # must show 'latest': 'X.Y.Z'
 ```
 
 ### 7. Verify Pi Install
@@ -69,39 +71,50 @@ pi install npm:pi-swarm@latest
 pi -p "/swarm on" 2>&1 | grep -q "Extension error" && echo "FAIL" || echo "OK"
 ```
 
-**Pass**: prints "OK".
-
-### 8. Git Clean State
+### 8. Verify GitHub Release Page
 
 ```bash
-git status   # working directory clean, on master
+gh release view vX.Y.Z
 ```
 
-### 9. Update GitHub About
+Check: release notes populated from CHANGELOG, not empty or default.
+
+### 9. Git Clean State
+
+```bash
+git status   # clean, on master
+```
+
+### 10. Retrospective
+
+- [ ] Any step deviate from this checklist? → Update OPS.md
+- [ ] Any doc go stale? → Update it
+- [ ] LOCAL_CI miss a regression? → Add a check
+
+## Quick Release
+
+```bash
+# After docs synced:
+V=$(npm version patch | sed 's/^v//')
+npm run ci
+git push origin master --tags
+gh release create "v$V" --title "v$V" \
+  --notes "$(sed -n '/^## \['$V'\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
+sleep 30
+npm view pi-swarm version
+```
+
+## Release Page Content
+
+The GitHub Release page is auto-populated from `CHANGELOG.md`. Always update CHANGELOG **before** creating the release. The `sed` command extracts the current version section — ensure the version header format is exactly `## [X.Y.Z] - YYYY-MM-DD`.
+
+## GitHub About
+
+If project description, topics, or homepage change:
 
 ```bash
 gh repo edit \
-  --description "Agent Swarm & Team orchestration for pi-coding-agent. Dual-mode: parallel swarm + collaborative teams with mailbox. Ported from kimi-code." \
-  --website "https://www.npmjs.com/package/pi-swarm" \
-  --add-topic "pi-package,pi-coding-agent,agent-swarm,multi-agent,subagent,parallel,team,swarm"
-```
-
-### 10. Self-Improvement
-
-- [ ] Did any step deviate from this checklist? → Update OPS.md.
-- [ ] Did any companion `.md` file go stale? → Update it.
-- [ ] Did LOCAL_CI miss a regression? → Add a check.
-
-## Quick Reference
-
-```bash
-# Full release in one go (after docs synced):
-npm version patch
-npm run ci
-git push origin master --tags
-gh release create v$(node -p "require('./package.json').version") \
-  --title "v$(node -p "require('./package.json').version")" \
-  --notes "$(sed -n '/^## \['$(node -p "require('./package.json').version")'\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
-# Wait for Actions, then verify:
-npm view pi-swarm version
+  --description "..." \
+  --homepage "https://www.npmjs.com/package/pi-swarm" \
+  --add-topic "topic-name"
 ```

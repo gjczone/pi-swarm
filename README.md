@@ -75,31 +75,41 @@ Every agent runs in its own `git worktree`:
 - Worktrees are **auto-created** on spawn and **auto-cleaned** when the agent finishes
 - Failed or cancelled agents also get their worktrees cleaned up
 
+## Runtime Files
+
+State is stored per-project under `.pi/swarm/state/` (or `.crew/state/` if no `.pi/` directory exists):
+
+```
+.pi/swarm/state/runs/{runId}/
+  manifest.json          # Run metadata, agent IDs, timestamps
+  tasks.json             # Task graph, per-phase status
+  events.jsonl           # Append-only event log
+  agents/{agentId}/
+    status.json          # Per-agent status snapshot
+  mailbox/               # Team inter-agent messages
+    inbox.jsonl
+    outbox.jsonl
+    delivery.json
+```
+
+Runs auto-clean: completed runs deleted after 7 days, stale runs (30min no heartbeat) marked abandoned.
+
 ## Settings
 
-Optional. Default max concurrency is **5** — works for most setups.
+Default max concurrency is **5**. Recommended: **3-10**. Can be set to any positive integer.
 
 ```json
 // ~/.pi/agent/settings.json (global) or .pi/settings.json (project)
 {
   "pi-swarm": {
-    "maxConcurrency": 3
+    "maxConcurrency": 8
   }
 }
 ```
 
 Priority: project settings > global settings > `PI_SWARM_MAX_CONCURRENCY` env var.
 
-Lower values (3-5) are safer for API rate limits. Higher values (10-20) work if your provider allows.
-
-## What It's Like
-
-| If you use... | pi-swarm gives you... |
-|--------------|---------------------|
-| kimi-code | Same AgentSwarm tool, same `/swarm` command, same braille TUI progress |
-| Claude Code agent teams | Role-based sequential agents with the `/swarm-team` command |
-| pi-crew | Mailbox-based inter-agent communication, supervisor pattern, phase dependency graph |
-| CrewAI | Hierarchical team model — supervisor decomposes, workers execute, results chain |
+Lower values (3-5) are safer for API rate limits. Values above 10 work if your provider allows high concurrent requests. There is no hard upper limit.
 
 ## Vibe Coding
 
