@@ -2,6 +2,18 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.1.6] - 2026-06-24
+
+### Changed
+
+- **Dev dependencies**: typescript ^6.0.0 (was ^5.0.0), vitest ^4.0.0 (was ^1.6.1). All 55 tests pass with latest.
+
+## [0.1.5] - 2026-06-24
+
+### Changed
+
+- Final audit: package.json metadata (description, keywords), OPS.md scoped name fixes, AGENTS.md description refresh.
+
 ## [0.1.4] - 2026-06-24
 
 ### Changed
