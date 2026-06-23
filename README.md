@@ -6,9 +6,9 @@ Think of it as **kimi-code's AgentSwarm + Claude Code's agent teams** — inside
 
 ## What It Does
 
-**Swarm** — parallel agents. Like kimi-code's AgentSwarm: one template, many items, running simultaneously. Each agent gets a dedicated git worktree. The main agent auto-cleans worktrees when done.
+**Swarm** — parallel agents. Like kimi-code's AgentSwarm: one template, many items, running simultaneously. Each agent is an isolated `pi --print` child process with its own context window.
 
-**Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Agents run in isolated git worktrees.
+**Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Every agent runs as an independent child process.
 
 All agents are created on-the-fly. No `agents/*.md` files. The main agent decides what to spawn based on the task.
 
@@ -66,18 +66,9 @@ Two of the five swarm reviews failed — retry those
 
 Press `Ctrl+C` during a swarm or team run. Completed agents are preserved. In-progress agents are cancelled gracefully. For teams, completed phases are saved and returned as partial results.
 
-## Git Worktree Isolation
-
-Every agent runs in its own `git worktree`:
-
-- Isolated working directory — no file conflicts between agents
-- Main agent's working tree stays clean
-- Worktrees are **auto-created** on spawn and **auto-cleaned** when the agent finishes
-- Failed or cancelled agents also get their worktrees cleaned up
-
 ## Runtime Files
 
-State is stored per-project under `.pi/swarm/state/`. If `.pi/` doesn't exist, it's created automatically.
+State is stored under `.pi/swarm/state/`. The extension auto-creates `.pi/` if it doesn't exist, and auto-appends `.pi/swarm/state/` to the project's `.gitignore`.
 
 ```
 .pi/swarm/state/runs/{runId}/
@@ -96,10 +87,10 @@ Runs auto-clean: completed runs deleted after 7 days, stale runs (30min no heart
 
 ## Settings
 
-Default max concurrency is **5**. Recommended: **3-10**. Can be set to any positive integer. Settings files:
+Default max concurrency is **5**. Recommended: **3-10**. Can be set to any positive integer.
 
-| Location | Scope |
-|----------|-------|
+| Settings file | Scope |
+|---------------|-------|
 | `.pi/settings.json` | Project (current directory) |
 | `~/.pi/agent/settings.json` | Global (all projects) |
 
