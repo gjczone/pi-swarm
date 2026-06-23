@@ -1,0 +1,54 @@
+{
+  "name": "pi-swarm",
+  "version": "0.1.0",
+  "description": "Agent Swarm for pi-coding-agent — launch multiple subagents from a prompt template with live TUI progress. Ported from MoonshotAI/kimi-code swarm with gratitude.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "ci": "npm run typecheck && npm test && npm run build && test -f dist/index.js && test -f dist/index.d.ts"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "extension",
+    "swarm",
+    "agent-swarm",
+    "subagent",
+    "parallel"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist"
+    ]
+  },
+  "author": "",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": ""
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "*",
+    "typebox": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "typescript": "^5.0.0",
+    "vitest": "^1.6.1"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
