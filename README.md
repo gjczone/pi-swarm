@@ -1,18 +1,16 @@
 # pi-swarm
 
-> **Early version — stability not guaranteed.** This is an initial release. Expect rough edges. Bug reports, feedback, issues, and PRs are very welcome.
+> **Early release — stability not guaranteed.** This is an initial version. Expect rough edges. Bug reports, feedback, feature requests, and PRs are very welcome.
 
-Agent Swarm & Team for [pi](https://github.com/earendil-works/pi). The first **100% dynamic multi-agent extension** — no preset agent files, no static profiles. Every subagent is created on-the-fly by the main agent based on the current task.
+Think of it as **kimi-code's AgentSwarm + Claude Code's agent teams** — inside pi. Parallel swarm agents and collaborative role-based teams, all dynamically spawned with no preset configuration.
 
 ## What It Does
 
-Two modes:
+**Swarm** — parallel agents. Like kimi-code's AgentSwarm: one template, many items, running simultaneously. Each agent gets a dedicated git worktree. The main agent auto-cleans worktrees when done.
 
-**Swarm** — parallel agents. Like kimi-code's AgentSwarm: one template, many items, all running at once. Each agent gets a dedicated git worktree for filesystem isolation. The main agent auto-cleans worktrees when the swarm finishes.
+**Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Agents run in isolated git worktrees.
 
-**Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent reads context from previous phases via a shared mailbox. Every agent also runs in its own git worktree.
-
-Everything is dynamic. The main agent decides how many agents to spawn and what each one should do. No `agents/*.md` files. No static configuration. Just describe the task and let it run.
+All agents are created on-the-fly. No `agents/*.md` files. The main agent decides what to spawn based on the task.
 
 ## Install
 
@@ -20,13 +18,11 @@ Everything is dynamic. The main agent decides how many agents to spawn and what 
 pi install npm:pi-swarm@latest
 ```
 
-Restart pi. Done.
-
 ## How to Use
 
 ### Swarm — "Do this to all of these"
 
-Just talk naturally. The LLM picks up the intent and calls AgentSwarm:
+Just talk naturally:
 
 ```
 Review every file in src/ for bugs — use a swarm
@@ -36,67 +32,55 @@ Review every file in src/ for bugs — use a swarm
 Run a security audit on these five packages in parallel: auth, api, db, cache, middleware
 ```
 
-Or use the slash command explicitly:
+Or the slash command:
 
 ```
-/swarm Find deprecated API usage across the entire codebase
+/swarm Find deprecated API usage across the codebase
 ```
 
-### Team — "Plan this, then build it, then review it"
+### Team — "Plan this, build it, review it"
 
 ```
 Implement user login with JWT — use a team with planner, coder, and reviewer
 ```
 
 ```
-Add Redis caching — first explore the codebase, then plan, implement, review, and test
+Add Redis caching — explore the codebase first, then plan, implement, review, test
 ```
 
-Or the slash command:
+Or:
 
 ```
-/swarm-team Refactor the authentication module end-to-end
+/swarm-team Refactor the auth module end-to-end
 ```
 
 ### Resume Failed Work
 
-If some agents fail, the LLM gets `resume_agent_ids` in the result and can retry:
+If agents fail, the LLM gets `resume_agent_ids` and can retry:
 
 ```
-Two of the five reviews failed — retry those
+Two of the five swarm reviews failed — retry those
 ```
 
-## How It Works
+### Cancel Mid-Run
 
-### Git Worktree Isolation
+Press `Ctrl+C` during a swarm or team run. Completed agents are preserved. In-progress agents are cancelled gracefully. For teams, completed phases are saved and returned as partial results.
 
-Every subagent runs in its own `git worktree`. This means:
+## Git Worktree Isolation
 
-- Each agent has an isolated working directory — no file conflicts
-- The main agent's working tree stays clean
-- Worktrees are auto-created on spawn and **auto-cleaned** when the agent finishes
-- Failed/cancelled agents also get their worktrees cleaned up
+Every agent runs in its own `git worktree`:
 
-No manual worktree management. The extension handles creation and cleanup automatically.
-
-### Dynamic Agent Creation
-
-There are no preset agent profiles. When you ask for a swarm or team:
-
-1. The main agent analyzes the task
-2. It decides: swarm (parallel items) or team (sequential phases)
-3. For swarm: it generates the `prompt_template` + `items` array
-4. For team: it sets up phases, roles, and a supervisor
-5. Each subagent is a fresh `pi --print` child process with a clean context window
-6. All agents inherit the main agent's model and have access to all tools
+- Isolated working directory — no file conflicts between agents
+- Main agent's working tree stays clean
+- Worktrees are **auto-created** on spawn and **auto-cleaned** when the agent finishes
+- Failed or cancelled agents also get their worktrees cleaned up
 
 ## Settings
 
-Completely optional. The default max concurrency is **5** — works well for most setups without hitting rate limits.
-
-To change it, add to `~/.pi/agent/settings.json` (global) or `.pi/settings.json` (project):
+Optional. Default max concurrency is **5** — works for most setups.
 
 ```json
+// ~/.pi/agent/settings.json (global) or .pi/settings.json (project)
 {
   "pi-swarm": {
     "maxConcurrency": 3
@@ -106,16 +90,16 @@ To change it, add to `~/.pi/agent/settings.json` (global) or `.pi/settings.json`
 
 Priority: project settings > global settings > `PI_SWARM_MAX_CONCURRENCY` env var.
 
-Lower values are safer for API rate limits. Higher values (10-20) work if your provider allows it.
+Lower values (3-5) are safer for API rate limits. Higher values (10-20) work if your provider allows.
 
 ## What It's Like
 
-| If you know... | pi-swarm is like... |
-|---------------|-------------------|
-| kimi-code | The AgentSwarm tool and `/swarm` command — same item-template pattern, same TUI progress bars |
-| Claude Code agent teams | The `/swarm-team` command — role-based agents collaborating in sequence |
-| pi-crew | The mailbox system and supervisor — agents communicate via JSONL files, phases advance through a dependency graph |
-| CrewAI | The hierarchical team model — supervisor decomposes goals, workers execute, results chain together |
+| If you use... | pi-swarm gives you... |
+|--------------|---------------------|
+| kimi-code | Same AgentSwarm tool, same `/swarm` command, same braille TUI progress |
+| Claude Code agent teams | Role-based sequential agents with the `/swarm-team` command |
+| pi-crew | Mailbox-based inter-agent communication, supervisor pattern, phase dependency graph |
+| CrewAI | Hierarchical team model — supervisor decomposes, workers execute, results chain |
 
 ## Vibe Coding
 
@@ -123,4 +107,4 @@ Lower values are safer for API rate limits. Higher values (10-20) work if your p
 
 ## License
 
-MIT
+[MIT](LICENSE)

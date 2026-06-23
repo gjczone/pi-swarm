@@ -134,6 +134,7 @@ export function registerAgentTeamTool(
         resume_agent_ids?: Record<string, string>;
       };
 
+      let supervisor: TeamSupervisor | null = null;
       try {
         const crewRoot =
           process.env.PI_SWARM_CREW_ROOT ?? ".pi/swarm";
@@ -157,7 +158,7 @@ export function registerAgentTeamTool(
           }));
 
         // Create supervisor
-        const supervisor = new TeamSupervisor({
+        supervisor = new TeamSupervisor({
           cwd: process.cwd(),
           crewRoot,
           runId,
@@ -181,6 +182,9 @@ export function registerAgentTeamTool(
         let currentPhase = supervisor.startNextPhase();
 
         while (currentPhase !== null) {
+          // Check abort signal between phases
+          signal?.throwIfAborted();
+
           const { phase, role, prompt: phasePrompt } =
             currentPhase;
 
@@ -213,7 +217,29 @@ export function registerAgentTeamTool(
               },
             );
 
-          const phaseResults = await controller.run();
+          let phaseResults: SubagentResult<unknown>[];
+          try {
+            phaseResults = await controller.run();
+          } catch (err) {
+            // Phase was aborted or failed catastrophically
+            supervisor.failPhase(
+              phase.phase.name,
+              err instanceof Error ? err.message : String(err),
+            );
+            // Abort signal: stop the entire run, save partial state
+            if (signal?.aborted) {
+              supervisor.finalize();
+              const partialOutput = supervisor.synthesizeResult();
+              return {
+                content: [{ type: "text", text: partialOutput }],
+                details: undefined,
+              };
+            }
+            // Non-abort error: try next phase
+            currentPhase = supervisor.startNextPhase();
+            continue;
+          }
+
           allResults.push(...phaseResults);
 
           const result = phaseResults[0];
@@ -249,6 +275,26 @@ export function registerAgentTeamTool(
           error instanceof Error
             ? error.message
             : String(error);
+        // Return partial state if available
+        if (supervisor) {
+          try {
+            const partialOutput = supervisor.synthesizeResult();
+            if (partialOutput) {
+              return {
+                content: [
+                  {
+                    type: "text",
+                    text: `${partialOutput}\n\nRun interrupted: ${message}`,
+                  },
+                ],
+                isError: true,
+                details: undefined,
+              };
+            }
+          } catch {
+            // Synthesis failed — fall through to generic error
+          }
+        }
         return {
           content: [
             {
