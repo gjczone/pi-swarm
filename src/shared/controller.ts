@@ -35,6 +35,7 @@ const RATE_LIMIT_RETRY_FACTOR = 2;
 const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = "PI_SWARM_MAX_CONCURRENCY";
+const DEFAULT_MAX_CONCURRENCY = 5;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -849,8 +850,12 @@ export function resolveSwarmMaxConcurrency(
 
   // 3. Environment variable
   const raw = process.env[AGENT_SWARM_MAX_CONCURRENCY_ENV];
-  if (raw === undefined || raw.trim() === "") return undefined;
-  return validateConcurrency(Number(raw), AGENT_SWARM_MAX_CONCURRENCY_ENV);
+  if (raw !== undefined && raw.trim() !== "") {
+    return validateConcurrency(Number(raw), AGENT_SWARM_MAX_CONCURRENCY_ENV);
+  }
+
+  // 4. Default
+  return DEFAULT_MAX_CONCURRENCY;
 }
 
 function validateConcurrency(

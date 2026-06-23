@@ -63,9 +63,10 @@ describe("Module imports", () => {
 // ---------------------------------------------------------------------------
 
 describe("Environment config", () => {
-  it("returns undefined when no settings exist", () => {
+  it("returns default 5 when no settings exist", () => {
+    delete process.env.PI_SWARM_MAX_CONCURRENCY;
     const result = resolveSwarmMaxConcurrency("/tmp/nonexistent");
-    expect(result).toBeUndefined();
+    expect(result).toBe(5);
   });
 
   it("throws on non-integer value", () => {
