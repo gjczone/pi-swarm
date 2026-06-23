@@ -120,7 +120,7 @@ Reasoning effort is set to xhigh. Please think carefully through the task, valid
 
 # pi-swarm
 
-Agent Swarm extension for pi-coding-agent. Launches multiple subagents from a shared prompt template with live TUI progress, rate-limit-aware retries, and concurrency control. Architecture and interaction patterns ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) with gratitude.
+Agent Swarm & Team extension for pi-coding-agent. Single to 128 subagents: parallel swarm (item-template) and collaborative team (role-based with mailbox). Live TUI progress, rate-limit-aware retries, concurrency control, crash recovery. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code), team patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew).
 
 Goal: replace both the third-party `subagent` extension and `worktree`, becoming the unified sub-agent orchestration solution for the pi ecosystem.
 

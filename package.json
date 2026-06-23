@@ -1,7 +1,7 @@
 {
   "name": "@gjczone/pi-swarm",
   "version": "0.1.4",
-  "description": "Agent Swarm for pi-coding-agent — launch multiple subagents from a prompt template with live TUI progress. Ported from MoonshotAI/kimi-code swarm with gratitude.",
+  "description": "Agent Swarm & Team for pi-coding-agent. Single to 128 subagents: parallel swarm or collaborative team with mailbox. Live TUI, rate-limit retries, crash recovery. Ported from kimi-code, inspired by pi-crew.",
   "type": "module",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -23,8 +23,12 @@
     "extension",
     "swarm",
     "agent-swarm",
+    "agent-team",
     "subagent",
-    "parallel"
+    "multi-agent",
+    "parallel",
+    "team",
+    "mailbox"
   ],
   "pi": {
     "extensions": [

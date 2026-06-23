@@ -60,14 +60,14 @@ Creates the Release + auto-triggers `publish.yml` → npm publish.
 Wait ~30s for Actions:
 
 ```bash
-npm view pi-swarm version     # must match X.Y.Z
-npm view pi-swarm dist-tags   # must show 'latest': 'X.Y.Z'
+npm view @gjczone/pi-swarm version     # must match X.Y.Z
+npm view @gjczone/pi-swarm dist-tags   # must show 'latest': 'X.Y.Z'
 ```
 
 ### 7. Verify Pi Install
 
 ```bash
-pi install npm:pi-swarm@latest
+pi install npm:@gjczone/pi-swarm@latest
 pi -p "/swarm on" 2>&1 | grep -q "Extension error" && echo "FAIL" || echo "OK"
 ```
 
@@ -101,7 +101,7 @@ git push origin master --tags
 gh release create "v$V" --title "v$V" \
   --notes "$(sed -n '/^## \['$V'\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
 sleep 30
-npm view pi-swarm version
+npm view @gjczone/pi-swarm version
 ```
 
 ## Release Page Content
@@ -115,6 +115,6 @@ If project description, topics, or homepage change:
 ```bash
 gh repo edit \
   --description "..." \
-  --homepage "https://www.npmjs.com/package/pi-swarm" \
+  --homepage "https://www.npmjs.com/package/@gjczone/pi-swarm" \
   --add-topic "topic-name"
 ```
