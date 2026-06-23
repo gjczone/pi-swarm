@@ -2,6 +2,13 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.1.3] - 2026-06-24
+
+### Fixed
+
+- **README accuracy**: Removed false claims about git worktree isolation. Agents run as isolated `pi --print` child processes, not in git worktrees.
+- **Auto-gitignore**: On session start, auto-appends `.pi/swarm/state/` to the project's `.gitignore`. Creates `.gitignore` if no ignore file exists.
+
 ## [0.1.2] - 2026-06-24
 
 ### Changed
