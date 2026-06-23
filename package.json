@@ -31,11 +31,11 @@
       "./dist"
     ]
   },
-  "author": "",
+  "author": "gjczone",
   "license": "MIT",
   "repository": {
     "type": "git",
-    "url": ""
+    "url": "https://github.com/gjczone/pi-swarm.git"
   },
   "dependencies": {
     "@earendil-works/pi-tui": "*",
@@ -50,5 +50,9 @@
   },
   "engines": {
     "node": ">=18.0.0"
-  }
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ]
 }
