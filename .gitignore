@@ -24,8 +24,7 @@ Thumbs.db
 coverage/
 
 # Crew state (generated at runtime)
-.crew/
-.pi/swarm/
+.pi/swarm/state/
 
 # Debug logs
 *.log

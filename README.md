@@ -1,4 +1,4 @@
-# pi-swarm
+# @gjczone/pi-swarm
 
 > **Early release — stability not guaranteed.** This is an initial version. Expect rough edges. Bug reports, feedback, feature requests, and PRs are very welcome.
 
@@ -15,7 +15,7 @@ All agents are created on-the-fly. No `agents/*.md` files. The main agent decide
 ## Install
 
 ```bash
-pi install npm:pi-swarm@latest
+pi install npm:@gjczone/pi-swarm@latest
 ```
 
 ## How to Use
@@ -77,7 +77,7 @@ Every agent runs in its own `git worktree`:
 
 ## Runtime Files
 
-State is stored per-project under `.pi/swarm/state/` (or `.crew/state/` if no `.pi/` directory exists):
+State is stored per-project under `.pi/swarm/state/`. If `.pi/` doesn't exist, it's created automatically.
 
 ```
 .pi/swarm/state/runs/{runId}/
@@ -96,10 +96,14 @@ Runs auto-clean: completed runs deleted after 7 days, stale runs (30min no heart
 
 ## Settings
 
-Default max concurrency is **5**. Recommended: **3-10**. Can be set to any positive integer.
+Default max concurrency is **5**. Recommended: **3-10**. Can be set to any positive integer. Settings files:
+
+| Location | Scope |
+|----------|-------|
+| `.pi/settings.json` | Project (current directory) |
+| `~/.pi/agent/settings.json` | Global (all projects) |
 
 ```json
-// ~/.pi/agent/settings.json (global) or .pi/settings.json (project)
 {
   "pi-swarm": {
     "maxConcurrency": 8
@@ -109,9 +113,9 @@ Default max concurrency is **5**. Recommended: **3-10**. Can be set to any posit
 
 Priority: project settings > global settings > `PI_SWARM_MAX_CONCURRENCY` env var.
 
-Lower values (3-5) are safer for API rate limits. Values above 10 work if your provider allows high concurrent requests. There is no hard upper limit.
+Lower values (3-5) are safer for API rate limits. Values above 10 work if your provider allows high concurrent requests. No hard upper limit.
 
-## Vibe Coding
+## Credits
 
 100% vibe-coded with deepseek-v4-pro. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Team patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew). Multi-agent design informed by LangGraph, CrewAI, OpenAI Swarm, and AutoGen.
 

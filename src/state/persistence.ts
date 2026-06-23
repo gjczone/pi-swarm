@@ -25,15 +25,19 @@ import * as path from "node:path";
 /**
  * Resolve the crew root directory.
  *
- * If the project already has a `.pi/` directory, use `.pi/swarm/`.
- * Otherwise use `.crew/` (default for fresh projects).
+ * Always uses `.pi/swarm/` under the project root.  Creates `.pi/`
+ * if it does not already exist.
  */
 export function resolveCrewRoot(cwd: string): string {
   const piDir = path.join(cwd, ".pi");
-  if (fs.existsSync(piDir)) {
-    return path.join(piDir, "swarm");
+  if (!fs.existsSync(piDir)) {
+    fs.mkdirSync(piDir, { recursive: true });
   }
-  return path.join(cwd, ".crew");
+  const swarmDir = path.join(piDir, "swarm");
+  if (!fs.existsSync(swarmDir)) {
+    fs.mkdirSync(swarmDir, { recursive: true });
+  }
+  return swarmDir;
 }
 
 /** Resolve the state directory for a specific run. */
