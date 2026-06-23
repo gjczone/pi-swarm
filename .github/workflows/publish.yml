@@ -49,5 +49,5 @@ jobs:
       - name: Verify published package
         run: |
           sleep 15
-          npm view pi-swarm version
-          npm view pi-swarm dist-tags
+          npm view @gjczone/pi-swarm version
+          npm view @gjczone/pi-swarm dist-tags
