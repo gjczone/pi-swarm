@@ -10,6 +10,7 @@ import type {
   AgentRole,
   TeamPhase,
   AgentRoleConfig,
+  MailboxMessage,
 } from "../shared/types.js";
 import {
   TaskGraph,
@@ -19,8 +20,9 @@ import {
 import {
   resolveMailboxPaths,
   ensureMailbox,
-  readInbox,
+  sendMessage,
   readTaskInbox,
+  updateDeliveryState,
   type MailboxPaths,
 } from "./mailbox.js";
 
@@ -129,6 +131,23 @@ export class TeamSupervisor {
     const result = this.state.taskGraph.startPhase(phase.phase.name);
     if (!result.ok) return null;
 
+    // Send task assignment message to the role's mailbox
+    const assignmentMessage: MailboxMessage = {
+      messageId: this.generateMessageId(),
+      runId: this.state.runId,
+      timestamp: new Date().toISOString(),
+      from: "supervisor",
+      to: phase.phase.role,
+      type: "task_assignment",
+      payload: {
+        phase: phase.phase.name,
+        goal: this.config.goal,
+        dependsOn: phase.phase.dependsOn ?? [],
+      },
+    };
+    sendMessage(this.mailboxPaths, assignmentMessage);
+    updateDeliveryState(this.mailboxPaths, assignmentMessage.messageId, "delivered");
+
     const prompt = this.buildPhasePrompt(phase);
     return {
       phase,
@@ -138,12 +157,80 @@ export class TeamSupervisor {
   }
 
   /**
-   * Mark a phase as completed with its result.
+   * Parse agent output for mailbox_message blocks and separate them from the result.
    */
-  completePhase(name: string, result: string): void {
+  parseAgentMessages(output: string): {
+    result: string;
+    messages: Array<{ to: string; content: string }>;
+  } {
+    const messages: Array<{ to: string; content: string }> = [];
+    const messageRegex = /<mailbox_message\s+to="([^"]+)">([\s\S]*?)<\/mailbox_message>/g;
+    let match;
+    while ((match = messageRegex.exec(output)) !== null) {
+      messages.push({
+        to: match[1]!.trim(),
+        content: match[2]!.trim(),
+      });
+    }
+    const result = output.replace(messageRegex, "").trim();
+    return { result, messages };
+  }
+
+  /**
+   * Mark a phase as completed with its raw output.
+   * Parses messages from output, delivers them, and sends task_result broadcast.
+   */
+  completePhase(name: string, rawOutput: string): {
+    result: string;
+    deliveredMessages: number;
+  } {
+    const phase = this.state.taskGraph.getPhase(name);
+    if (!phase) {
+      return { result: rawOutput, deliveredMessages: 0 };
+    }
+
+    const { result, messages } = this.parseAgentMessages(rawOutput);
     this.state.taskGraph.completePhase(name, result);
-    // Propagate failures: skip phases that depend on a failed phase
-    // (Not needed for completed phases)
+
+    // Deliver parsed handoff messages
+    let deliveredCount = 0;
+    for (const msg of messages) {
+      try {
+        const handoffMessage: MailboxMessage = {
+          messageId: this.generateMessageId(),
+          runId: this.state.runId,
+          timestamp: new Date().toISOString(),
+          from: name,
+          to: msg.to,
+          type: "handoff",
+          payload: { content: msg.content },
+        };
+        sendMessage(this.mailboxPaths, handoffMessage);
+        updateDeliveryState(this.mailboxPaths, handoffMessage.messageId, "delivered");
+        deliveredCount++;
+      } catch {
+        // Skip invalid messages
+      }
+    }
+
+    // Broadcast task result
+    const resultMessage: MailboxMessage = {
+      messageId: this.generateMessageId(),
+      runId: this.state.runId,
+      timestamp: new Date().toISOString(),
+      from: name,
+      to: "broadcast",
+      type: "task_result",
+      payload: { phase: name, result },
+    };
+    sendMessage(this.mailboxPaths, resultMessage);
+    updateDeliveryState(this.mailboxPaths, resultMessage.messageId, "broadcast");
+
+    return { result, deliveredMessages: deliveredCount };
+  }
+
+  private generateMessageId(): string {
+    return `msg-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
   }
 
   /**
@@ -254,12 +341,42 @@ export class TeamSupervisor {
       }
     }
 
+    // Read messages addressed to this role
+    let messagesBlock = "";
+    try {
+      const roleMessages = readTaskInbox(this.mailboxPaths, role);
+      const handoffMessages = roleMessages.filter(
+        (m) => m.type === "handoff" || m.type === "task_assignment",
+      );
+      if (handoffMessages.length > 0) {
+        const messageText = handoffMessages
+          .map((m) => `Message from ${m.from}:\n${String(m.payload.content ?? m.payload.phase ?? "")}`)
+          .join("\n\n");
+        messagesBlock = `\n\nMessages for you:\n${messageText}`;
+      }
+    } catch {
+      // Ignore mailbox read errors
+    }
+
     return [
       `You are the ${role} agent in a team working on: ${goal}`,
       `Your current phase is: ${name}`,
       contextBlock,
+      messagesBlock,
+      ``,
+      `## Communication Protocol`,
+      ``,
+      `You can send messages to other team members by including them in your output using this format:`,
+      ``,
+      `<mailbox_message to="role_name">`,
+      `Your message content here.`,
+      `</mailbox_message>`,
+      ``,
+      `You can address messages to: explorer, planner, coder, reviewer, tester, fixer, or broadcast.`,
+      `Messages are delivered after your phase completes.`,
+      ``,
+      `Your final output (outside of mailbox_message tags) is your phase result.`,
       `Complete the ${name} phase and write your result.`,
-      `Output only the result — no conversation.`,
     ]
       .filter(Boolean)
       .join("\n");

@@ -10,6 +10,31 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MailboxMessage } from "../shared/types.js";
+import { validateId } from "../state/persistence.js";
+
+// ---------------------------------------------------------------------------
+// Security helpers
+// ---------------------------------------------------------------------------
+
+const SAFE_RECIPIENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function validateRecipient(recipient: string, field: string): void {
+  if (recipient === "broadcast") return;
+  if (typeof recipient !== "string" || recipient.length === 0 || recipient.length > 128) {
+    throw new Error(`Invalid ${field}: must be a non-empty string up to 128 characters`);
+  }
+  if (!SAFE_RECIPIENT_PATTERN.test(recipient)) {
+    throw new Error(`Invalid ${field}: "${recipient}" contains unsafe characters`);
+  }
+}
+
+function ensureWithinMailbox(resolvedPath: string, mailboxRoot: string): void {
+  const normalizedRoot = path.resolve(mailboxRoot) + path.sep;
+  const normalizedPath = path.resolve(resolvedPath);
+  if (!normalizedPath.startsWith(normalizedRoot)) {
+    throw new Error(`Path traversal detected: ${resolvedPath} escapes mailbox root`);
+  }
+}
 
 // ---------------------------------------------------------------------------
 // Directory structure
@@ -55,19 +80,12 @@ export function resolveMailboxPaths(
 }
 
 export function resolveTaskMailboxPaths(
-  crewRoot: string,
-  runId: string,
+  paths: MailboxPaths,
   taskId: string,
 ): { inbox: string; outbox: string } {
-  const base = path.join(
-    crewRoot,
-    "state",
-    "runs",
-    runId,
-    "mailbox",
-    "tasks",
-    taskId,
-  );
+  validateId(taskId, "taskId");
+  const base = path.join(paths.taskDir, taskId);
+  ensureWithinMailbox(base, paths.root);
   return {
     inbox: path.join(base, "inbox.jsonl"),
     outbox: path.join(base, "outbox.jsonl"),
@@ -100,22 +118,16 @@ export function sendMessage(
   message: MailboxMessage,
 ): void {
   ensureMailbox(paths);
+  validateRecipient(message.to, "message.to");
 
   // Append to team outbox
   appendJsonLine(paths.outbox, message);
 
   // If addressed to a specific agent, also put in their task inbox
   if (message.to && message.to !== "broadcast") {
-    const taskPaths = resolveTaskMailboxPaths(
-      paths.root.replace(/\/state\/runs\/[^/]+\/mailbox$/, ""), // extract crewRoot
-      extractRunId(paths.root),
-      message.to,
-    );
-    // Actually, we need proper path derivation. Let's use a simpler approach:
-    // The task inbox is under the taskDir.
-    const taskInbox = path.join(paths.taskDir, message.to, "inbox.jsonl");
-    fs.mkdirSync(path.dirname(taskInbox), { recursive: true });
-    appendJsonLine(taskInbox, message);
+    const taskPaths = resolveTaskMailboxPaths(paths, message.to);
+    fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
+    appendJsonLine(taskPaths.inbox, message);
   }
 }
 
@@ -133,11 +145,7 @@ export function readTaskInbox(
   paths: MailboxPaths,
   taskId: string,
 ): MailboxMessage[] {
-  const taskPaths = resolveTaskMailboxPaths(
-    extractCrewRoot(paths.root),
-    extractRunId(paths.root),
-    taskId,
-  );
+  const taskPaths = resolveTaskMailboxPaths(paths, taskId);
   return readJsonLines(taskPaths.inbox);
 }
 

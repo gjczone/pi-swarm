@@ -19,6 +19,29 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
+// Security: ID validation and path containment
+// ---------------------------------------------------------------------------
+
+const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+export function validateId(id: string, kind: string): void {
+  if (typeof id !== "string" || id.length === 0 || id.length > 128) {
+    throw new Error(`Invalid ${kind}: must be a non-empty string up to 128 characters`);
+  }
+  if (!SAFE_ID_PATTERN.test(id)) {
+    throw new Error(`Invalid ${kind}: "${id}" contains unsafe characters (only a-z, A-Z, 0-9, _, - allowed)`);
+  }
+}
+
+function ensureWithinRoot(resolvedPath: string, root: string): void {
+  const normalizedRoot = path.resolve(root) + path.sep;
+  const normalizedPath = path.resolve(resolvedPath);
+  if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== path.resolve(root)) {
+    throw new Error(`Path traversal detected: ${resolvedPath} escapes ${root}`);
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Path resolution
 // ---------------------------------------------------------------------------
 
@@ -45,7 +68,11 @@ export function resolveRunStateDir(
   crewRoot: string,
   runId: string,
 ): string {
-  return path.join(crewRoot, "state", "runs", runId);
+  validateId(runId, "runId");
+  const runsDir = path.join(crewRoot, "state", "runs");
+  const dir = path.join(runsDir, runId);
+  ensureWithinRoot(dir, runsDir);
+  return dir;
 }
 
 /** Resolve per-agent state directory. */
@@ -54,14 +81,12 @@ export function resolveAgentStateDir(
   runId: string,
   agentId: string,
 ): string {
-  return path.join(
-    crewRoot,
-    "state",
-    "runs",
-    runId,
-    "agents",
-    agentId,
-  );
+  validateId(agentId, "agentId");
+  const runDir = resolveRunStateDir(crewRoot, runId);
+  const agentsDir = path.join(runDir, "agents");
+  const dir = path.join(agentsDir, agentId);
+  ensureWithinRoot(dir, agentsDir);
+  return dir;
 }
 
 // ---------------------------------------------------------------------------
@@ -275,6 +300,7 @@ export function loadAgentStatus(
 
 /**
  * List all active run IDs in the state directory.
+ * Only returns IDs that match the safe ID pattern.
  */
 export function listActiveRuns(crewRoot: string): string[] {
   const runsDir = path.join(crewRoot, "state", "runs");
@@ -283,7 +309,15 @@ export function listActiveRuns(crewRoot: string): string[] {
   return fs
     .readdirSync(runsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
-    .map((d) => d.name);
+    .map((d) => d.name)
+    .filter((name) => {
+      try {
+        validateId(name, "runId");
+        return true;
+      } catch {
+        return false;
+      }
+    });
 }
 
 /**
