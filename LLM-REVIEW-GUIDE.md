@@ -54,49 +54,49 @@ Read these in order. The most critical modules are listed first.
 
 ### Tier 1 — Core Logic (highest risk)
 
-| File | What to check |
-|------|--------------|
-| `src/shared/controller.ts` | Two-phase scheduler correctness. Race conditions in `schedule`/`finish`. Abort handling. Rate-limit detection. `finished` flag guards. `onProgress` callback correctness at each lifecycle transition. |
-| `src/shared/spawner.ts` | Child process lifecycle — spawn, event stream parsing, stdout/stderr handling. JSON Lines robustness (partial lines, malformed JSON). Signal/timeout handling. Zombie process risk. `finalize` resource cleanup. |
-| `src/swarm/tool.ts` | Input validation via TypeBox. Spec creation edge cases (1 item, 128 items, resume). Prompt template + items combination. Progress callback wiring to TUI widget. |
-| `src/team/tool.ts` | Phase loop correctness. Abort propagation between phases. Partial state return on error. Supervisor lifecycle. Mailbox path construction. |
+| File                       | What to check                                                                                                                                                                                                    |
+| -------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/shared/controller.ts` | Two-phase scheduler correctness. Race conditions in `schedule`/`finish`. Abort handling. Rate-limit detection. `finished` flag guards. `onProgress` callback correctness at each lifecycle transition.           |
+| `src/shared/spawner.ts`    | Child process lifecycle — spawn, event stream parsing, stdout/stderr handling. JSON Lines robustness (partial lines, malformed JSON). Signal/timeout handling. Zombie process risk. `finalize` resource cleanup. |
+| `src/swarm/tool.ts`        | Input validation via TypeBox. Spec creation edge cases (1 item, 128 items, resume). Prompt template + items combination. Progress callback wiring to TUI widget.                                                 |
+| `src/team/tool.ts`         | Phase loop correctness. Abort propagation between phases. Partial state return on error. Supervisor lifecycle. Mailbox path construction.                                                                        |
 
 ### Tier 2 — State & Recovery
 
-| File | What to check |
-|------|--------------|
+| File                       | What to check                                                                                                                                                       |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `src/state/persistence.ts` | Atomic write correctness (temp-file + rename). Directory creation race conditions. JSON parse error handling. Orphaned temp files. Manifest/task/event consistency. |
-| `src/state/recovery.ts` | Staleness detection logic (30min heartbeat). Cleanup safety (deleting wrong directories). 7-day auto-delete threshold. Cross-run state isolation. |
+| `src/state/recovery.ts`    | Staleness detection logic (30min heartbeat). Cleanup safety (deleting wrong directories). 7-day auto-delete threshold. Cross-run state isolation.                   |
 
 ### Tier 3 — Team Infrastructure
 
-| File | What to check |
-|------|--------------|
-| `src/team/mailbox.ts` | JSONL append correctness. Concurrent write safety. Path construction (no traversal). Delivery state consistency. `readJsonLines` robustness. |
+| File                     | What to check                                                                                                                                        |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/team/mailbox.ts`    | JSONL append correctness. Concurrent write safety. Path construction (no traversal). Delivery state consistency. `readJsonLines` robustness.         |
 | `src/team/task-graph.ts` | Dependency validation. Skip propagation correctness. Serialization round-trip (`toJSON`/`fromJSON`). Duplicate phase name handling. Cycle detection. |
-| `src/team/supervisor.ts` | Phase prompt construction with dependency context injection. Result synthesis XML escaping. Phase status tracking. `resume_agent_ids` construction. |
+| `src/team/supervisor.ts` | Phase prompt construction with dependency context injection. Result synthesis XML escaping. Phase status tracking. `resume_agent_ids` construction.  |
 
 ### Tier 4 — TUI & Entry
 
-| File | What to check |
-|------|--------------|
-| `src/tui/progress.ts` | Render contract (lines <= widget width). Animation lifecycle (start/stop/dispose). Null/empty state handling. `snapshotToProgressState` conversion. |
-| `src/tui/swarm-markers.ts` | Marker rendering (activated/deactivated/ended). Message renderer registration. Empty/null message handling. |
-| `src/index.ts` | Auto-gitignore logic for `.pi/`. Tool/command/handler registration completeness. `swarm:marker` message renderer registration. ExtensionAPI type usage. |
-| `src/swarm/command.ts` | Permission mode handling. Empty/null args. Mode toggle correctness. |
-| `src/swarm/mode.ts` | Reminder injection/destruction pairing. Status update consistency. Enter/exit transition guards. |
-| `src/tui/team-dashboard.ts` | Dashboard rendering (phase progress, agent status). Render contract. Animation lifecycle. State updates. |
+| File                        | What to check                                                                                                                                           |
+| --------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `src/tui/progress.ts`       | Render contract (lines <= widget width). Animation lifecycle (start/stop/dispose). Null/empty state handling. `snapshotToProgressState` conversion.     |
+| `src/tui/swarm-markers.ts`  | Marker rendering (activated/deactivated/ended). Message renderer registration. Empty/null message handling.                                             |
+| `src/index.ts`              | Auto-gitignore logic for `.pi/`. Tool/command/handler registration completeness. `swarm:marker` message renderer registration. ExtensionAPI type usage. |
+| `src/swarm/command.ts`      | Permission mode handling. Empty/null args. Mode toggle correctness.                                                                                     |
+| `src/swarm/mode.ts`         | Reminder injection/destruction pairing. Status update consistency. Enter/exit transition guards.                                                        |
+| `src/tui/team-dashboard.ts` | Dashboard rendering (phase progress, agent status). Render contract. Animation lifecycle. State updates.                                                |
 
 ### Tests (reference only)
 
-| File | What to cross-check |
-|------|-------------------|
-| `tests/swarm-tool.test.ts` | Tests for 1-item support, 0-item rejection, duplicate prompt rejection. |
-| `tests/controller.test.ts` | Concurrency cap, abort behavior, rate-limit retry. |
-| `tests/render.test.ts` | XML escaping, resume hint logic. |
-| `tests/task-graph.test.ts` | Dependency ordering, skip propagation, serialization. |
-| `tests/smoke.test.ts` | Module imports, persistence round-trip, supervisor integration. |
-| `tests/team-dashboard.test.ts` | Team dashboard TUI rendering, state transitions. |
+| File                           | What to cross-check                                                     |
+| ------------------------------ | ----------------------------------------------------------------------- |
+| `tests/swarm-tool.test.ts`     | Tests for 1-item support, 0-item rejection, duplicate prompt rejection. |
+| `tests/controller.test.ts`     | Concurrency cap, abort behavior, rate-limit retry.                      |
+| `tests/render.test.ts`         | XML escaping, resume hint logic.                                        |
+| `tests/task-graph.test.ts`     | Dependency ordering, skip propagation, serialization.                   |
+| `tests/smoke.test.ts`          | Module imports, persistence round-trip, supervisor integration.         |
+| `tests/team-dashboard.test.ts` | Team dashboard TUI rendering, state transitions.                        |
 
 ## How to Submit Findings
 

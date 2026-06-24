@@ -14,6 +14,7 @@
 
 **Opportunistic fixes — fix on sight, report in completion report:**
 When encountering a pre-existing issue that is unrelated to the current task, fix it immediately — without asking — if and only if ALL of the following are true:
+
 1. No refactoring involved (moving, renaming, restructuring code).
 2. No new dependencies required.
 3. The fix is self-contained and low-risk (a typo, a missing null check, an unused import, an empty catch block, an obvious off-by-one, a broken log message).
@@ -91,23 +92,29 @@ Trigger only when the task or milestone is fully completed:
 老板您好，已完成 [一句话总结]。
 
 **做了什么**
+
 - [业务层面]：[通俗说明变更内容和原因]
 
 **结果**
+
 - [什么变了]：[用户视角描述变更效果]
 - [影响范围]：[受影响的页面 / 功能 / 模块]
 
 **已确认**
+
 - [验证项 1]：[验证方式和结果]
 - [验证项 2]：[验证方式和结果]
 
 **顺手修了这些** _(非本次任务引入的遗留问题，已在本次一并修复)_
+
 - [文件 / 位置]：[问题描述，做了什么]
 
 **需要你决策**
+
 - [需人工判断的事项]：[为什么需要你决定]
 
 **待跟进** _(发现但未修复——改动太大或风险过高)_
+
 - #N：[简述] → [为何未在本次修复]
 ```
 
@@ -150,26 +157,26 @@ Goal: replace both the third-party `subagent` extension and `worktree`, becoming
 
 ## When to Read Companion Files
 
-| File          | Directive                                                              | Trigger                                                        |
-| ------------- | ---------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `PLAN.md`     | Architecture design, module specs, API contracts. Read before coding.  | Any code change, new module, API design                        |
-| `README.md`   | User-facing setup, install, and feature descriptions.                  | User onboarding, release announcements                         |
-| `CHANGELOG.md`| Release history and version tracking. Update when releasing.           | Before creating a release, before investigating regression     |
-| `LOCAL_CI.md` | Local CI checklist. Run ALL checks BEFORE committing.                  | Before every commit, before reporting task completion          |
-| `OPS.md`      | Release operations checklist. Run through ALL items when publishing.   | Before every release                                           |
-| `LLM-REVIEW-GUIDE.md` | Read before performing a code review on this project. Contains project-specific review rules, risk tiers, and sanity checks. NEVER submit review findings that violate the DO NOT REPORT rules. | Before any code review |
-| `docs/architecture.md` | Detailed architecture design, data flows, design rationale.     | Understanding module interactions, onboarding new contributors |
+| File                   | Directive                                                                                                                                                                                       | Trigger                                                        |
+| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
+| `PLAN.md`              | Architecture design, module specs, API contracts. Read before coding.                                                                                                                           | Any code change, new module, API design                        |
+| `README.md`            | User-facing setup, install, and feature descriptions.                                                                                                                                           | User onboarding, release announcements                         |
+| `CHANGELOG.md`         | Release history and version tracking. Update when releasing.                                                                                                                                    | Before creating a release, before investigating regression     |
+| `LOCAL_CI.md`          | Local CI checklist. Run ALL checks BEFORE committing.                                                                                                                                           | Before every commit, before reporting task completion          |
+| `OPS.md`               | Release operations checklist. Run through ALL items when publishing.                                                                                                                            | Before every release                                           |
+| `LLM-REVIEW-GUIDE.md`  | Read before performing a code review on this project. Contains project-specific review rules, risk tiers, and sanity checks. NEVER submit review findings that violate the DO NOT REPORT rules. | Before any code review                                         |
+| `docs/architecture.md` | Detailed architecture design, data flows, design rationale.                                                                                                                                     | Understanding module interactions, onboarding new contributors |
 
 ## Commands
 
-| Command             | Purpose                                      |
-| ------------------- | -------------------------------------------- |
-| `npm install`       | Install dependencies                         |
-| `npm run build`     | Compile TS → `dist/`                         |
-| `npm run typecheck` | `tsc --noEmit` — type validation             |
-| `npm run dev`       | `tsc --watch` — incremental compilation      |
-| `npm test`          | Run all tests via vitest                      |
-| `npm run ci`        | typecheck + test + build + dist verify       |
+| Command             | Purpose                                 |
+| ------------------- | --------------------------------------- |
+| `npm install`       | Install dependencies                    |
+| `npm run build`     | Compile TS → `dist/`                    |
+| `npm run typecheck` | `tsc --noEmit` — type validation        |
+| `npm run dev`       | `tsc --watch` — incremental compilation |
+| `npm test`          | Run all tests via vitest                |
+| `npm run ci`        | typecheck + test + build + dist verify  |
 
 ## Development Environment
 
@@ -218,20 +225,20 @@ src/
 
 ## Key Design Decisions
 
-| Decision                 | Choice                                                         |
-| ------------------------ | -------------------------------------------------------------- |
-| Sub-agent execution      | Spawn `pi --print` child processes (JSON Lines event stream)   |
-| Concurrency strategy     | Two-phase: ramp-up (5 + 1/700ms) → rate-limit (capacity model)|
-| Rate-limit handling      | Auto suspend + retry with exponential backoff (3s/6s/12s/…)   |
-| Context isolation        | Each sub-agent runs in a fresh pi process, no parent context   |
-| Model selection          | Optional; passed via settings. Defaults to parent agent's model|
-| Tool whitelist           | All tools available to sub-agents by default                   |
-| Persistence              | Durable file-based state; resume if not completed; disband when done |
-| TUI progress             | Braille progress bars with 80ms frame animation, onProgress callback from controller |
-| Swarm output format      | `<agent_swarm_result>` XML (compatible with kimi-code)         |
-| Team communication       | JSONL mailbox (inbox.jsonl / outbox.jsonl)                     |
-| Team workflow            | Sequential phases with dependency graph (DAG)                  |
-| Dual mode               | `/swarm` (parallel) + `/swarm-team` (collaborative)            |
+| Decision             | Choice                                                                               |
+| -------------------- | ------------------------------------------------------------------------------------ |
+| Sub-agent execution  | Spawn `pi --print` child processes (JSON Lines event stream)                         |
+| Concurrency strategy | Two-phase: ramp-up (5 + 1/700ms) → rate-limit (capacity model)                       |
+| Rate-limit handling  | Auto suspend + retry with exponential backoff (3s/6s/12s/…)                          |
+| Context isolation    | Each sub-agent runs in a fresh pi process, no parent context                         |
+| Model selection      | Optional; passed via settings. Defaults to parent agent's model                      |
+| Tool whitelist       | All tools available to sub-agents by default                                         |
+| Persistence          | Durable file-based state; resume if not completed; disband when done                 |
+| TUI progress         | Braille progress bars with 80ms frame animation, onProgress callback from controller |
+| Swarm output format  | `<agent_swarm_result>` XML (compatible with kimi-code)                               |
+| Team communication   | JSONL mailbox (inbox.jsonl / outbox.jsonl)                                           |
+| Team workflow        | Sequential phases with dependency graph (DAG)                                        |
+| Dual mode            | `/swarm` (parallel) + `/swarm-team` (collaborative)                                  |
 
 ## Credit
 

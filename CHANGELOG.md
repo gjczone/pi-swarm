@@ -11,7 +11,7 @@ All notable changes to pi-swarm will be documented in this file.
 ### Changed
 
 - **Internal tool function renamed (#17)**: `registerAgentTeamTool` renamed to `registerSwarmTeamTool` in src/team/tool.ts; import and call updated in src/index.ts for consistency with the `SwarmTeam` public name.
-- **Naming unification (#18)**: `crewRoot` → `swarmRoot`, `resolveCrewRoot` → `resolveSwarmRoot`, `extractCrewRoot` → `extractSwarmRoot`, `PI_SWARM_CREW_ROOT` → `PI_SWARM_ROOT`, `<agent_team_result>` → `<swarm_team_result>` across all src/, tests/, and docs/*.md files.
+- **Naming unification (#18)**: `crewRoot` → `swarmRoot`, `resolveCrewRoot` → `resolveSwarmRoot`, `extractCrewRoot` → `extractSwarmRoot`, `PI_SWARM_CREW_ROOT` → `PI_SWARM_ROOT`, `<agent_team_result>` → `<swarm_team_result>` across all src/, tests/, and docs/\*.md files.
 
 ## [0.2.0] - 2026-06-24
 

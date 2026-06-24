@@ -8,10 +8,10 @@
 
 pi-swarm is a **subagent orchestration system** with two operational modes:
 
-| Mode | Pattern | Trigger | Communication |
-|------|---------|---------|---------------|
-| **Swarm** | Parallel, item-template, homogeneous | `AgentSwarm` tool or `/swarm` command | None (independent) |
-| **Team** | Sequential, role-based, heterogeneous | `SwarmTeam` tool or `/swarm-team` command | JSONL mailbox |
+| Mode      | Pattern                               | Trigger                                   | Communication      |
+| --------- | ------------------------------------- | ----------------------------------------- | ------------------ |
+| **Swarm** | Parallel, item-template, homogeneous  | `AgentSwarm` tool or `/swarm` command     | None (independent) |
+| **Team**  | Sequential, role-based, heterogeneous | `SwarmTeam` tool or `/swarm-team` command | JSONL mailbox      |
 
 The design follows these principles:
 
@@ -100,6 +100,7 @@ SubagentResult<T>
 **Design rationale**: The `Launcher` interface abstracts subagent execution behind three methods (spawn/resume/retry). This makes the controller testable — tests can inject a mock launcher that returns synthetic handles. The `SubagentBatchLauncher` interface is the single seam between the controller and the real process-spawning backend.
 
 For team mode, additional types include:
+
 - `AgentRole` — enumerated role strings (explorer, planner, coder, reviewer, tester, fixer)
 - `TeamPhase` — named phase with role assignment and optional dependencies
 - `MailboxMessage` — structured JSON message with `messageId`, `from`, `to`, `type`, `payload`
@@ -111,12 +112,14 @@ Resolves the correct command and arguments to launch a child pi process.
 **Problem**: pi can run in several configurations — as a global npm package (`pi`), as a local development script (`node dist/cli.js`), or as a Bun virtual filesystem script. The subagent extension must work in all cases.
 
 **Solution**: `getPiInvocation()` inspects `process.argv[1]`:
+
 - If it's a real filesystem path → reuse current `process.execPath` + script path
 - If it's a Bun virtual path → fall back to `pi` CLI command
 - If the executable name is a generic `node`/`bun` → assume `pi` is on PATH
 - Otherwise (custom binary like `pi` itself) → pass args directly
 
 `buildSubagentArgs()` constructs the standard `--print` mode arguments:
+
 - `--print` for JSON Lines output
 - `--model` if specified (otherwise pi uses its configured default)
 - `--tools` for tool allowlist
@@ -128,6 +131,7 @@ Resolves the correct command and arguments to launch a child pi process.
 Manages the full lifecycle of a child pi process.
 
 **Lifecycle**:
+
 1. Build CLI arguments via `buildSubagentArgs()`
 2. Resolve invocation via `getPiInvocation()`
 3. `spawn()` the child with `stdio: ["ignore", "pipe", "pipe"]`
@@ -142,6 +146,7 @@ Manages the full lifecycle of a child pi process.
 **Why `spawn` not `exec`**: `spawn` returns a `ChildProcess` with streaming stdout/stderr. This allows real-time progress tracking and avoids buffering the entire output in memory.
 
 **Error handling**: Three error paths:
+
 - Non-zero exit code → reject with exit code and error message
 - Process error event (e.g., ENOENT) → reject with the error
 - Abort signal → kill the process, reject with abort reason
@@ -161,6 +166,7 @@ Max total:      128 agents
 ```
 
 **Algorithm**:
+
 1. `scheduleNormalLaunch()` fires INITIAL_LAUNCH_LIMIT (5) tasks immediately
 2. If work remains, sets a 700ms timer for the next launch
 3. On each timer tick, launches one more task if the concurrency limit is not reached
@@ -173,18 +179,21 @@ Max total:      128 agents
 Triggered by the first provider rate-limit error (HTTP 429, "rate limit", "quota", etc.).
 
 **Capacity model**:
+
 - Initial capacity = max(1, count of ready normal launches)
 - Each rate limit shrinks capacity by 1 (min 1), at most once per 2000ms
 - If no rate limit occurs for 3 minutes, capacity recovers by 1
 - This models real API rate limiters that use sliding windows
 
 **Retry backoff**:
+
 - First retry: 3000ms
 - Second: 6000ms
 - Third: 12000ms
 - Subsequent: double each time, capped at 120000ms (2 minutes)
 
 **Scheduling**:
+
 - `scheduleRateLimitLaunch()` checks capacity, launch eligibility, and pending readiness
 - At most one task launched per scheduling pass
 - Wakes at the earlier of: next launch time, next pending ready time, next capacity recovery time
@@ -193,6 +202,7 @@ Triggered by the first provider rate-limit error (HTTP 429, "rate limit", "quota
 #### Abort Handling
 
 Two abort scenarios:
+
 - **User cancellation** (Ctrl+C): `finishWithUserCancellation()` preserves completed results, marks active tasks as aborted with state "started", marks never-started tasks as aborted with state "not_started"
 - **Non-user cancellation** (programmatic): `fail()` rejects the entire batch after cleaning up active attempts
 
@@ -205,6 +215,7 @@ The two-phase design separates the "go fast" normal mode from the "be careful" r
 Produces the structured XML output that the parent LLM reads.
 
 **AgentSwarm format** (compatible with kimi-code):
+
 ```xml
 <agent_swarm_result>
 <summary>completed: 3, failed: 1</summary>
@@ -215,6 +226,7 @@ Produces the structured XML output that the parent LLM reads.
 ```
 
 **Design decisions**:
+
 - `escapeXml()` for attribute values (escapes `&`, `"`, `<`, `>`)
 - `escapeXmlBody()` for body text (escapes `&`, `<`, `>` — no quotes needed inside tags)
 - Resume hint only shown when there are failed tasks AND known agent IDs
@@ -238,12 +250,14 @@ Registered via `pi.registerTool("AgentSwarm", ...)` with a TypeBox parameter sch
 | `resume_agent_ids` | No | Map of agentId → resume prompt |
 
 **Validation rules** (from kimi-code):
+
 1. At least 2 items unless resume_agent_ids is provided
 2. Total (items + resume entries) ≤ 128
 3. prompt_template must contain `{{item}}` when items are provided
 4. No duplicate prompts across items (dedup check)
 
 **Execution flow**:
+
 1. Parse and validate input
 2. Normalize profile name
 3. Create swarm specs (SpawnSpec for new items, ResumeSpec for resume entries)
@@ -268,6 +282,7 @@ Tracks whether swarm mode is active and manages system reminders.
 | `tool` | LLM calls AgentSwarm | Yes (after tool returns) | No (silent) |
 
 **System reminders**:
+
 - **Enter** (manual/task): "Swarm mode is now active. AgentSwarm is auto-approved..."
 - **Exit** (manual/task): "Swarm mode has been deactivated. AgentSwarm now requires permission..."
 - **Tool trigger**: No reminder injected (transient tool call)
@@ -277,6 +292,7 @@ Tracks whether swarm mode is active and manages system reminders.
 ### 4.3 /swarm Command (`swarm/command.ts`)
 
 Supports four forms:
+
 - `/swarm on` — enable persistent swarm mode
 - `/swarm off` — disable swarm mode
 - `/swarm` — toggle
@@ -293,10 +309,11 @@ Supports four forms:
 A JSONL-based messaging system for inter-agent communication.
 
 **Directory structure**:
+
 ```
 .pi/swarm/state/runs/{runId}/mailbox/
   inbox.jsonl          # Team-level incoming messages
-  outbox.jsonl         # Team-level outgoing messages  
+  outbox.jsonl         # Team-level outgoing messages
   delivery.json        # Message delivery/acknowledgment state
   tasks/{taskId}/
     inbox.jsonl        # Per-task incoming messages
@@ -304,6 +321,7 @@ A JSONL-based messaging system for inter-agent communication.
 ```
 
 **Operations**:
+
 - `sendMessage()` — appends to outbox and recipient's task inbox
 - `readInbox()` — reads all unacknowledged messages from team inbox
 - `readTaskInbox()` — reads messages addressed to a specific task
@@ -319,17 +337,20 @@ A JSONL-based messaging system for inter-agent communication.
 A directed acyclic graph of phases with role assignments and dependency constraints.
 
 **Default phases** (from CrewAI research):
+
 ```
 explore ──→ plan ──→ implement ──→ review ──→ test
 ```
 
 Each phase has:
+
 - `name` — unique identifier
 - `role` — assigned agent role (explorer, planner, coder, reviewer, tester)
 - `dependsOn` — phases that must complete before this one starts
 - `status` — queued, running, completed, failed, or skipped
 
 **State machine**:
+
 ```
 queued → running → completed
                  → failed
@@ -345,6 +366,7 @@ queued → skipped (when dependency fails)
 Orchestrates the team run by managing the task graph and spawning agents.
 
 **Responsibilities**:
+
 1. Decompose the goal into phases (using default or custom phase definitions)
 2. Determine which phase is ready to execute (dependencies satisfied)
 3. Build a phase-specific prompt that includes context from completed dependency phases
@@ -353,6 +375,7 @@ Orchestrates the team run by managing the task graph and spawning agents.
 6. Synthesize the final `<swarm_team_result>` XML output
 
 **Phase prompt construction**: Each agent receives:
+
 - Role description (e.g., "You are the coder agent...")
 - Team goal context
 - Results from completed dependency phases (injected as context)
@@ -375,6 +398,7 @@ Registered via `pi.registerTool("SwarmTeam", ...)`.
 | `resume_agent_ids` | No | Map for resuming failed phase agents |
 
 **Execution flow**:
+
 1. Create a TeamSupervisor with the run configuration
 2. Loop: get next ready phase → spawn agent → wait for completion → advance graph
 3. On phase completion: assign agent ID, save result
@@ -396,6 +420,7 @@ Sends the goal as a user message. The LLM can then decide whether to call SwarmT
 The most visually complex component. Renders a live progress panel above the input area during swarm execution.
 
 **Visual layout**:
+
 ```
 ┌─ Agent Swarm ──────────────────────────────────────┐
 │  Working...                                          │
@@ -411,6 +436,7 @@ The most visually complex component. Renders a live progress panel above the inp
 **Braille animation**: The progress bar uses Unicode braille characters (U+28C0–U+28FF) to render a continuous fill animation. Each braille character can represent 0-6 dots. The animation cycles through the fill levels at 80ms intervals, creating a smooth progress effect.
 
 **Parameters** (from kimi-code):
+
 - `TEXT_CELL_PREFERRED_WIDTH = 30` — item name column width
 - `BRAILLE_BAR_MAX_WIDTH = 8` — progress bar width in characters
 - `FRAME_INTERVAL_MS = 80` — animation frame interval
@@ -463,6 +489,7 @@ A dialog component for manual permission mode. When the user in manual mode trie
 Live phase progress dashboard for SwarmTeam mode. Renders a multi-row panel showing each phase's status, assigned role, and elapsed time during team execution.
 
 **Visual layout**:
+
 ```
 ┌─ Swarm Team ─────────────────────────────────────────────┐
 │  Goal: Implement login with tests                         │
@@ -475,6 +502,7 @@ Live phase progress dashboard for SwarmTeam mode. Renders a multi-row panel show
 ```
 
 **Parameters**:
+
 - Uses `TeamProgressSnapshot` from `shared/types.ts` for phase status data
 - `TeamPhaseStatus` enum: queued, running, completed, failed, skipped
 - `TeamProgressCallback` type: `(snapshot: TeamProgressSnapshot) => void`
@@ -492,6 +520,7 @@ Live phase progress dashboard for SwarmTeam mode. Renders a multi-row panel show
 Provides durable file-based state for all runs.
 
 **State directory**:
+
 ```
 .pi/swarm/state/runs/{runId}/
   manifest.json          # Run metadata (type, status, agent IDs, timestamps)
@@ -503,6 +532,7 @@ Provides durable file-based state for all runs.
 ```
 
 **Atomic writes**: All file writes use a temp-file + rename pattern:
+
 1. Write content to `file.tmp.{random}`
 2. `fs.renameSync()` to replace the target
 3. On POSIX, `rename` is atomic (the target is replaced or not — no partial writes)
@@ -511,6 +541,7 @@ Provides durable file-based state for all runs.
 **Why atomic writes**: Crash safety. If the process crashes mid-write, the original file is intact (the temp file is orphaned but harmless). Without atomic writes, a crash during `writeFileSync` could leave a truncated manifest, making the run unrecoverable.
 
 **Swarm root resolution**:
+
 - If `.pi/` exists → use `.pi/swarm/` (reuse existing pi directory)
 - Otherwise → use `.crew/` (clean separation for non-pi projects)
 
@@ -519,6 +550,7 @@ Provides durable file-based state for all runs.
 Runs on `session_start` to detect and handle stale runs.
 
 **Recovery logic**:
+
 1. List all run directories under `state/runs/`
 2. For each run, read the manifest
 3. Orphaned directories (no manifest) → clean up
@@ -612,33 +644,33 @@ SwarmTeam.execute()
 
 ## 9. Key Design Decisions & Rationale
 
-| Decision | Rationale |
-|----------|-----------|
-| **Out-of-process subagents** (`spawn` not in-process) | Crash isolation. A subagent that runs in-process can corrupt the parent's state. Process isolation is the same model used by pi-crew and pi's built-in subagent example |
-| **Two-phase concurrency** | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures. This is proven in kimi-code's production use |
-| **XML output format** | Compatible with kimi-code's output format. The parent LLM already knows how to parse `<agent_swarm_result>`. Using the same format ensures the LLM's training data includes examples of this format |
-| **Mailbox as JSONL files** | Simplicity, durability, auditability. Every message is a file that can be inspected with `cat` or `jq`. No message broker to install |
-| **Sequential team phases** | Team phases have semantic dependencies (plan before code). Parallel execution within a phase is possible (future work) but inter-phase parallelism would violate the dependency graph |
-| **Default 5-phase team workflow** | Based on research of CrewAI's hierarchical model and common software development workflows. The explore → plan → implement → review → test pipeline mirrors real engineering processes |
-| **Atomic writes for state** | Crash safety. A partial write on crash should never corrupt the existing state |
-| **30-minute staleness threshold** | Long enough for a legitimate run, short enough to detect actual crashes. Pi's default subagent timeout is also 30 minutes |
-| **100% English codebase** | Language rule for all repository artifacts. Only user-facing reports (like this one) use Chinese |
+| Decision                                              | Rationale                                                                                                                                                                                           |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Out-of-process subagents** (`spawn` not in-process) | Crash isolation. A subagent that runs in-process can corrupt the parent's state. Process isolation is the same model used by pi-crew and pi's built-in subagent example                             |
+| **Two-phase concurrency**                             | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures. This is proven in kimi-code's production use                          |
+| **XML output format**                                 | Compatible with kimi-code's output format. The parent LLM already knows how to parse `<agent_swarm_result>`. Using the same format ensures the LLM's training data includes examples of this format |
+| **Mailbox as JSONL files**                            | Simplicity, durability, auditability. Every message is a file that can be inspected with `cat` or `jq`. No message broker to install                                                                |
+| **Sequential team phases**                            | Team phases have semantic dependencies (plan before code). Parallel execution within a phase is possible (future work) but inter-phase parallelism would violate the dependency graph               |
+| **Default 5-phase team workflow**                     | Based on research of CrewAI's hierarchical model and common software development workflows. The explore → plan → implement → review → test pipeline mirrors real engineering processes              |
+| **Atomic writes for state**                           | Crash safety. A partial write on crash should never corrupt the existing state                                                                                                                      |
+| **30-minute staleness threshold**                     | Long enough for a legitimate run, short enough to detect actual crashes. Pi's default subagent timeout is also 30 minutes                                                                           |
+| **100% English codebase**                             | Language rule for all repository artifacts. Only user-facing reports (like this one) use Chinese                                                                                                    |
 
 ---
 
 ## 10. Comparison with Reference Projects
 
-| Aspect | kimi-code | pi-crew | pi-swarm |
-|--------|-----------|---------|----------|
-| Subagent execution | In-process session API | Out-of-process spawn | Out-of-process spawn |
-| Concurrency model | Two-phase SubagentBatch | Task queue with configurable cap | Two-phase SubagentBatch (ported from kimi-code) |
-| Swarm mode | AgentSwarm tool + /swarm | N/A (team only) | AgentSwarm + SwarmTeam dual mode |
-| Team mode | N/A | Task graph + supervisor + mailbox | Task graph + supervisor + mailbox (inspired by pi-crew) |
-| State persistence | In-memory | Full state machine (JSONL + atomic writes) | Manifest + tasks + events (atomic writes) |
-| TUI | Braille progress + swarm markers | Dashboard + widget + powerbar | Braille progress + markers + permission dialog |
-| Mailbox | N/A | JSONL inbox/outbox/delivery | JSONL inbox/outbox/delivery |
-| Crash recovery | N/A | Heartbeat + deadletter | Staleness detection + auto-abandon |
-| Runtime deps | Many (internal packages) | Zero (for orchestration) | Zero (for orchestration) |
+| Aspect             | kimi-code                        | pi-crew                                    | pi-swarm                                                |
+| ------------------ | -------------------------------- | ------------------------------------------ | ------------------------------------------------------- |
+| Subagent execution | In-process session API           | Out-of-process spawn                       | Out-of-process spawn                                    |
+| Concurrency model  | Two-phase SubagentBatch          | Task queue with configurable cap           | Two-phase SubagentBatch (ported from kimi-code)         |
+| Swarm mode         | AgentSwarm tool + /swarm         | N/A (team only)                            | AgentSwarm + SwarmTeam dual mode                        |
+| Team mode          | N/A                              | Task graph + supervisor + mailbox          | Task graph + supervisor + mailbox (inspired by pi-crew) |
+| State persistence  | In-memory                        | Full state machine (JSONL + atomic writes) | Manifest + tasks + events (atomic writes)               |
+| TUI                | Braille progress + swarm markers | Dashboard + widget + powerbar              | Braille progress + markers + permission dialog          |
+| Mailbox            | N/A                              | JSONL inbox/outbox/delivery                | JSONL inbox/outbox/delivery                             |
+| Crash recovery     | N/A                              | Heartbeat + deadletter                     | Staleness detection + auto-abandon                      |
+| Runtime deps       | Many (internal packages)         | Zero (for orchestration)                   | Zero (for orchestration)                                |
 
 **pi-swarm's unique position**: Combines kimi-code's proven concurrency model with pi-crew's mailbox-driven team collaboration, while maintaining zero runtime dependencies and 100% process isolation.
 

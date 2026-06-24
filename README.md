@@ -93,10 +93,10 @@ Runs auto-clean: completed runs deleted after 7 days, stale runs (30min no heart
 
 Default max concurrency is **5**. Recommended: **3-10**. Can be set to any positive integer.
 
-| Settings file | Scope |
-|---------------|-------|
-| `.pi/settings.json` | Project (current directory) |
-| `~/.pi/agent/settings.json` | Global (all projects) |
+| Settings file               | Scope                       |
+| --------------------------- | --------------------------- |
+| `.pi/settings.json`         | Project (current directory) |
+| `~/.pi/agent/settings.json` | Global (all projects)       |
 
 ```json
 {

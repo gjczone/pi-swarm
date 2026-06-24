@@ -8,10 +8,10 @@
 
 **pi-swarm** is a unified multi-agent extension for pi-coding-agent with two operational modes:
 
-| Mode | Command | Trigger | Pattern |
-|------|---------|---------|---------|
-| **Swarm** | `/swarm <task>` | User or LLM calls `AgentSwarm` | Parallel, item-template, homogeneous agents |
-| **Team** | `/swarm-team <task>` | User or LLM calls `SwarmTeam` | Collaborative, role-based, mailbox communication |
+| Mode      | Command              | Trigger                        | Pattern                                          |
+| --------- | -------------------- | ------------------------------ | ------------------------------------------------ |
+| **Swarm** | `/swarm <task>`      | User or LLM calls `AgentSwarm` | Parallel, item-template, homogeneous agents      |
+| **Team**  | `/swarm-team <task>` | User or LLM calls `SwarmTeam`  | Collaborative, role-based, mailbox communication |
 
 Both modes share the same underlying infrastructure: subagent spawning (`pi --print`), concurrency control, rate-limit handling, and TUI progress rendering.
 
@@ -23,14 +23,14 @@ Both modes share the same underlying infrastructure: subagent spawning (`pi --pr
 
 ### 2.1 Key References
 
-| Source | What We Take |
-|--------|-------------|
-| **kimi-code** | AgentSwarm tool definition, SubagentBatch concurrency controller, swarm-mode state machine, braille TUI progress |
-| **pi-crew** | Mailbox system (JSONL inbox/outbox), task graph with dependencies, durable file-based state, worktree isolation, supervisor pattern |
-| **LangGraph** | Shared application state pattern, supervisor node with tool-wrapped workers, Send API for fan-out |
-| **CrewAI** | Hierarchical team with role/task delegation, task context chaining, structured output |
-| **OpenAI Swarm** | Function-call handoff (`transfer_to_agent`), context_variables passing |
-| **AutoGen** | HandoffMessage first-class primitive, event-driven agent runtime |
+| Source           | What We Take                                                                                                                        |
+| ---------------- | ----------------------------------------------------------------------------------------------------------------------------------- |
+| **kimi-code**    | AgentSwarm tool definition, SubagentBatch concurrency controller, swarm-mode state machine, braille TUI progress                    |
+| **pi-crew**      | Mailbox system (JSONL inbox/outbox), task graph with dependencies, durable file-based state, worktree isolation, supervisor pattern |
+| **LangGraph**    | Shared application state pattern, supervisor node with tool-wrapped workers, Send API for fan-out                                   |
+| **CrewAI**       | Hierarchical team with role/task delegation, task context chaining, structured output                                               |
+| **OpenAI Swarm** | Function-call handoff (`transfer_to_agent`), context_variables passing                                                              |
+| **AutoGen**      | HandoffMessage first-class primitive, event-driven agent runtime                                                                    |
 
 ### 2.2 What Claude Code Has
 
@@ -129,6 +129,7 @@ User: /swarm Review all files in src/ for bugs
 ```
 
 **Key characteristics:**
+
 - All agents run the same prompt template with different items
 - No inter-agent communication — they work independently
 - Results aggregated into `<agent_swarm_result>` XML
@@ -172,6 +173,7 @@ User: /swarm-team Implement user authentication with tests
 ```
 
 **Key characteristics:**
+
 - Supervisor decomposes goal into phased tasks
 - Each agent has a role (planner, coder, reviewer, tester)
 - Agents communicate via shared mailbox (JSONL files)
@@ -186,25 +188,31 @@ User: /swarm-team Implement user authentication with tests
 
 ```typescript
 interface SwarmTeamInput {
-  goal: string;                          // High-level goal description
-  description: string;                   // Team run description
-  roles?: AgentRoleConfig[];            // Custom role definitions (optional)
-  phases?: TeamPhase[];                 // Custom phase definitions (optional)
-  max_agents?: number;                  // Max concurrent agents (default: 4)
-  artifacts_dir?: string;               // Where to write output artifacts
+  goal: string; // High-level goal description
+  description: string; // Team run description
+  roles?: AgentRoleConfig[]; // Custom role definitions (optional)
+  phases?: TeamPhase[]; // Custom phase definitions (optional)
+  max_agents?: number; // Max concurrent agents (default: 4)
+  artifacts_dir?: string; // Where to write output artifacts
 }
 ```
 
 ### 4.2 Built-in Roles
 
 ```typescript
-type AgentRole = 'planner' | 'coder' | 'reviewer' | 'tester' | 'explorer' | 'fixer';
+type AgentRole =
+  | "planner"
+  | "coder"
+  | "reviewer"
+  | "tester"
+  | "explorer"
+  | "fixer";
 
 interface AgentRoleConfig {
   role: AgentRole;
-  model?: string;          // Model override for this role
-  tools?: string[];        // Tool allowlist (default: all)
-  system_prompt?: string;  // Role-specific system prompt addition
+  model?: string; // Model override for this role
+  tools?: string[]; // Tool allowlist (default: all)
+  system_prompt?: string; // Role-specific system prompt addition
 }
 ```
 
@@ -273,12 +281,12 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
 
 ### 5.1 Normal Phase
 
-| Parameter | Value |
-|-----------|-------|
-| Initial launch | 5 agents |
-| Ramp interval | 700ms per additional agent |
+| Parameter       | Value                                                     |
+| --------------- | --------------------------------------------------------- |
+| Initial launch  | 5 agents                                                  |
+| Ramp interval   | 700ms per additional agent                                |
 | Max concurrency | `PI_SWARM_MAX_CONCURRENCY` env var (unlimited by default) |
-| Max total | 128 agents |
+| Max total       | 128 agents                                                |
 
 ### 5.2 Rate-Limit Phase
 
@@ -372,28 +380,28 @@ line (activated / deactivated / ended) in the transcript.
 
 ## 8. Implementation Phases
 
-### Phase 1: Foundation (current)
+### Phase 1: Foundation (complete)
 
 - [x] Project scaffolding (package.json, tsconfig, directory structure)
 - [x] PLAN.md, AGENTS.md, LOCAL_CI.md, OPS.md
-- [ ] Shared types (`shared/types.ts`)
-- [ ] Pi CLI invocation helper (`shared/spawner.ts`)
+- [x] Shared types (`shared/types.ts`)
+- [x] Pi CLI invocation helper (`shared/spawner.ts`)
 
 ### Phase 2: Swarm Mode (from kimi-code)
 
-- [ ] Concurrency controller (`shared/controller.ts`) — full SubagentBatch port
-- [ ] Result renderer (`shared/render.ts`) — XML output
-- [ ] AgentSwarm tool (`swarm/tool.ts`) — `pi.registerTool`
-- [ ] SwarmMode state machine (`swarm/mode.ts`)
-- [ ] `/swarm` command (`swarm/command.ts`)
+- [x] Concurrency controller (`shared/controller.ts`) — full SubagentBatch port
+- [x] Result renderer (`shared/render.ts`) — XML output
+- [x] AgentSwarm tool (`swarm/tool.ts`) — `pi.registerTool`
+- [x] SwarmMode state machine (`swarm/mode.ts`)
+- [x] `/swarm` command (`swarm/command.ts`)
 
 ### Phase 3: Team Mode (from pi-crew)
 
-- [ ] Mailbox system (`team/mailbox.ts`) — JSONL inbox/outbox
-- [ ] Task graph (`team/task-graph.ts`) — phases with dependencies
-- [ ] Team supervisor (`team/supervisor.ts`) — task decomposition & assignment
-- [ ] SwarmTeam tool (`team/tool.ts`) — `pi.registerTool`
-- [ ] `/swarm-team` command (`team/command.ts`)
+- [x] Mailbox system (`team/mailbox.ts`) — JSONL inbox/outbox
+- [x] Task graph (`team/task-graph.ts`) — phases with dependencies
+- [x] Team supervisor (`team/supervisor.ts`) — task decomposition & assignment
+- [x] SwarmTeam tool (`team/tool.ts`) — `pi.registerTool`
+- [x] `/swarm-team` command (`team/command.ts`)
 
 ### Phase 4: TUI
 
@@ -402,28 +410,28 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Wire `onProgress` callback through controller → tool → widget
 - [x] Register `swarm:marker` message renderer in `index.ts`
 - [x] Team dashboard (`tui/team-dashboard.ts`)
-- [ ] Permission prompt (`tui/permission-prompt.ts`)
+- [x] Permission prompt (`tui/permission-prompt.ts`)
 
 ### Phase 5: Persistence & Integration
 
-- [ ] Durable state (`state/persistence.ts`)
-- [ ] Crash recovery (`state/recovery.ts`)
-- [ ] Main entry (`index.ts`) — wire everything together
-- [ ] Lifecycle hooks (session_start, session_shutdown)
-- [ ] Build verification, smoke tests
-- [ ] README.md with kimi-code + pi-crew credits
+- [x] Durable state (`state/persistence.ts`)
+- [x] Crash recovery (`state/recovery.ts`)
+- [x] Main entry (`index.ts`) — wire everything together
+- [x] Lifecycle hooks (session_start, session_shutdown)
+- [x] Build verification, smoke tests
+- [x] README.md with kimi-code + pi-crew credits
 
 ---
 
 ## 9. Design Decisions (Confirmed)
 
-| Decision | Choice |
-|----------|--------|
-| Model selection | Optional per-agent; passed via settings; defaults to parent model |
-| Parameter passing | All agents receive parent config + task instructions |
-| Context isolation | Each agent runs in independent `pi --print` process |
-| Tool whitelist | All tools available by default |
-| Persistence | Durable file-based state; resume incomplete runs; disband completed |
-| Inter-agent communication | Mailbox pattern: JSONL files in `.pi/swarm/mailbox/` |
-| Team supervision | Supervisor agent decomposes goal, assigns to role agents, validates |
-| Language | 100% English in all code, comments, docs, commits |
+| Decision                  | Choice                                                              |
+| ------------------------- | ------------------------------------------------------------------- |
+| Model selection           | Optional per-agent; passed via settings; defaults to parent model   |
+| Parameter passing         | All agents receive parent config + task instructions                |
+| Context isolation         | Each agent runs in independent `pi --print` process                 |
+| Tool whitelist            | All tools available by default                                      |
+| Persistence               | Durable file-based state; resume incomplete runs; disband completed |
+| Inter-agent communication | Mailbox pattern: JSONL files in `.pi/swarm/mailbox/`                |
+| Team supervision          | Supervisor agent decomposes goal, assigns to role agents, validates |
+| Language                  | 100% English in all code, comments, docs, commits                   |

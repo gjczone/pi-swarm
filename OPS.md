@@ -1,36 +1,100 @@
 # OPS.md
 
-Release operations checklist for pi-swarm.
+Release operations checklist for pi-swarm. Run through EVERY step in order when publishing a new version.
 
 ## Prerequisites
 
-- All changes merged to `master`, working directory clean
+- All code changes merged to `master`, working directory clean
 - `LOCAL_CI.md` passed (all steps)
 - `gh` CLI authenticated
-- `NPM_TOKEN` set in repo Secrets → Actions
+- `NPM_TOKEN` set in repo Secrets -> Actions
 
 ---
 
 ## Phase 1: Documentation Sync
 
-Before bumping the version, cross-check all changed files against companion files:
+Before bumping the version, cross-check all changed files against companion files.
 
-- Language count changed → update README, AGENTS, etc.
-- New tool/hook/command added → update AGENTS tables, PLAN.md.
-- Project description/philosophy changed → update README intro.
+### 1.0 Discover All .md Files
 
-Per-file checklist:
+Identify every companion .md file and cross-reference with changed source code:
 
-- [ ] `CHANGELOG.md` — new version section at top with all changes since last tag
-- [ ] `README.md` — install instructions, usage examples, settings, runtime files correct
-- [ ] `AGENTS.md` — architecture tree, change map, tool/hook/command tables match current code
-- [ ] `PLAN.md` — completed phases marked, new designs reflected
-- [ ] `docs/architecture.md` — design changes, data flows reflected
-- [ ] `LOCAL_CI.md` — test count, steps, dist module count match current state
-- [ ] `LLM-REVIEW-GUIDE.md` — LOC count, test count, file lists, tier assignments match current code
-- [ ] `OPS.md` — this file, no stale steps
+```bash
+# Discover all .md files in the project (excluding node_modules, dist, .git)
+find . -name "*.md" -not -path "*/node_modules/*" -not -path "*/dist/*" -not -path "*/.git/*" | sort
 
-**Pass**: every changed file has been cross-checked against relevant companion files. No companion file documents a feature or count that no longer matches the code.
+# List files changed since the last version tag
+git diff --name-only v$(node -p 'require("./package.json").version')..HEAD
+```
+
+Cross-reference changed source files against the checklist below:
+
+| Source change                      | .md files to check                                                  |
+| ---------------------------------- | ------------------------------------------------------------------- |
+| `src/shared/types.ts` changed      | `AGENTS.md` (architecture), `PLAN.md`, `docs/architecture.md`       |
+| `src/shared/controller.ts` changed | `PLAN.md`, `docs/architecture.md`                                   |
+| `src/shared/render.ts` changed     | `PLAN.md`, `AGENTS.md` (architecture)                               |
+| `src/swarm/tool.ts` changed        | `AGENTS.md` (tools), `README.md` (usage)                            |
+| `src/team/*.ts` changed            | `AGENTS.md` (architecture), `CHANGELOG.md`                          |
+| `src/tui/*.ts` changed (new)       | `AGENTS.md` (architecture tree, Change Map), `docs/architecture.md` |
+| `src/state/*.ts` changed           | `PLAN.md`, `docs/architecture.md`                                   |
+| `package.json` changed             | `README.md` (install)                                               |
+| `.github/workflows/` changed       | `LOCAL_CI.md`                                                       |
+| Test count/file changed            | `LOCAL_CI.md`, `LLM-REVIEW-GUIDE.md`, `AGENTS.md`                   |
+| Release process changed            | `OPS.md` (this file)                                                |
+
+### 1.1 CHANGELOG.md
+
+- [ ] Add `## [X.Y.Z] - YYYY-MM-DD` section at the TOP (after header, before older versions)
+- [ ] Include subsections: Added, Changed, Fixed, Documentation
+- [ ] Reference issue/PR numbers for each entry
+- [ ] CRITICAL: generate entries from ALL commits since last tag: `git log vPREV..HEAD --oneline --reverse`
+
+### 1.2 README.md
+
+- [ ] Update feature descriptions if features changed
+- [ ] Update install commands if package name/scope changed
+- [ ] Update settings/schema if config keys changed
+- [ ] Update Runtime Files diagram if directory structure changed
+
+### 1.3 AGENTS.md
+
+- [ ] Update architecture tree if new files were added/removed
+- [ ] Update Change Map if new modules created
+- [ ] Update test counts (55 -> 67 -> ...)
+- [ ] Update tool/command tables if tools or commands changed
+
+### 1.4 PLAN.md
+
+- [ ] Mark completed implementation phases `[x]`
+- [ ] Update architecture diagram if layer structure changed
+- [ ] Update design decisions if any were revised
+
+### 1.5 docs/architecture.md
+
+- [ ] Update layer architecture diagram if new modules added
+- [ ] Update data flow diagrams if integration pattern changed
+- [ ] Update TUI Components section if new components added
+- [ ] Update design decisions log if decisions changed
+
+### 1.6 LOCAL_CI.md
+
+- [ ] Update test count in Step 4 (67 tests, 6 test files — adjust as needed)
+- [ ] Update dist module count minimum in Step 7 (20+ modules)
+- [ ] Add new steps if new tooling (linter, formatter, test framework) added
+
+### 1.7 LLM-REVIEW-GUIDE.md
+
+- [ ] Update LOC count, test count, file lists if they changed
+- [ ] Update Key Files tables if new files were added/removed
+- [ ] Update Quick Sanity Checklist if verification patterns changed
+
+### 1.8 OPS.md (this file)
+
+- [ ] Verify all phases still reflect current workflow
+- [ ] Add new steps if the release process evolved
+
+**Pass**: every companion file has been opened and checked. Any file that documents something changed in this release has been updated.
 
 ---
 
@@ -48,19 +112,25 @@ Update CHANGELOG: change `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`.
 git add CHANGELOG.md && git commit -m "release: vX.Y.Z"
 ```
 
-**Pass**: version is consistent across `package.json` and git tag. Build succeeds. Tests pass.
+**Pass**: version is consistent across `package.json` and git tag. Build succeeds.
 
 ---
 
 ## Phase 3: Local CI
 
-Reference `LOCAL_CI.md`. Run ALL steps. **NEVER** proceed to Phase 4 if any step fails.
+Reference `LOCAL_CI.md`. Run ALL steps. NEVER proceed if any step fails.
 
 ```bash
 npm run ci
 ```
 
-**Pass**: typecheck → 67 tests → build → dist verified. All green, 0 failures.
+Plus manual steps from LOCAL_CI.md:
+
+- Format check: `npx prettier --check "src/**/*.ts" "tests/**/*.ts"`
+- Dist module count: `test $(find dist -name "*.js" | wc -l) -ge 20`
+- Pi integration smoke test (symlink or npm install)
+
+**Pass**: typecheck -> 67 tests -> build -> dist verified. All green, 0 failures. Prettier: zero warnings. Dist: 20+ .js modules.
 
 ---
 
@@ -70,52 +140,105 @@ npm run ci
 git push origin master --tags
 ```
 
-Release notes MUST be auto-extracted from the current version's CHANGELOG section:
+Release notes MUST be auto-extracted from CHANGELOG:
 
 ```bash
-gh release create vX.Y.Z \
-  --title "vX.Y.Z" \
-  --notes "$(sed -n '/^## \[X\.Y\.Z\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
+V=X.Y.Z
+gh release create "v$V" \
+  --title "v$V" \
+  --notes "$(sed -n '/^## \['$V'\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
 ```
 
-**Pass**: release notes contain "Added", "Changed" sections from CHANGELOG — verified by running `gh release view vX.Y.Z` and inspecting the output. A release whose notes consist only of a CHANGELOG reference is a failing release.
+**Pass**: release notes contain "Added", "Changed" sections from CHANGELOG. Verified via `gh release view vX.Y.Z` — notes must include actual change descriptions, NOT just a CHANGELOG reference.
 
 ---
 
 ## Phase 5: Post-Release Verification
 
-### 5.1 npm Registry
+### 5.1 Wait for npm Publish
 
-Wait ~30s for Actions publish:
+GitHub Actions triggers npm publish on Release creation. Wait 30-60s:
+
+```bash
+sleep 30
+```
+
+### 5.2 Verify npm Registry
 
 ```bash
 npm view @gjczone/pi-swarm version     # must match X.Y.Z
 npm view @gjczone/pi-swarm dist-tags   # must show 'latest': 'X.Y.Z'
 ```
 
-### 5.2 Pi Install
+**Pass**: registry version matches, latest tag correct.
+
+### 5.3 Update Local npm Install
+
+Update the globally-cached npm package so future `pi install` or `npx` calls use the new version:
+
+```bash
+npm install -g @gjczone/pi-swarm@latest --legacy-peer-deps
+```
+
+**Pass**: installs without errors.
+
+### 5.4 Update Local Pi Extension
 
 ```bash
 pi install npm:@gjczone/pi-swarm@latest
+```
+
+Then smoke test:
+
+```bash
 pi -p "/swarm on" 2>&1 | grep -q "Extension error" && echo "FAIL" || echo "OK"
 ```
 
-### 5.3 GitHub Release Page
+**Pass**: prints "OK". Extension loads without errors.
+
+### 5.5 Verify All Installations Match
+
+```bash
+# Check all surfaces report the same version
+echo "npm registry: $(npm view @gjczone/pi-swarm version)"
+echo "package.json:  $(node -p 'require("./package.json").version')"
+echo "pi extension:  $(cat ~/.pi/agent/npm/node_modules/@gjczone/pi-swarm/package.json 2>/dev/null | grep '"version"' | sed 's/.*"//;s/".*//')"
+echo "global npm:    $(npm ls -g @gjczone/pi-swarm 2>/dev/null | grep @gjczone/pi-swarm | sed 's/.*@//;s/ .*//')"
+```
+
+**Pass**: all four surfaces report the same version `X.Y.Z`.
+
+### 5.6 E2E Smoke Test
+
+```bash
+# Single-agent swarm (verifies AgentSwarm tool + spawner + controller)
+pi -p "Use AgentSwarm with prompt_template 'Echo: {{item}}' and items [hello] and description 'smoke test'" 2>&1 | grep -q "Extension error" && echo "FAIL" || echo "OK"
+```
+
+**Pass**: prints "OK". No extension errors.
+
+### 5.7 GitHub Release Page
 
 ```bash
 gh release view vX.Y.Z
 ```
 
-**Pass**: registry version matches, install succeeds, smoke test passes, release page populated. **NEVER** mark this phase complete from the publish command alone — the registry must be queried independently.
+**Pass**: release page populated with correct notes.
 
 ---
 
 ## Phase 6: Cleanup
 
 ```bash
-git branch -r | grep -E "(feature|fix)/"  # list temporary branches
-git push origin --delete <branch>          # delete each
+# Verify no temporary branches remain on remote
+git branch -r | grep -E "(feature|fix)/"  # expect empty
+
+# Delete any leftover branches
+git push origin --delete <branch>
+
+# Verify local state
 git status                                 # clean, on master
+git branch                                 # only master
 ```
 
 **Pass**: no temporary branches remaining on remote. On master branch. Working directory clean.
@@ -124,35 +247,32 @@ git status                                 # clean, on master
 
 ## Phase 7: Self-Improvement Retrospective
 
-**NEVER** skip this phase. If you fixed something during this release that OPS.md didn't cover, commit the OPS.md update in the same release — deferral is forbidden.
+NEVER skip this phase. If you fixed something during this release that OPS.md didn't cover, commit the OPS.md update in the same release.
 
 ### 7.1 Companion File Audit
 
-For each file, ask: **"Did this release change anything that this file documents?"** If yes, update it now — **NEVER** defer.
+For each file in the table below, open it and ask: **"Did this release change anything that this file documents?"** If yes, update it now.
 
-| File | Check |
-|------|-------|
-| `CHANGELOG.md` | New version section exists and is complete |
-| `README.md` | Feature descriptions, install commands, settings match code |
-| `AGENTS.md` | Architecture tree, tool/command tables, version number |
-| `PLAN.md` | Completed phases marked, new designs reflected |
-| `LOCAL_CI.md` | All CI steps still valid, test count correct |
-| `OPS.md` | This file — any steps missing, wrong order, or weak Pass criteria? |
-| `LLM-REVIEW-GUIDE.md` | (if exists) Review rules, risk tiers, and sanity checks still accurate |
-| `docs/architecture.md` | (if exists) Design rationale, data flows, comparisons |
-| `api.d.ts` | (if exists) All API endpoints match current implementation |
-
-**Pass**: every file in the table above has been opened and checked. Any file that documents something changed in this release has been updated.
+| File                   | Check                                                               |
+| ---------------------- | ------------------------------------------------------------------- |
+| `CHANGELOG.md`         | New version section exists and is complete                          |
+| `README.md`            | Feature descriptions, install commands, settings match code         |
+| `AGENTS.md`            | Architecture tree, tool/command tables, test count, version number  |
+| `PLAN.md`              | Completed phases marked, new designs reflected                      |
+| `docs/architecture.md` | Design rationale, data flows, TUI components                        |
+| `LOCAL_CI.md`          | All CI steps still valid, test count correct, dist count correct    |
+| `LLM-REVIEW-GUIDE.md`  | Review rules, risk tiers, file lists, sanity checks                 |
+| `OPS.md`               | This file -- any steps missing, wrong order, or weak Pass criteria? |
 
 ### 7.2 Process Retrospective
 
-Answer each question. **NEVER** leave a "yes" answer without acting on it in the same release.
+Answer each question. NEVER leave a "yes" answer without acting on it in the same release.
 
-- Were there manual steps NOT documented in OPS.md? → Add them now.
-- Did any companion file go stale and only get caught late? → Add a check to Phase 1.
-- Did any Pass criteria fail to catch a real problem? → Strengthen the criteria now.
-- Did any automation miss something? → Fix the automation now.
-- Were there "I forgot to do X" moments? → Add a checklist item now.
+- Were there manual steps NOT documented in OPS.md? -> Add them now.
+- Did any companion file go stale and only get caught late? -> Add a check to Phase 1.
+- Did any Pass criteria fail to catch a real problem? -> Strengthen the criteria now.
+- Did any automation miss something? -> Fix the automation now.
+- Were there "I forgot to do X" moments? -> Add a checklist item now.
 
 **Pass**: all "yes" answers have been resolved with a concrete change committed in this release. No open items deferred.
 
@@ -161,15 +281,27 @@ Answer each question. **NEVER** leave a "yes" answer without acting on it in the
 ## Release Checklist (Summary)
 
 1. [ ] Documentation sync completed — all companion files cross-checked (Phase 1)
-2. [ ] Each companion file verified against this release's changes (Phase 1)
-3. [ ] Version bump + build succeeded — version consistent across all surfaces (Phase 2)
-4. [ ] Local CI passed — 0 failures (Phase 3)
-5. [ ] Release published — notes verified via `gh release view`, not just from publish command (Phase 4)
-6. [ ] Post-release verification passed — registry queried, install tested, smoke test run (Phase 5)
-7. [ ] Temporary branches deleted — `git branch -r` shows no feature/fix branches (Phase 6)
-8. [ ] On main branch, working directory clean (Phase 6)
-9. [ ] Companion file audit completed — every file in table opened and checked (Phase 7.1)
-10. [ ] Process retrospective completed — all "yes" answers resolved and committed (Phase 7.2)
+2. [ ] CHANGELOG.md updated with new version entry (Phase 1.1)
+3. [ ] README.md synced (Phase 1.2)
+4. [ ] AGENTS.md synced (Phase 1.3)
+5. [ ] PLAN.md synced (Phase 1.4)
+6. [ ] docs/architecture.md synced (Phase 1.5)
+7. [ ] LOCAL_CI.md synced (Phase 1.6)
+8. [ ] LLM-REVIEW-GUIDE.md synced (Phase 1.7)
+9. [ ] Version bumped + build succeeded (Phase 2)
+10. [ ] CHANGELOG unreleased -> version tag committed (Phase 2)
+11. [ ] Local CI passed — 0 failures (Phase 3)
+12. [ ] Release published — notes verified via `gh release view` (Phase 4)
+13. [ ] npm registry shows correct version (Phase 5.2)
+14. [ ] Local npm install updated and verified (Phase 5.3)
+15. [ ] Local Pi extension updated and smoke-tested (Phase 5.4)
+16. [ ] All four installation surfaces match (Phase 5.5)
+17. [ ] E2E smoke test passed — AgentSwarm tool call succeeds (Phase 5.6)
+18. [ ] GitHub release page verified (Phase 5.7)
+19. [ ] Temporary branches deleted (Phase 6)
+20. [ ] On master branch, working directory clean (Phase 6)
+21. [ ] Companion file audit completed (Phase 7.1)
+22. [ ] Process retrospective completed (Phase 7.2)
 
 ## Quick Release
 
@@ -182,4 +314,5 @@ gh release create "v$V" --title "v$V" \
   --notes "$(sed -n '/^## \['$V'\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
 sleep 30
 npm view @gjczone/pi-swarm version
+pi install npm:@gjczone/pi-swarm@latest
 ```
