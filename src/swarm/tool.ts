@@ -30,6 +30,13 @@ import type {
   SwarmSpec,
 } from "../shared/types.js";
 import {
+  resolveSwarmRoot,
+  createManifest,
+  updateManifest,
+  readManifest,
+  registerAgentInManifest,
+} from "../state/persistence.js";
+import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
 } from "../tui/progress.js";
@@ -121,6 +128,12 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       const ctx = ctxRaw as ExtensionContext;
       const progress = createProgressWidget(ctx);
 
+      // Persistent run state - declared outside try for catch access
+      const swarmRoot =
+        process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
+      const runId = `swarm-${Date.now().toString(36)}`;
+      let runCreated = false;
+
       try {
         const profileName =
           normalizeOptionalString(subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
@@ -131,6 +144,16 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           resume_agent_ids,
           prompt_template,
         });
+
+        createManifest(swarmRoot, {
+          runId,
+          type: "swarm",
+          status: "running",
+          goal: description,
+          startedAt: Date.now(),
+          agentIds: [],
+        });
+        runCreated = true;
 
         // Convert to queued tasks
         const tasks = specs.map((spec): QueuedSubagentTask<SwarmSpec> => {
@@ -151,6 +174,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
             swarmItem: spec.item,
             signal,
             timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+            swarmRoot,
+            runId,
           };
 
           if (spec.kind === "resume") {
@@ -187,6 +212,19 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         );
         const results = await controller.run();
 
+        // Register all agents in manifest and mark run completed
+        for (const r of results) {
+          if (r.agentId) {
+            registerAgentInManifest(swarmRoot, runId, r.agentId);
+          }
+        }
+        const manifest = readManifest(swarmRoot, runId);
+        if (manifest) {
+          manifest.status = "completed";
+          manifest.completedAt = Date.now();
+          updateManifest(swarmRoot, manifest);
+        }
+
         // Trigger completion animation before tearing down
         progress?.component.complete();
 
@@ -200,6 +238,15 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+        if (runCreated) {
+          const manifest = readManifest(swarmRoot, runId);
+          if (manifest) {
+            manifest.status = "failed";
+            manifest.completedAt = Date.now();
+            manifest.error = message;
+            updateManifest(swarmRoot, manifest);
+          }
+        }
         return {
           content: [{ type: "text", text: `AgentSwarm failed: ${message}` }],
           isError: true,
