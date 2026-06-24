@@ -284,12 +284,22 @@ export class TeamSupervisor {
     this.emitProgress();
   }
 
-  /**
-   * Assign an agent to a phase.
-   */
+  /** Assign an agent to a phase. */
   assignAgent(phaseName: string, agentId: string): void {
     this.state.agentIds.set(phaseName, agentId);
     this.state.taskGraph.assignAgent(phaseName, agentId);
+  }
+
+  /**
+   * Get the effective model and tools for a given role.
+   * Returns undefined for model/tools when no role-specific config exists.
+   */
+  getRoleConfig(role: AgentRole): { model?: string; tools?: string[] } {
+    const roleConfig = this.config.roles?.find((r) => r.role === role);
+    return {
+      model: roleConfig?.model,
+      tools: roleConfig?.tools,
+    };
   }
 
   // -------------------------------------------------------------------
