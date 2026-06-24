@@ -43,7 +43,7 @@ npx prettier --check "src/**/*.ts" "tests/**/*.ts"
 npm test
 ```
 
-**Pass**: 55 tests pass, 0 failures across 5 test files.
+**Pass**: 67 tests pass, 0 failures across 6 test files.
 **Common fix**: read the failing test output, fix the code, re-run.
 
 ### 5. Build
@@ -67,7 +67,7 @@ test -f dist/index.js && test -f dist/index.d.ts && echo "OK" || echo "FAIL"
 ### 7. Dist Module Count
 
 ```bash
-test $(find dist -name "*.js" | wc -l) -ge 19 && echo "OK: $(find dist -name '*.js' | wc -l) modules" || echo "FAIL: too few modules"
+test $(find dist -name "*.js" | wc -l) -ge 20 && echo "OK: $(find dist -name '*.js' | wc -l) modules" || echo "FAIL: too few modules"
 ```
 
 **Pass**: prints "OK: N modules" with N >= 19.

@@ -5,7 +5,7 @@ You are reviewing **pi-swarm**, a pi-coding-agent extension that provides multi-
 ## Project Context
 
 - **What it is**: A TypeScript extension for [pi](https://github.com/earendil-works/pi) that registers two tools (`AgentSwarm`, `SwarmTeam`) and two commands (`/swarm`, `/swarm-team`). Agents are spawned as `pi --print` child processes.
-- **Size**: 19 source modules, ~5400 LOC, 55 tests.
+- **Size**: 19 source modules, ~5400 LOC, 67 tests.
 - **Runtime**: Node.js >= 18, runs inside pi's extension host. Linux + macOS.
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema). Everything else is custom.
 - **Concurrency model**: Two-phase scheduler ported from kimi-code. Normal phase (5 initial + 1/700ms ramp-up), rate-limit phase (capacity tracking + exponential backoff).
@@ -85,6 +85,7 @@ Read these in order. The most critical modules are listed first.
 | `src/index.ts` | Auto-gitignore logic for `.pi/`. Tool/command/handler registration completeness. `swarm:marker` message renderer registration. ExtensionAPI type usage. |
 | `src/swarm/command.ts` | Permission mode handling. Empty/null args. Mode toggle correctness. |
 | `src/swarm/mode.ts` | Reminder injection/destruction pairing. Status update consistency. Enter/exit transition guards. |
+| `src/tui/team-dashboard.ts` | Dashboard rendering (phase progress, agent status). Render contract. Animation lifecycle. State updates. |
 
 ### Tests (reference only)
 
@@ -95,6 +96,7 @@ Read these in order. The most critical modules are listed first.
 | `tests/render.test.ts` | XML escaping, resume hint logic. |
 | `tests/task-graph.test.ts` | Dependency ordering, skip propagation, serialization. |
 | `tests/smoke.test.ts` | Module imports, persistence round-trip, supervisor integration. |
+| `tests/team-dashboard.test.ts` | Team dashboard TUI rendering, state transitions. |
 
 ## How to Submit Findings
 
@@ -119,10 +121,10 @@ Skip any finding that doesn't meet the P0/P1 bar. Do not submit more than 15 fin
 Before starting the detailed review, do these quick checks and report anything that fails:
 
 - [ ] `npm run typecheck` passes with zero errors
-- [ ] `npm run build` produces all 19 expected `.js` files in `dist/`
-- [ ] `npm test` — all 55 tests pass
+- [ ] `npm run build` produces all 20 expected `.js` files in `dist/`
+- [ ] `npm test` — all 67 tests pass
 - [ ] `grep -r "TODO\|FIXME\|HACK\|XXX" src/` — any leftover markers?
-- [ ] `grep -r "\.crew/" src/` — any remaining paths referencing deprecated `.crew/` directory?
+- [ ] `grep -rE "\.crew/|crewRoot" src/` — any remaining references to deprecated `.crew/` directory or `crewRoot` variable?
 - [ ] `grep -r "console\.\(log\|error\)" src/` — are there debug logs that should be removed?
 - [ ] Does `src/index.ts` register both `AgentSwarm` and `SwarmTeam` tools?
 - [ ] Does `swarm/tool.ts` allow 1 item (not still requiring 2)?

@@ -157,9 +157,7 @@ export class SubagentBatchController<T> {
   private nextRateLimitLaunchAt = 0;
 
   // Promise control
-  private resolve:
-    | ((results: Array<SubagentResult<T>>) => void)
-    | undefined;
+  private resolve: ((results: Array<SubagentResult<T>>) => void) | undefined;
   private reject: ((error: unknown) => void) | undefined;
   private finished = false;
   private started = false;
@@ -205,9 +203,7 @@ export class SubagentBatchController<T> {
    */
   run(): Promise<Array<SubagentResult<T>>> {
     if (this.started) {
-      throw new Error(
-        "SubagentBatchController.run() can only be called once.",
-      );
+      throw new Error("SubagentBatchController.run() can only be called once.");
     }
     this.started = true;
 
@@ -230,11 +226,9 @@ export class SubagentBatchController<T> {
 
       // Listen to all batch signals
       for (const signal of this.batchSignals) {
-        signal.addEventListener(
-          "abort",
-          () => this.handleBatchAbort(signal),
-          { once: true },
-        );
+        signal.addEventListener("abort", () => this.handleBatchAbort(signal), {
+          once: true,
+        });
       }
       // Emit initial snapshot (all queued) before scheduling starts
       this.emitProgress();
@@ -297,11 +291,7 @@ export class SubagentBatchController<T> {
 
     this.normalLaunchTimer = setTimeout(() => {
       this.normalLaunchTimer = undefined;
-      if (
-        this.finished ||
-        this.rateLimitMode ||
-        this.pending.length === 0
-      )
+      if (this.finished || this.rateLimitMode || this.pending.length === 0)
         return;
       if (this.isAtConcurrencyLimit()) return;
 
@@ -329,10 +319,7 @@ export class SubagentBatchController<T> {
     this.recoverRateLimitCapacity(now);
 
     if (this.active.size >= this.rateLimitCapacity) {
-      this.scheduleRateLimitWakeup(
-        this.nextRateLimitCapacityRecoveryAt(),
-        now,
-      );
+      this.scheduleRateLimitWakeup(this.nextRateLimitCapacityRecoveryAt(), now);
       return;
     }
 
@@ -422,10 +409,7 @@ export class SubagentBatchController<T> {
           runOptions,
         );
       } else if (task.kind === "resume") {
-        handle = await this.launcher.resume(
-          task.resumeAgentId,
-          runOptions,
-        );
+        handle = await this.launcher.resume(task.resumeAgentId, runOptions);
       } else {
         const spawnOptions: SpawnSubagentOptions = {
           profileName: task.profileName,
@@ -441,8 +425,7 @@ export class SubagentBatchController<T> {
     attempt.state.agentId = handle.agentId;
 
     try {
-      const completion: SubagentCompletion =
-        await handle.completion;
+      const completion: SubagentCompletion = await handle.completion;
       return {
         task,
         agentId: handle.agentId,
@@ -485,10 +468,7 @@ export class SubagentBatchController<T> {
     this.schedule();
   }
 
-  private handleAttemptError(
-    attempt: ActiveAttempt<T>,
-    error: unknown,
-  ): void {
+  private handleAttemptError(attempt: ActiveAttempt<T>, error: unknown): void {
     attempt.cleanup();
     this.active.delete(attempt);
 
@@ -503,10 +483,7 @@ export class SubagentBatchController<T> {
       return;
     }
 
-    const result: SubagentResult<T> = this.failedAttemptOutcome(
-      attempt,
-      error,
-    );
+    const result: SubagentResult<T> = this.failedAttemptOutcome(attempt, error);
     this.results[attempt.state.index] = result;
     // A task reached a terminal state (completed/failed/aborted)
     this.emitProgress();
@@ -553,21 +530,15 @@ export class SubagentBatchController<T> {
         error.message.includes("cancel") ||
         error.name === "AbortError");
 
-    const status: SubagentResult<T>["status"] = isAbort
-      ? "aborted"
-      : "failed";
+    const status: SubagentResult<T>["status"] = isAbort ? "aborted" : "failed";
 
     let errorMessage: string;
     if (attempt.timedOut && task.timeout !== undefined) {
       errorMessage = "Subagent timed out.";
     } else if (isAbort) {
-      errorMessage =
-        "The user manually interrupted this subagent batch.";
+      errorMessage = "The user manually interrupted this subagent batch.";
     } else {
-      errorMessage =
-        error instanceof Error
-          ? error.message
-          : String(error);
+      errorMessage = error instanceof Error ? error.message : String(error);
     }
 
     return {
@@ -586,10 +557,7 @@ export class SubagentBatchController<T> {
   private enterRateLimitPhase(): void {
     this.rateLimitMode = true;
     this.clearNormalTimer();
-    this.rateLimitCapacity = Math.max(
-      1,
-      this.countReadyActive(),
-    );
+    this.rateLimitCapacity = Math.max(1, this.countReadyActive());
     this.lastRateLimitAt = Date.now();
     this.globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
     this.nextRateLimitLaunchAt = Date.now() + RATE_LIMIT_RETRY_BASE_MS;
@@ -598,8 +566,7 @@ export class SubagentBatchController<T> {
   private shrinkRateLimitCapacity(now: number): void {
     if (
       this.lastCapacityShrinkAt !== undefined &&
-      now - this.lastCapacityShrinkAt <
-        RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS
+      now - this.lastCapacityShrinkAt < RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS
     ) {
       return;
     }
@@ -618,8 +585,7 @@ export class SubagentBatchController<T> {
     if (quietPeriod < RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS) return;
 
     const lastRecovery = this.lastCapacityRecoveryAt ?? 0;
-    if (now - lastRecovery < RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS)
-      return;
+    if (now - lastRecovery < RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS) return;
 
     this.lastCapacityRecoveryAt = now;
     this.rateLimitCapacity += 1;
@@ -632,9 +598,7 @@ export class SubagentBatchController<T> {
   private finishIfComplete(): boolean {
     const allDone = this.results.every((r) => r !== undefined);
     if (allDone) {
-      this.finish(
-        this.results as Array<SubagentResult<T>>,
-      );
+      this.finish(this.results as Array<SubagentResult<T>>);
       return true;
     }
     return false;
@@ -729,9 +693,7 @@ export class SubagentBatchController<T> {
       }
     }
 
-    this.finish(
-      this.results as Array<SubagentResult<T>>,
-    );
+    this.finish(this.results as Array<SubagentResult<T>>);
   }
 
   private fail(error: unknown): void {
@@ -770,10 +732,7 @@ export class SubagentBatchController<T> {
     }
   }
 
-  private scheduleRateLimitWakeup(
-    wakeAt: number,
-    now: number,
-  ): void {
+  private scheduleRateLimitWakeup(wakeAt: number, now: number): void {
     const delay = Math.max(0, wakeAt - now);
     this.rateLimitLaunchTimer = setTimeout(() => {
       this.rateLimitLaunchTimer = undefined;
@@ -852,11 +811,9 @@ export class SubagentBatchController<T> {
     } else if (task.signal?.aborted) {
       abortFromTask();
     } else {
-      this.controller.signal.addEventListener(
-        "abort",
-        abortFromBatch,
-        { once: true },
-      );
+      this.controller.signal.addEventListener("abort", abortFromBatch, {
+        once: true,
+      });
       task.signal?.addEventListener("abort", abortFromTask, {
         once: true,
       });
@@ -864,10 +821,7 @@ export class SubagentBatchController<T> {
 
     return () => {
       if (timeoutHandle !== undefined) clearTimeout(timeoutHandle);
-      this.controller.signal.removeEventListener(
-        "abort",
-        abortFromBatch,
-      );
+      this.controller.signal.removeEventListener("abort", abortFromBatch);
       task.signal?.removeEventListener("abort", abortFromTask);
     };
   }
@@ -890,9 +844,7 @@ export class SubagentBatchController<T> {
  * integer; invalid input throws so a misconfigured cap never silently
  * reverts to uncapped.
  */
-export function resolveSwarmMaxConcurrency(
-  cwd?: string,
-): number | undefined {
+export function resolveSwarmMaxConcurrency(cwd?: string): number | undefined {
   // 1. Project-local settings
   const projectSettings = readPiSettings(
     path.join(cwd ?? process.cwd(), ".pi", "settings.json"),
@@ -936,9 +888,7 @@ function validateConcurrency(
   return num;
 }
 
-function readPiSettings(
-  filePath: string,
-): Record<string, unknown> | null {
+function readPiSettings(filePath: string): Record<string, unknown> | null {
   try {
     if (!fs.existsSync(filePath)) return null;
     const raw = fs.readFileSync(filePath, "utf-8");

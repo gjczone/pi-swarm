@@ -172,9 +172,8 @@ async function runSubagentProcess(
       proc.kill("SIGTERM");
       scheduleSigkill();
     }
-    const err = reason instanceof Error
-      ? reason
-      : new Error("Subagent aborted");
+    const err =
+      reason instanceof Error ? reason : new Error("Subagent aborted");
     if (streamReject) {
       cleanup();
       streamReject(err);
@@ -298,10 +297,7 @@ function parseEventStream(
         return;
       }
 
-      if (
-        event.type === "message_end" &&
-        event.message?.role === "assistant"
-      ) {
+      if (event.type === "message_end" && event.message?.role === "assistant") {
         const msg = event.message;
         if (msg.usage) {
           usageAcc.input += msg.usage.input || 0;
@@ -366,10 +362,7 @@ function parseEventStream(
           err.message,
         );
         if (!settled) {
-          settle(
-            null,
-            new Error(`Subagent stdout error: ${err.message}`),
-          );
+          settle(null, new Error(`Subagent stdout error: ${err.message}`));
         }
       });
 
@@ -406,9 +399,7 @@ function parseEventStream(
         const errMsg = signal
           ? `Subagent killed by signal ${signal}`
           : `Subagent exited with code ${code}`;
-        const fullMsg = errorMessage
-          ? `${errMsg}: ${errorMessage}`
-          : errMsg;
+        const fullMsg = errorMessage ? `${errMsg}: ${errorMessage}` : errMsg;
         settle(null, new Error(fullMsg));
       }
     });

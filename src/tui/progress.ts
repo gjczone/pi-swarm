@@ -147,9 +147,7 @@ export function snapshotToProgressState(
   };
 }
 
-function mapMemberPhase(
-  phase: BatchMemberStatus["phase"],
-): MemberPhase {
+function mapMemberPhase(phase: BatchMemberStatus["phase"]): MemberPhase {
   switch (phase) {
     case "queued":
       return "queued";
@@ -164,9 +162,7 @@ function mapMemberPhase(
   }
 }
 
-function isAnimatedPhase(
-  phase: BatchMemberStatus["phase"],
-): boolean {
+function isAnimatedPhase(phase: BatchMemberStatus["phase"]): boolean {
   return phase === "working" || phase === "suspended";
 }
 
@@ -200,7 +196,11 @@ export class AgentSwarmProgressComponent implements Component {
     if (this.state_) {
       // Mark all non-terminal members as completed
       for (const m of this.state_.members) {
-        if (m.phase !== "completed" && m.phase !== "failed" && m.phase !== "cancelled") {
+        if (
+          m.phase !== "completed" &&
+          m.phase !== "failed" &&
+          m.phase !== "cancelled"
+        ) {
           m.phase = "completed";
           m.phaseStartedAt = Date.now();
         }

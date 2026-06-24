@@ -7,7 +7,10 @@
  * Ported from MoonshotAI/kimi-code's AgentSwarmTool.
  */
 
-import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   SubagentBatchController,
@@ -56,9 +59,7 @@ If \`AgentSwarm\` is called, that call must be the only tool call in the respons
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerAgentSwarmTool(
-  pi: ExtensionAPI,
-): void {
+export function registerAgentSwarmTool(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "AgentSwarm",
     label: "Agent Swarm",
@@ -66,8 +67,7 @@ export function registerAgentSwarmTool(
     parameters: Type.Object(
       {
         description: Type.String({
-          description:
-            "Short description for the whole swarm.",
+          description: "Short description for the whole swarm.",
         }),
         subagent_type: Type.Optional(
           Type.String({
@@ -103,22 +103,26 @@ export function registerAgentSwarmTool(
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const { description, subagent_type, prompt_template, items, resume_agent_ids } =
-        params as {
-          description: string;
-          subagent_type?: string;
-          prompt_template?: string;
-          items?: string[];
-          resume_agent_ids?: Record<string, string>;
-        };
+      const {
+        description,
+        subagent_type,
+        prompt_template,
+        items,
+        resume_agent_ids,
+      } = params as {
+        description: string;
+        subagent_type?: string;
+        prompt_template?: string;
+        items?: string[];
+        resume_agent_ids?: Record<string, string>;
+      };
 
       const ctx = ctxRaw as ExtensionContext;
       const progress = createProgressWidget(ctx);
 
       try {
         const profileName =
-          normalizeOptionalString(subagent_type) ??
-          DEFAULT_SUBAGENT_TYPE;
+          normalizeOptionalString(subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
 
         // Build specs
         const specs = createAgentSwarmSpecs({
@@ -128,47 +132,48 @@ export function registerAgentSwarmTool(
         });
 
         // Convert to queued tasks
-        const tasks = specs.map(
-          (spec): QueuedSubagentTask<SwarmSpec> => {
-            const descriptionName =
-              spec.kind === "resume" ? "resume" : profileName;
-            const common = {
-              data: spec,
-              profileName:
-                spec.kind === "resume" ? "subagent" : profileName,
-              parentToolCallId: toolCallId,
-              prompt: spec.prompt,
-              description: childDescription(
-                description,
-                spec.index,
-                descriptionName,
-              ),
-              swarmIndex: spec.index,
-              runInBackground: false,
-              swarmItem: spec.item,
-              signal,
-              timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-            };
+        const tasks = specs.map((spec): QueuedSubagentTask<SwarmSpec> => {
+          const descriptionName =
+            spec.kind === "resume" ? "resume" : profileName;
+          const common = {
+            data: spec,
+            profileName: spec.kind === "resume" ? "subagent" : profileName,
+            parentToolCallId: toolCallId,
+            prompt: spec.prompt,
+            description: childDescription(
+              description,
+              spec.index,
+              descriptionName,
+            ),
+            swarmIndex: spec.index,
+            runInBackground: false,
+            swarmItem: spec.item,
+            signal,
+            timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+          };
 
-            if (spec.kind === "resume") {
-              return {
-                ...common,
-                kind: "resume",
-                resumeAgentId: spec.agentId,
-              } as QueuedSubagentTask<SwarmSpec>;
-            }
-
+          if (spec.kind === "resume") {
             return {
               ...common,
-              kind: "spawn",
+              kind: "resume",
+              resumeAgentId: spec.agentId,
             } as QueuedSubagentTask<SwarmSpec>;
-          },
-        );
+          }
+
+          return {
+            ...common,
+            kind: "spawn",
+          } as QueuedSubagentTask<SwarmSpec>;
+        });
 
         // Run with controller
         const maxConcurrency = resolveSwarmMaxConcurrency(process.cwd());
         const controller = new SubagentBatchController<SwarmSpec>(
-          { spawn: spawnSubagent, resume: resumeSubagent, retry: retrySubagent },
+          {
+            spawn: spawnSubagent,
+            resume: resumeSubagent,
+            retry: retrySubagent,
+          },
           tasks,
           {
             maxConcurrency,
@@ -193,8 +198,7 @@ export function registerAgentSwarmTool(
           details: undefined,
         };
       } catch (error) {
-        const message =
-          error instanceof Error ? error.message : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         return {
           content: [{ type: "text", text: `AgentSwarm failed: ${message}` }],
           isError: true,
@@ -218,12 +222,12 @@ function createAgentSwarmSpecs(args: {
   resume_agent_ids?: Record<string, string>;
   prompt_template?: string;
 }): SwarmSpec[] {
-  const resumeEntries = Object.entries(
-    args.resume_agent_ids ?? {},
-  ).map(([agentId, prompt]) => ({
-    agentId: agentId.trim(),
-    prompt: prompt.trim(),
-  }));
+  const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(
+    ([agentId, prompt]) => ({
+      agentId: agentId.trim(),
+      prompt: prompt.trim(),
+    }),
+  );
   const items = (args.items ?? []).map((item) => item.trim());
   const itemCount = items.length;
   const resumeCount = resumeEntries.length;
@@ -244,9 +248,7 @@ function createAgentSwarmSpecs(args: {
   const promptTemplate = normalizeOptionalString(args.prompt_template);
 
   if (items.length > 0 && promptTemplate === undefined) {
-    throw new Error(
-      "prompt_template is required when items are provided.",
-    );
+    throw new Error("prompt_template is required when items are provided.");
   }
 
   if (
@@ -357,11 +359,9 @@ function createProgressWidget(
   const component = new AgentSwarmProgressComponent();
   try {
     // 工厂函数返回预先创建的组件实例；TUI 框架会在刷新周期调用 render
-    setWidget(
-      PROGRESS_WIDGET_KEY,
-      () => component,
-      { placement: "aboveEditor" },
-    );
+    setWidget(PROGRESS_WIDGET_KEY, () => component, {
+      placement: "aboveEditor",
+    });
   } catch {
     // setWidget 失败不应阻断 swarm 执行
     component.dispose();

@@ -13,7 +13,7 @@ import { TaskGraph, DEFAULT_TEAM_PHASES } from "../src/team/task-graph.js";
 import { TeamSupervisor } from "../src/team/supervisor.js";
 import { resolveSwarmMaxConcurrency } from "../src/shared/controller.js";
 import {
-  resolveCrewRoot,
+  resolveSwarmRoot,
   createManifest,
   readManifest,
   deleteRunState,
@@ -48,7 +48,7 @@ describe("Module imports", () => {
   });
 
   it("imports persistence module", () => {
-    expect(resolveCrewRoot).toBeDefined();
+    expect(resolveSwarmRoot).toBeDefined();
     expect(createManifest).toBeDefined();
     expect(readManifest).toBeDefined();
   });
@@ -215,7 +215,7 @@ describe("Supervisor integration", () => {
   it("initializes with default phases", () => {
     const supervisor = new TeamSupervisor({
       cwd: process.cwd(),
-      crewRoot: os.tmpdir(),
+      swarmRoot: os.tmpdir(),
       runId: "test-supervisor-001",
       goal: "Test goal",
     });
@@ -233,7 +233,7 @@ describe("Supervisor integration", () => {
   it("starts and completes the first phase", () => {
     const supervisor = new TeamSupervisor({
       cwd: process.cwd(),
-      crewRoot: os.tmpdir(),
+      swarmRoot: os.tmpdir(),
       runId: "test-supervisor-002",
       goal: "Test goal",
     });
@@ -251,7 +251,7 @@ describe("Supervisor integration", () => {
   it("synthesizes result XML", () => {
     const supervisor = new TeamSupervisor({
       cwd: process.cwd(),
-      crewRoot: os.tmpdir(),
+      swarmRoot: os.tmpdir(),
       runId: "test-supervisor-003",
       goal: "Test",
     });
@@ -265,9 +265,9 @@ describe("Supervisor integration", () => {
     supervisor.finalize();
 
     const xml = supervisor.synthesizeResult();
-    expect(xml).toContain("<agent_team_result>");
+    expect(xml).toContain("<swarm_team_result>");
     expect(xml).toContain('outcome="completed"');
     expect(xml).toContain("explore");
-    expect(xml).toContain("</agent_team_result>");
+    expect(xml).toContain("</swarm_team_result>");
   });
 });

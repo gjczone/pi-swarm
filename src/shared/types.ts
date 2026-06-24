@@ -198,14 +198,16 @@ export interface BaseQueuedSubagentTask<T = unknown> {
 }
 
 /** A task that spawns a NEW subagent. */
-export interface SpawnQueuedSubagentTask<T = unknown>
-  extends BaseQueuedSubagentTask<T> {
+export interface SpawnQueuedSubagentTask<
+  T = unknown,
+> extends BaseQueuedSubagentTask<T> {
   readonly kind: "spawn";
 }
 
 /** A task that RESUMES an existing subagent. */
-export interface ResumeQueuedSubagentTask<T = unknown>
-  extends BaseQueuedSubagentTask<T> {
+export interface ResumeQueuedSubagentTask<
+  T = unknown,
+> extends BaseQueuedSubagentTask<T> {
   readonly kind: "resume";
   readonly resumeAgentId: string;
 }
@@ -232,6 +234,36 @@ export interface SubagentBatchOptions {
    */
   readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
 }
+
+// ---------------------------------------------------------------------------
+// Team progress types (for TUI dashboard)
+// ---------------------------------------------------------------------------
+
+/** Snapshot of team run progress for TUI display. */
+export interface TeamProgressSnapshot {
+  readonly title: string;
+  readonly goal: string;
+  readonly status: "running" | "completed" | "failed";
+  readonly totalPhases: number;
+  readonly completedPhases: number;
+  readonly failedPhases: number;
+  readonly currentPhase?: string;
+  readonly currentRole?: string;
+  readonly phases: ReadonlyArray<TeamPhaseStatus>;
+  readonly mailboxCount: number;
+  readonly startedAt: number;
+}
+
+/** Per-phase status in a team progress snapshot. */
+export interface TeamPhaseStatus {
+  readonly name: string;
+  readonly role: AgentRole;
+  readonly status: "queued" | "running" | "completed" | "failed" | "skipped";
+  readonly error?: string;
+}
+
+/** Callback for team progress updates. */
+export type TeamProgressCallback = (snapshot: TeamProgressSnapshot) => void;
 
 /** Snapshot of batch progress for TUI display. */
 export interface BatchProgressSnapshot {

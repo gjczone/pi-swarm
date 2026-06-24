@@ -11,6 +11,8 @@ import type {
   TeamPhase,
   AgentRoleConfig,
   MailboxMessage,
+  TeamProgressCallback,
+  TeamProgressSnapshot,
 } from "../shared/types.js";
 import {
   TaskGraph,
@@ -33,8 +35,8 @@ import {
 export interface TeamSupervisorConfig {
   /** Working directory for the team run. */
   readonly cwd: string;
-  /** Crew root for state persistence. */
-  readonly crewRoot: string;
+  /** Swarm root for state persistence. */
+  readonly swarmRoot: string;
   /** Unique run identifier. */
   readonly runId: string;
   /** High-level goal. */
@@ -45,6 +47,8 @@ export interface TeamSupervisorConfig {
   readonly roles?: readonly AgentRoleConfig[];
   /** Max concurrent agents. */
   readonly maxAgents?: number;
+  /** Progress callback for TUI dashboard updates. */
+  readonly onProgress?: TeamProgressCallback;
 }
 
 // ---------------------------------------------------------------------------
@@ -69,13 +73,12 @@ export class TeamSupervisor {
   readonly config: TeamSupervisorConfig;
   readonly state: TeamRunState;
   readonly mailboxPaths: MailboxPaths;
+  private readonly onProgress?: TeamProgressCallback;
 
   constructor(config: TeamSupervisorConfig) {
     this.config = config;
-    this.mailboxPaths = resolveMailboxPaths(
-      config.crewRoot,
-      config.runId,
-    );
+    this.onProgress = config.onProgress;
+    this.mailboxPaths = resolveMailboxPaths(config.swarmRoot, config.runId);
 
     const phases = config.phases ?? DEFAULT_TEAM_PHASES;
     this.state = {
@@ -88,6 +91,9 @@ export class TeamSupervisor {
     };
 
     ensureMailbox(this.mailboxPaths);
+
+    // Emit initial state (all queued)
+    this.emitProgress();
   }
 
   // -------------------------------------------------------------------
@@ -146,9 +152,14 @@ export class TeamSupervisor {
       },
     };
     sendMessage(this.mailboxPaths, assignmentMessage);
-    updateDeliveryState(this.mailboxPaths, assignmentMessage.messageId, "delivered");
+    updateDeliveryState(
+      this.mailboxPaths,
+      assignmentMessage.messageId,
+      "delivered",
+    );
 
     const prompt = this.buildPhasePrompt(phase);
+    this.emitProgress();
     return {
       phase,
       role: phase.phase.role,
@@ -164,7 +175,8 @@ export class TeamSupervisor {
     messages: Array<{ to: string; content: string }>;
   } {
     const messages: Array<{ to: string; content: string }> = [];
-    const messageRegex = /<mailbox_message\s+to="([^"]+)">([\s\S]*?)<\/mailbox_message>/g;
+    const messageRegex =
+      /<mailbox_message\s+to="([^"]+)">([\s\S]*?)<\/mailbox_message>/g;
     let match;
     while ((match = messageRegex.exec(output)) !== null) {
       messages.push({
@@ -180,7 +192,10 @@ export class TeamSupervisor {
    * Mark a phase as completed with its raw output.
    * Parses messages from output, delivers them, and sends task_result broadcast.
    */
-  completePhase(name: string, rawOutput: string): {
+  completePhase(
+    name: string,
+    rawOutput: string,
+  ): {
     result: string;
     deliveredMessages: number;
   } {
@@ -206,7 +221,11 @@ export class TeamSupervisor {
           payload: { content: msg.content },
         };
         sendMessage(this.mailboxPaths, handoffMessage);
-        updateDeliveryState(this.mailboxPaths, handoffMessage.messageId, "delivered");
+        updateDeliveryState(
+          this.mailboxPaths,
+          handoffMessage.messageId,
+          "delivered",
+        );
         deliveredCount++;
       } catch {
         // Skip invalid messages
@@ -224,8 +243,13 @@ export class TeamSupervisor {
       payload: { phase: name, result },
     };
     sendMessage(this.mailboxPaths, resultMessage);
-    updateDeliveryState(this.mailboxPaths, resultMessage.messageId, "broadcast");
+    updateDeliveryState(
+      this.mailboxPaths,
+      resultMessage.messageId,
+      "broadcast",
+    );
 
+    this.emitProgress();
     return { result, deliveredMessages: deliveredCount };
   }
 
@@ -256,6 +280,8 @@ export class TeamSupervisor {
         }
       }
     }
+
+    this.emitProgress();
   }
 
   /**
@@ -270,6 +296,63 @@ export class TeamSupervisor {
   // Completion
   // -------------------------------------------------------------------
 
+  // -------------------------------------------------------------------
+  // Progress emission
+  // -------------------------------------------------------------------
+
+  /**
+   * Build and emit a TeamProgressSnapshot for the TUI dashboard.
+   *
+   * Reads current phase statuses from the task graph, counts mailbox
+   * messages, and calls the optional onProgress callback with the
+   * snapshot.
+   */
+  private emitProgress(): void {
+    if (!this.onProgress) return;
+
+    try {
+      const allPhases = this.state.taskGraph.getAllPhases();
+      const phases = allPhases.map((p) => ({
+        name: p.phase.name,
+        role: p.phase.role,
+        status: p.status as TeamProgressSnapshot["phases"][number]["status"],
+        error: p.error,
+      }));
+      const completed = phases.filter((p) => p.status === "completed").length;
+      const failed = phases.filter((p) => p.status === "failed").length;
+
+      // Find current running phase
+      const runningPhase = phases.find((p) => p.status === "running");
+
+      // Best-effort mailbox count
+      let mailboxCount = 0;
+      try {
+        const inbox = readTaskInbox(this.mailboxPaths, "supervisor");
+        mailboxCount = inbox.length;
+      } catch {
+        // Ignore mailbox read errors
+      }
+
+      const snapshot: TeamProgressSnapshot = {
+        title: this.config.goal,
+        goal: this.config.goal,
+        status: this.state.status,
+        totalPhases: phases.length,
+        completedPhases: completed,
+        failedPhases: failed,
+        currentPhase: runningPhase?.name,
+        currentRole: runningPhase?.role,
+        phases,
+        mailboxCount,
+        startedAt: this.state.startedAt,
+      };
+
+      this.onProgress(snapshot);
+    } catch {
+      // Best effort — dashboard failure must not break the run
+    }
+  }
+
   /** Check if the entire run is complete. */
   isComplete(): boolean {
     return this.state.taskGraph.isComplete();
@@ -279,6 +362,7 @@ export class TeamSupervisor {
   finalize(): void {
     this.state.status = this.state.taskGraph.overallStatus();
     this.state.completedAt = Date.now();
+    this.emitProgress();
   }
 
   /**
@@ -286,7 +370,7 @@ export class TeamSupervisor {
    */
   synthesizeResult(): string {
     const lines: string[] = [
-      "<agent_team_result>",
+      "<swarm_team_result>",
       `<summary>${this.buildSummary()}</summary>`,
     ];
 
@@ -310,7 +394,7 @@ export class TeamSupervisor {
       lines.push(`</phase>`);
     }
 
-    lines.push("</agent_team_result>");
+    lines.push("</swarm_team_result>");
     return lines.join("\n");
   }
 
@@ -350,7 +434,10 @@ export class TeamSupervisor {
       );
       if (handoffMessages.length > 0) {
         const messageText = handoffMessages
-          .map((m) => `Message from ${m.from}:\n${String(m.payload.content ?? m.payload.phase ?? "")}`)
+          .map(
+            (m) =>
+              `Message from ${m.from}:\n${String(m.payload.content ?? m.payload.phase ?? "")}`,
+          )
           .join("\n\n");
         messagesBlock = `\n\nMessages for you:\n${messageText}`;
       }
@@ -384,15 +471,9 @@ export class TeamSupervisor {
 
   private buildSummary(): string {
     const all = this.state.taskGraph.getAllPhases();
-    const completed = all.filter(
-      (p) => p.status === "completed",
-    ).length;
-    const failed = all.filter(
-      (p) => p.status === "failed",
-    ).length;
-    const skipped = all.filter(
-      (p) => p.status === "skipped",
-    ).length;
+    const completed = all.filter((p) => p.status === "completed").length;
+    const failed = all.filter((p) => p.status === "failed").length;
+    const skipped = all.filter((p) => p.status === "skipped").length;
     const total = all.length;
 
     return (

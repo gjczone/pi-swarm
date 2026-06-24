@@ -119,9 +119,7 @@ describe("SubagentBatchController", () => {
       "task-0": { delayMs: 10, result: "done" },
     });
 
-    const controller = new SubagentBatchController(launcher, [
-      makeTask(0),
-    ]);
+    const controller = new SubagentBatchController(launcher, [makeTask(0)]);
     const results = await controller.run();
 
     expect(results).toHaveLength(1);
@@ -215,9 +213,7 @@ describe("SubagentBatchController", () => {
       },
     };
 
-    const controller = new SubagentBatchController(launcher, [
-      makeTask(0),
-    ]);
+    const controller = new SubagentBatchController(launcher, [makeTask(0)]);
     const results = await controller.run();
 
     expect(results).toHaveLength(1);

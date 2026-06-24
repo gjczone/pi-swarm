@@ -20,11 +20,19 @@ const SAFE_RECIPIENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 function validateRecipient(recipient: string, field: string): void {
   if (recipient === "broadcast") return;
-  if (typeof recipient !== "string" || recipient.length === 0 || recipient.length > 128) {
-    throw new Error(`Invalid ${field}: must be a non-empty string up to 128 characters`);
+  if (
+    typeof recipient !== "string" ||
+    recipient.length === 0 ||
+    recipient.length > 128
+  ) {
+    throw new Error(
+      `Invalid ${field}: must be a non-empty string up to 128 characters`,
+    );
   }
   if (!SAFE_RECIPIENT_PATTERN.test(recipient)) {
-    throw new Error(`Invalid ${field}: "${recipient}" contains unsafe characters`);
+    throw new Error(
+      `Invalid ${field}: "${recipient}" contains unsafe characters`,
+    );
   }
 }
 
@@ -32,7 +40,9 @@ function ensureWithinMailbox(resolvedPath: string, mailboxRoot: string): void {
   const normalizedRoot = path.resolve(mailboxRoot) + path.sep;
   const normalizedPath = path.resolve(resolvedPath);
   if (!normalizedPath.startsWith(normalizedRoot)) {
-    throw new Error(`Path traversal detected: ${resolvedPath} escapes mailbox root`);
+    throw new Error(
+      `Path traversal detected: ${resolvedPath} escapes mailbox root`,
+    );
   }
 }
 
@@ -43,7 +53,7 @@ function ensureWithinMailbox(resolvedPath: string, mailboxRoot: string): void {
 /**
  * Resolve mailbox paths for a team run.
  *
- *   {crewRoot}/state/runs/{runId}/mailbox/
+ *   {swarmRoot}/state/runs/{runId}/mailbox/
  *     inbox.jsonl       — team-level inbox
  *     outbox.jsonl      — team-level outbox
  *     delivery.json     — delivery state
@@ -60,16 +70,10 @@ export interface MailboxPaths {
 }
 
 export function resolveMailboxPaths(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
 ): MailboxPaths {
-  const root = path.join(
-    crewRoot,
-    "state",
-    "runs",
-    runId,
-    "mailbox",
-  );
+  const root = path.join(swarmRoot, "state", "runs", runId, "mailbox");
   return {
     root,
     inbox: path.join(root, "inbox.jsonl"),
@@ -152,10 +156,7 @@ export function readTaskInbox(
 /**
  * Acknowledge (delete) messages from the team inbox.
  */
-export function ackMessages(
-  paths: MailboxPaths,
-  messageIds: string[],
-): void {
+export function ackMessages(paths: MailboxPaths, messageIds: string[]): void {
   const messages = readJsonLines(paths.inbox);
   const idSet = new Set(messageIds);
   const remaining = messages.filter((m) => !idSet.has(m.messageId));
@@ -165,9 +166,7 @@ export function ackMessages(
 /**
  * Get delivery state (which messages have been delivered/read).
  */
-export function getDeliveryState(
-  paths: MailboxPaths,
-): Record<string, string> {
+export function getDeliveryState(paths: MailboxPaths): Record<string, string> {
   try {
     const raw = fs.readFileSync(paths.delivery, "utf-8");
     if (!raw.trim()) return {};
@@ -187,21 +186,14 @@ export function updateDeliveryState(
 ): void {
   const state = getDeliveryState(paths);
   state[messageId] = status;
-  fs.writeFileSync(
-    paths.delivery,
-    JSON.stringify(state, null, 2),
-    "utf-8",
-  );
+  fs.writeFileSync(paths.delivery, JSON.stringify(state, null, 2), "utf-8");
 }
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
-function appendJsonLine(
-  filePath: string,
-  data: unknown,
-): void {
+function appendJsonLine(filePath: string, data: unknown): void {
   const line = JSON.stringify(data) + "\n";
   fs.appendFileSync(filePath, line, "utf-8");
 }
@@ -227,13 +219,8 @@ function readJsonLines(filePath: string): MailboxMessage[] {
   }
 }
 
-function writeJsonLines(
-  filePath: string,
-  messages: MailboxMessage[],
-): void {
-  const content = messages
-    .map((m) => JSON.stringify(m))
-    .join("\n");
+function writeJsonLines(filePath: string, messages: MailboxMessage[]): void {
+  const content = messages.map((m) => JSON.stringify(m)).join("\n");
   fs.writeFileSync(filePath, content + (content ? "\n" : ""), "utf-8");
 }
 
@@ -247,8 +234,8 @@ function extractRunId(mailboxRoot: string): string {
   return "unknown";
 }
 
-function extractCrewRoot(mailboxRoot: string): string {
-  // mailboxRoot = {crewRoot}/state/runs/{runId}/mailbox
+function extractSwarmRoot(mailboxRoot: string): string {
+  // mailboxRoot = {swarmRoot}/state/runs/{runId}/mailbox
   const parts = mailboxRoot.split(path.sep);
   const stateIdx = parts.lastIndexOf("state");
   if (stateIdx >= 0) {

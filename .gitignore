@@ -26,6 +26,9 @@ coverage/
 # Crew state (generated at runtime)
 .pi/swarm/state/
 
+# Worktrees
+.worktrees/
+
 # Debug logs
 *.log
 npm-debug.log*

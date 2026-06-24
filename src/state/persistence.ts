@@ -26,17 +26,24 @@ const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
 export function validateId(id: string, kind: string): void {
   if (typeof id !== "string" || id.length === 0 || id.length > 128) {
-    throw new Error(`Invalid ${kind}: must be a non-empty string up to 128 characters`);
+    throw new Error(
+      `Invalid ${kind}: must be a non-empty string up to 128 characters`,
+    );
   }
   if (!SAFE_ID_PATTERN.test(id)) {
-    throw new Error(`Invalid ${kind}: "${id}" contains unsafe characters (only a-z, A-Z, 0-9, _, - allowed)`);
+    throw new Error(
+      `Invalid ${kind}: "${id}" contains unsafe characters (only a-z, A-Z, 0-9, _, - allowed)`,
+    );
   }
 }
 
 function ensureWithinRoot(resolvedPath: string, root: string): void {
   const normalizedRoot = path.resolve(root) + path.sep;
   const normalizedPath = path.resolve(resolvedPath);
-  if (!normalizedPath.startsWith(normalizedRoot) && normalizedPath !== path.resolve(root)) {
+  if (
+    !normalizedPath.startsWith(normalizedRoot) &&
+    normalizedPath !== path.resolve(root)
+  ) {
     throw new Error(`Path traversal detected: ${resolvedPath} escapes ${root}`);
   }
 }
@@ -51,7 +58,7 @@ function ensureWithinRoot(resolvedPath: string, root: string): void {
  * Always uses `.pi/swarm/` under the project root.  Creates `.pi/`
  * if it does not already exist.
  */
-export function resolveCrewRoot(cwd: string): string {
+export function resolveSwarmRoot(cwd: string): string {
   const piDir = path.join(cwd, ".pi");
   if (!fs.existsSync(piDir)) {
     fs.mkdirSync(piDir, { recursive: true });
@@ -64,12 +71,9 @@ export function resolveCrewRoot(cwd: string): string {
 }
 
 /** Resolve the state directory for a specific run. */
-export function resolveRunStateDir(
-  crewRoot: string,
-  runId: string,
-): string {
+export function resolveRunStateDir(swarmRoot: string, runId: string): string {
   validateId(runId, "runId");
-  const runsDir = path.join(crewRoot, "state", "runs");
+  const runsDir = path.join(swarmRoot, "state", "runs");
   const dir = path.join(runsDir, runId);
   ensureWithinRoot(dir, runsDir);
   return dir;
@@ -77,12 +81,12 @@ export function resolveRunStateDir(
 
 /** Resolve per-agent state directory. */
 export function resolveAgentStateDir(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
   agentId: string,
 ): string {
   validateId(agentId, "agentId");
-  const runDir = resolveRunStateDir(crewRoot, runId);
+  const runDir = resolveRunStateDir(swarmRoot, runId);
   const agentsDir = path.join(runDir, "agents");
   const dir = path.join(agentsDir, agentId);
   ensureWithinRoot(dir, agentsDir);
@@ -107,11 +111,8 @@ export interface RunManifest {
 /**
  * Create a new run manifest and write it to disk.
  */
-export function createManifest(
-  crewRoot: string,
-  manifest: RunManifest,
-): void {
-  const dir = resolveRunStateDir(crewRoot, manifest.runId);
+export function createManifest(swarmRoot: string, manifest: RunManifest): void {
+  const dir = resolveRunStateDir(swarmRoot, manifest.runId);
   fs.mkdirSync(dir, { recursive: true });
   writeAtomic(
     path.join(dir, "manifest.json"),
@@ -124,11 +125,11 @@ export function createManifest(
  * Returns null if the manifest does not exist.
  */
 export function readManifest(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
 ): RunManifest | null {
   const filePath = path.join(
-    resolveRunStateDir(crewRoot, runId),
+    resolveRunStateDir(swarmRoot, runId),
     "manifest.json",
   );
   try {
@@ -142,11 +143,8 @@ export function readManifest(
 /**
  * Update a run manifest (overwrites the file atomically).
  */
-export function updateManifest(
-  crewRoot: string,
-  manifest: RunManifest,
-): void {
-  const dir = resolveRunStateDir(crewRoot, manifest.runId);
+export function updateManifest(swarmRoot: string, manifest: RunManifest): void {
+  const dir = resolveRunStateDir(swarmRoot, manifest.runId);
   fs.mkdirSync(dir, { recursive: true });
   writeAtomic(
     path.join(dir, "manifest.json"),
@@ -157,15 +155,12 @@ export function updateManifest(
 /**
  * Update the heartbeat timestamp for a running manifest.
  */
-export function updateHeartbeat(
-  crewRoot: string,
-  runId: string,
-): void {
-  const manifest = readManifest(crewRoot, runId);
+export function updateHeartbeat(swarmRoot: string, runId: string): void {
+  const manifest = readManifest(swarmRoot, runId);
   if (!manifest) return;
   if (manifest.status !== "running") return;
   manifest.lastHeartbeatAt = Date.now();
-  updateManifest(crewRoot, manifest);
+  updateManifest(swarmRoot, manifest);
 }
 
 // ---------------------------------------------------------------------------
@@ -176,16 +171,13 @@ export function updateHeartbeat(
  * Persist task state (task graph) to disk.
  */
 export function saveTaskState(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
   data: Record<string, unknown>,
 ): void {
-  const dir = resolveRunStateDir(crewRoot, runId);
+  const dir = resolveRunStateDir(swarmRoot, runId);
   fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(
-    path.join(dir, "tasks.json"),
-    JSON.stringify(data, null, 2),
-  );
+  writeAtomic(path.join(dir, "tasks.json"), JSON.stringify(data, null, 2));
 }
 
 /**
@@ -193,11 +185,11 @@ export function saveTaskState(
  * Returns null if the file does not exist.
  */
 export function loadTaskState(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
 ): Record<string, unknown> | null {
   const filePath = path.join(
-    resolveRunStateDir(crewRoot, runId),
+    resolveRunStateDir(swarmRoot, runId),
     "tasks.json",
   );
   try {
@@ -216,11 +208,11 @@ export function loadTaskState(
  * Append an event to the run's event log.
  */
 export function appendEvent(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
   event: Record<string, unknown>,
 ): void {
-  const dir = resolveRunStateDir(crewRoot, runId);
+  const dir = resolveRunStateDir(swarmRoot, runId);
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, "events.jsonl");
   const line = JSON.stringify(event) + "\n";
@@ -231,11 +223,11 @@ export function appendEvent(
  * Read all events from the run's event log.
  */
 export function readEvents(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
 ): Record<string, unknown>[] {
   const filePath = path.join(
-    resolveRunStateDir(crewRoot, runId),
+    resolveRunStateDir(swarmRoot, runId),
     "events.jsonl",
   );
   try {
@@ -265,29 +257,26 @@ export function readEvents(
  * Save per-agent status.
  */
 export function saveAgentStatus(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
   agentId: string,
   status: Record<string, unknown>,
 ): void {
-  const dir = resolveAgentStateDir(crewRoot, runId, agentId);
+  const dir = resolveAgentStateDir(swarmRoot, runId, agentId);
   fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(
-    path.join(dir, "status.json"),
-    JSON.stringify(status, null, 2),
-  );
+  writeAtomic(path.join(dir, "status.json"), JSON.stringify(status, null, 2));
 }
 
 /**
  * Load per-agent status.
  */
 export function loadAgentStatus(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
   agentId: string,
 ): Record<string, unknown> | null {
   const filePath = path.join(
-    resolveAgentStateDir(crewRoot, runId, agentId),
+    resolveAgentStateDir(swarmRoot, runId, agentId),
     "status.json",
   );
   try {
@@ -302,8 +291,8 @@ export function loadAgentStatus(
  * List all active run IDs in the state directory.
  * Only returns IDs that match the safe ID pattern.
  */
-export function listActiveRuns(crewRoot: string): string[] {
-  const runsDir = path.join(crewRoot, "state", "runs");
+export function listActiveRuns(swarmRoot: string): string[] {
+  const runsDir = path.join(swarmRoot, "state", "runs");
   if (!fs.existsSync(runsDir)) return [];
 
   return fs
@@ -323,11 +312,8 @@ export function listActiveRuns(crewRoot: string): string[] {
 /**
  * Delete the entire run state directory.
  */
-export function deleteRunState(
-  crewRoot: string,
-  runId: string,
-): void {
-  const dir = resolveRunStateDir(crewRoot, runId);
+export function deleteRunState(swarmRoot: string, runId: string): void {
+  const dir = resolveRunStateDir(swarmRoot, runId);
   if (fs.existsSync(dir)) {
     fs.rmSync(dir, { recursive: true, force: true });
   }

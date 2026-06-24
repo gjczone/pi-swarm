@@ -7,7 +7,10 @@
  * Inspired by pi-crew's team orchestration and CrewAI's hierarchical model.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionContext,
+} from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   SubagentBatchController,
@@ -19,27 +22,27 @@ import {
   resumeSubagent,
   retrySubagent,
 } from "../shared/spawner.js";
-import type {
-  QueuedSubagentTask,
-  SubagentResult,
-} from "../shared/types.js";
+import type { QueuedSubagentTask, SubagentResult } from "../shared/types.js";
 import {
-  resolveCrewRoot,
+  resolveSwarmRoot,
   createManifest,
   saveTaskState,
   updateHeartbeat,
 } from "../state/persistence.js";
 import { TeamSupervisor } from "./supervisor.js";
-import type {
-  TeamPhase,
-  AgentRoleConfig,
-} from "../shared/types.js";
+import type { TeamPhase, AgentRoleConfig } from "../shared/types.js";
+import {
+  TeamDashboardComponent,
+  snapshotToDashboardState,
+} from "../tui/team-dashboard.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
 
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
+
+const TEAM_DASHBOARD_WIDGET_KEY = "pi-swarm-team-dashboard";
 
 const AGENT_TEAM_DESCRIPTION = `Launch a collaborative team of role-based agents to complete a complex multi-phase task.
 
@@ -60,9 +63,7 @@ If SwarmTeam is called, that call must be the only tool call in the response.`;
 // Registration
 // ---------------------------------------------------------------------------
 
-export function registerAgentTeamTool(
-  pi: ExtensionAPI,
-): void {
+export function registerSwarmTeamTool(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "SwarmTeam",
     label: "Swarm Team",
@@ -73,17 +74,14 @@ export function registerAgentTeamTool(
           description: "High-level goal for the team.",
         }),
         description: Type.String({
-          description:
-            "Short description for the team run.",
+          description: "Short description for the team run.",
         }),
         phases: Type.Optional(
           Type.Array(
             Type.Object({
               name: Type.String(),
               role: Type.String(),
-              dependsOn: Type.Optional(
-                Type.Array(Type.String()),
-              ),
+              dependsOn: Type.Optional(Type.Array(Type.String())),
             }),
             {
               description:
@@ -96,12 +94,8 @@ export function registerAgentTeamTool(
             Type.Object({
               role: Type.String(),
               model: Type.Optional(Type.String()),
-              tools: Type.Optional(
-                Type.Array(Type.String()),
-              ),
-              systemPrompt: Type.Optional(
-                Type.String(),
-              ),
+              tools: Type.Optional(Type.Array(Type.String())),
+              systemPrompt: Type.Optional(Type.String()),
             }),
             {
               description:
@@ -111,8 +105,7 @@ export function registerAgentTeamTool(
         ),
         max_agents: Type.Optional(
           Type.Number({
-            description:
-              "Max concurrent agents. Default 4.",
+            description: "Max concurrent agents. Default 4.",
           }),
         ),
       },
@@ -123,52 +116,61 @@ export function registerAgentTeamTool(
       params: Record<string, unknown>,
       signal: AbortSignal | undefined,
       _onUpdate: unknown,
-      _ctx: unknown,
+      ctxRaw: unknown,
     ) => {
       const p = params as {
         goal: string;
         description: string;
         phases?: { name: string; role: string; dependsOn?: string[] }[];
-        roles?: { role: string; model?: string; tools?: string[]; systemPrompt?: string }[];
+        roles?: {
+          role: string;
+          model?: string;
+          tools?: string[];
+          systemPrompt?: string;
+        }[];
         max_agents?: number;
       };
 
+      const ctx = ctxRaw as ExtensionContext;
+      const dashboard = createTeamDashboardWidget(ctx, p.description);
+
       let supervisor: TeamSupervisor | null = null;
       try {
-        const crewRoot =
-          process.env.PI_SWARM_CREW_ROOT ?? resolveCrewRoot(process.cwd());
+        const swarmRoot =
+          process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
         const runId = `team-${Date.now().toString(36)}`;
 
         // Build phase definitions
-        const phases: TeamPhase[] | undefined =
-          p.phases?.map((ph) => ({
-            name: ph.name,
-            role: ph.role as TeamPhase["role"],
-            dependsOn: ph.dependsOn,
-          }));
+        const phases: TeamPhase[] | undefined = p.phases?.map((ph) => ({
+          name: ph.name,
+          role: ph.role as TeamPhase["role"],
+          dependsOn: ph.dependsOn,
+        }));
 
         // Build role configs
-        const roles: AgentRoleConfig[] | undefined =
-          p.roles?.map((r) => ({
-            role: r.role as AgentRoleConfig["role"],
-            model: r.model,
-            tools: r.tools,
-            systemPrompt: r.systemPrompt,
-          }));
+        const roles: AgentRoleConfig[] | undefined = p.roles?.map((r) => ({
+          role: r.role as AgentRoleConfig["role"],
+          model: r.model,
+          tools: r.tools,
+          systemPrompt: r.systemPrompt,
+        }));
 
         // Create supervisor
         supervisor = new TeamSupervisor({
           cwd: process.cwd(),
-          crewRoot,
+          swarmRoot,
           runId,
           goal: p.goal,
           phases,
           roles,
           maxAgents: p.max_agents ?? 4,
+          onProgress: (snapshot) => {
+            dashboard?.component.update(snapshotToDashboardState(snapshot));
+          },
         });
 
         // Create manifest and save initial state
-        createManifest(crewRoot, {
+        createManifest(swarmRoot, {
           runId,
           type: "team",
           status: "running",
@@ -176,7 +178,7 @@ export function registerAgentTeamTool(
           startedAt: Date.now(),
           agentIds: [],
         });
-        saveTaskState(crewRoot, runId, supervisor.state.taskGraph.toJSON());
+        saveTaskState(swarmRoot, runId, supervisor.state.taskGraph.toJSON());
 
         // Run phases sequentially through the task graph
         const allResults: SubagentResult<unknown>[] = [];
@@ -187,10 +189,9 @@ export function registerAgentTeamTool(
           signal?.throwIfAborted();
 
           // Update heartbeat before phase
-          updateHeartbeat(crewRoot, runId);
+          updateHeartbeat(swarmRoot, runId);
 
-          const { phase, role, prompt: phasePrompt } =
-            currentPhase;
+          const { phase, role, prompt: phasePrompt } = currentPhase;
 
           // Spawn a single agent for this phase
           const tasks: QueuedSubagentTask<unknown>[] = [
@@ -208,18 +209,17 @@ export function registerAgentTeamTool(
             },
           ];
 
-          const controller =
-            new SubagentBatchController<unknown>(
-              {
-                spawn: spawnSubagent,
-                resume: resumeSubagent,
-                retry: retrySubagent,
-              },
-              tasks,
-              {
-                maxConcurrency: 1, // Team phases run sequentially
-              },
-            );
+          const controller = new SubagentBatchController<unknown>(
+            {
+              spawn: spawnSubagent,
+              resume: resumeSubagent,
+              retry: retrySubagent,
+            },
+            tasks,
+            {
+              maxConcurrency: 1, // Team phases run sequentially
+            },
+          );
 
           let phaseResults: SubagentResult<unknown>[];
           try {
@@ -231,7 +231,11 @@ export function registerAgentTeamTool(
               err instanceof Error ? err.message : String(err),
             );
             // Save state after failure
-            saveTaskState(crewRoot, runId, supervisor.state.taskGraph.toJSON());
+            saveTaskState(
+              swarmRoot,
+              runId,
+              supervisor.state.taskGraph.toJSON(),
+            );
             // Abort signal: stop the entire run, save partial state
             if (signal?.aborted) {
               supervisor.finalize();
@@ -254,10 +258,7 @@ export function registerAgentTeamTool(
               phase.phase.name,
               result.agentId ?? phase.phase.name,
             );
-            supervisor.completePhase(
-              phase.phase.name,
-              result.result ?? "",
-            );
+            supervisor.completePhase(phase.phase.name, result.result ?? "");
           } else if (result) {
             supervisor.failPhase(
               phase.phase.name,
@@ -266,13 +267,14 @@ export function registerAgentTeamTool(
           }
 
           // Save state after each phase
-          saveTaskState(crewRoot, runId, supervisor.state.taskGraph.toJSON());
+          saveTaskState(swarmRoot, runId, supervisor.state.taskGraph.toJSON());
 
           currentPhase = supervisor.startNextPhase();
         }
 
         // Finalize and render
         supervisor.finalize();
+        dashboard?.component.complete();
         const output = supervisor.synthesizeResult();
 
         return {
@@ -280,10 +282,7 @@ export function registerAgentTeamTool(
           details: undefined,
         };
       } catch (error) {
-        const message =
-          error instanceof Error
-            ? error.message
-            : String(error);
+        const message = error instanceof Error ? error.message : String(error);
         // Return partial state if available
         if (supervisor) {
           try {
@@ -314,7 +313,59 @@ export function registerAgentTeamTool(
           isError: true,
           details: undefined,
         };
+      } finally {
+        // Always tear down the dashboard widget so it does not linger
+        dashboard?.dispose();
+        clearTeamDashboardWidget(ctx);
       }
     },
   });
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard widget helpers
+// ---------------------------------------------------------------------------
+
+interface DashboardHandle {
+  readonly component: TeamDashboardComponent;
+  dispose(): void;
+}
+
+function createTeamDashboardWidget(
+  ctx: ExtensionContext,
+  _description: string,
+): DashboardHandle | undefined {
+  if (ctx.mode !== "tui") return undefined;
+  const setWidget = ctx.ui?.setWidget;
+  if (typeof setWidget !== "function") return undefined;
+
+  const component = new TeamDashboardComponent();
+  try {
+    setWidget(TEAM_DASHBOARD_WIDGET_KEY, () => component, {
+      placement: "aboveEditor",
+    });
+  } catch {
+    component.dispose();
+    return undefined;
+  }
+
+  return {
+    component,
+    dispose(): void {
+      component.dispose();
+    },
+  };
+}
+
+function clearTeamDashboardWidget(ctx: ExtensionContext): void {
+  if (ctx.mode !== "tui") return;
+  const setWidget = ctx.ui?.setWidget;
+  if (typeof setWidget !== "function") return;
+  try {
+    setWidget(TEAM_DASHBOARD_WIDGET_KEY, undefined, {
+      placement: "aboveEditor",
+    });
+  } catch {
+    // Best effort
+  }
 }
