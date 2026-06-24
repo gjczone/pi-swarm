@@ -1,5 +1,5 @@
 /**
- * spawner — launch and manage pi subagent child processes.
+ * spawner - launch and manage pi subagent child processes.
  *
  * Each subagent runs as an independent `pi --print` child process.
  * The parent parses JSON Lines events from stdout to track progress,
@@ -15,6 +15,8 @@ import type {
   SubagentUsage,
   RunSubagentOptions,
 } from "./types.js";
+
+const MAX_LINE_BUFFER_SIZE = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
 // Spawner implementation
@@ -129,180 +131,293 @@ async function runSubagentProcess(
   const invocation = getPiInvocation(args);
   const cwd = opts.cwd ?? process.cwd();
 
-  const result = await new Promise<ParsedResult>((resolve, reject) => {
-    const proc: ChildProcess = spawn(invocation.command, invocation.args, {
-      cwd,
-      shell: false,
-      stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env },
-    });
-
-    const parsed = parseEventStream(proc, agentId);
-
-    // Handle abort signal
-    if (opts.signal) {
-      const killProc = (reason?: unknown) => {
-        if (!proc.killed) {
-          proc.kill("SIGTERM");
-          setTimeout(() => {
-            if (!proc.killed) proc.kill("SIGKILL");
-          }, 5000);
-        }
-        reject(
-          reason instanceof Error
-            ? reason
-            : new Error("Subagent aborted"),
-        );
-      };
-
-      if (opts.signal.aborted) {
-        killProc(opts.signal.reason);
-        return;
-      }
-      opts.signal.addEventListener("abort", () => killProc(opts.signal.reason), {
-        once: true,
-      });
-    }
-
-    // Handle timeout
-    let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
-    if (opts.timeout && opts.timeout > 0) {
-      timeoutHandle = setTimeout(() => {
-        if (!proc.killed) {
-          proc.kill("SIGTERM");
-          setTimeout(() => {
-            if (!proc.killed) proc.kill("SIGKILL");
-          }, 5000);
-        }
-        reject(new Error("Subagent timed out"));
-      }, opts.timeout);
-    }
-
-    proc.on("close", (code) => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      if (code === 0 || code === null) {
-        resolve(parsed);
-      } else {
-        reject(
-          new Error(
-            `Subagent exited with code ${code}: ${parsed.errorMessage || parsed.text || "unknown error"}`,
-          ),
-        );
-      }
-    });
-
-    proc.on("error", (err) => {
-      if (timeoutHandle) clearTimeout(timeoutHandle);
-      reject(err);
-    });
+  const proc: ChildProcess = spawn(invocation.command, invocation.args, {
+    cwd,
+    shell: false,
+    stdio: ["ignore", "pipe", "pipe"],
+    env: { ...process.env },
   });
 
-  return {
-    result: result.text || "(no output)",
-    usage: result.usage,
+  let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
+  let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let streamReject: ((err: Error) => void) | undefined;
+  let settled = false;
+
+  const cleanup = () => {
+    settled = true;
+    if (sigkillTimer) {
+      clearTimeout(sigkillTimer);
+      sigkillTimer = undefined;
+    }
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+      timeoutHandle = undefined;
+    }
+    if (opts.signal) {
+      opts.signal.removeEventListener("abort", onAbort);
+    }
   };
+
+  const scheduleSigkill = () => {
+    if (sigkillTimer) clearTimeout(sigkillTimer);
+    sigkillTimer = setTimeout(() => {
+      if (!proc.killed) proc.kill("SIGKILL");
+    }, 5000);
+  };
+
+  const killProc = (reason?: unknown) => {
+    if (settled) return;
+    settled = true;
+    if (!proc.killed) {
+      proc.kill("SIGTERM");
+      scheduleSigkill();
+    }
+    const err = reason instanceof Error
+      ? reason
+      : new Error("Subagent aborted");
+    if (streamReject) {
+      cleanup();
+      streamReject(err);
+    }
+  };
+
+  const onAbort = () => killProc(opts.signal?.reason);
+
+  if (opts.signal) {
+    if (opts.signal.aborted) {
+      killProc(opts.signal.reason);
+    } else {
+      opts.signal.addEventListener("abort", onAbort, { once: true });
+    }
+  }
+
+  if (opts.timeout && opts.timeout > 0) {
+    timeoutHandle = setTimeout(() => {
+      if (settled) return;
+      settled = true;
+      if (!proc.killed) {
+        proc.kill("SIGTERM");
+        scheduleSigkill();
+      }
+      if (streamReject) {
+        cleanup();
+        streamReject(new Error("Subagent timed out"));
+      }
+    }, opts.timeout);
+  }
+
+  try {
+    const result = await new Promise<ParsedResult>((resolve, reject) => {
+      streamReject = reject;
+      parseEventStream(proc, agentId).then(
+        (parsed) => {
+          if (settled) return;
+          cleanup();
+          resolve(parsed);
+        },
+        (err) => {
+          if (settled) return;
+          cleanup();
+          reject(err);
+        },
+      );
+    });
+
+    return {
+      result: result.text || "(no output)",
+      usage: result.usage,
+    };
+  } catch (err) {
+    cleanup();
+    throw err;
+  }
 }
 
 /**
  * Parse the JSON Lines event stream from a pi --print child process.
- * Accumulates usage stats and extracts the final text result.
+ * Returns a Promise that resolves after process close with accumulated results.
  */
 function parseEventStream(
   proc: ChildProcess,
-  _agentId: string,
-): ParsedResult {
-  // Mutable accumulator (interface fields are readonly)
-  const usageAcc = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
-  let finalText = "";
-  let stopReason: string | undefined;
-  let errorMessage: string | undefined;
+  agentId: string,
+): Promise<ParsedResult> {
+  return new Promise<ParsedResult>((resolve, reject) => {
+    const usageAcc = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+    };
+    let finalText = "";
+    let stopReason: string | undefined;
+    let errorMessage = "";
+    let buffer = "";
+    let unparseableCount = 0;
+    let settled = false;
 
-  let buffer = "";
-
-  const processLine = (line: string) => {
-    if (!line.trim()) return;
-
-    let event: SubagentEvent;
-    try {
-      event = JSON.parse(line);
-    } catch {
-      return; // Ignore non-JSON lines
-    }
-
-    // Accumulate usage from message_end events (assistant messages)
-    if (
-      event.type === "message_end" &&
-      event.message?.role === "assistant"
-    ) {
-      const msg = event.message;
-      if (msg.usage) {
-        usageAcc.input += msg.usage.input || 0;
-        usageAcc.output += msg.usage.output || 0;
-        usageAcc.cacheRead += msg.usage.cacheRead || 0;
-        usageAcc.cacheWrite += msg.usage.cacheWrite || 0;
-        usageAcc.totalTokens = msg.usage.totalTokens || usageAcc.totalTokens;
+    const settle = (result: ParsedResult | null, err?: Error) => {
+      if (settled) return;
+      settled = true;
+      proc.stdout?.removeAllListeners();
+      proc.stderr?.removeAllListeners();
+      proc.removeAllListeners();
+      if (err) {
+        reject(err);
+      } else if (result) {
+        resolve(result);
       }
-      if (msg.stopReason) stopReason = msg.stopReason;
-      if (msg.errorMessage) errorMessage = msg.errorMessage;
+    };
 
-      // Collect text content from the final message
-      const content = msg.content;
-      if (content && Array.isArray(content)) {
-        for (const block of content) {
-          if (block.type === "text" && block.text) {
-            finalText += block.text;
+    const buildResult = (): ParsedResult => ({
+      text: finalText,
+      usage: {
+        input: usageAcc.input,
+        output: usageAcc.output,
+        cacheRead: usageAcc.cacheRead,
+        cacheWrite: usageAcc.cacheWrite,
+        totalTokens: usageAcc.totalTokens,
+      },
+      stopReason,
+      errorMessage: errorMessage || undefined,
+    });
+
+    const processLine = (line: string) => {
+      if (!line.trim()) return;
+
+      let event: SubagentEvent;
+      try {
+        event = JSON.parse(line);
+      } catch {
+        unparseableCount++;
+        if (unparseableCount === 1 || unparseableCount % 100 === 0) {
+          console.error(
+            `[pi-swarm] Agent ${agentId}: ${unparseableCount} unparseable output line(s)`,
+          );
+        }
+        return;
+      }
+
+      if (
+        event.type === "message_end" &&
+        event.message?.role === "assistant"
+      ) {
+        const msg = event.message;
+        if (msg.usage) {
+          usageAcc.input += msg.usage.input || 0;
+          usageAcc.output += msg.usage.output || 0;
+          usageAcc.cacheRead += msg.usage.cacheRead || 0;
+          usageAcc.cacheWrite += msg.usage.cacheWrite || 0;
+          usageAcc.totalTokens += msg.usage.totalTokens || 0;
+        }
+        if (msg.stopReason) stopReason = msg.stopReason;
+        if (msg.errorMessage) {
+          if (errorMessage) errorMessage += "\n";
+          errorMessage += msg.errorMessage;
+        }
+
+        const content = msg.content;
+        if (content && Array.isArray(content)) {
+          for (const block of content) {
+            if (block.type === "text" && block.text) {
+              finalText += block.text;
+            }
           }
         }
       }
-    }
+    };
 
-    // Tool result events — collect output for display
-    if (event.type === "tool_result_end") {
-      // Tool results are captured for event logging
-    }
-  };
-
-  if (proc.stdout) {
-    proc.stdout.on("data", (data: Buffer) => {
-      buffer += data.toString();
+    const processBuffer = () => {
+      if (!buffer.trim()) return;
       const lines = buffer.split("\n");
       buffer = lines.pop() || "";
       for (const line of lines) {
         processLine(line);
       }
-    });
+    };
 
-    // Must subscribe to consume the stream
-    proc.stdout.resume();
-  }
+    if (proc.stdout) {
+      proc.stdout.on("data", (data: Buffer) => {
+        if (settled) return;
+        buffer += data.toString();
 
-  if (proc.stderr) {
-    proc.stderr.on("data", (data: Buffer) => {
-      // Stderr may contain error details
-      const text = data.toString().trim();
-      if (text && !errorMessage) {
-        errorMessage = text;
+        if (buffer.length > MAX_LINE_BUFFER_SIZE) {
+          settle(
+            null,
+            new Error(
+              `Subagent output exceeded buffer limit (${MAX_LINE_BUFFER_SIZE / 1024 / 1024}MB)`,
+            ),
+          );
+          if (!proc.killed) {
+            proc.kill("SIGTERM");
+            setTimeout(() => {
+              if (!proc.killed) proc.kill("SIGKILL");
+            }, 5000);
+          }
+          return;
+        }
+
+        processBuffer();
+      });
+
+      proc.stdout.on("error", (err) => {
+        console.error(
+          `[pi-swarm] stdout error for agent ${agentId}:`,
+          err.message,
+        );
+        if (!settled) {
+          settle(
+            null,
+            new Error(`Subagent stdout error: ${err.message}`),
+          );
+        }
+      });
+
+      proc.stdout.resume();
+    }
+
+    if (proc.stderr) {
+      proc.stderr.on("data", (data: Buffer) => {
+        if (settled) return;
+        const text = data.toString();
+        if (text.trim()) {
+          if (errorMessage) errorMessage += "\n";
+          errorMessage += text.trim();
+        }
+      });
+
+      proc.stderr.on("error", (err) => {
+        console.error(
+          `[pi-swarm] stderr error for agent ${agentId}:`,
+          err.message,
+        );
+      });
+
+      proc.stderr.resume();
+    }
+
+    proc.on("close", (code, signal) => {
+      if (settled) return;
+      processBuffer();
+
+      if (code === 0 && signal === null) {
+        settle(buildResult());
+      } else {
+        const errMsg = signal
+          ? `Subagent killed by signal ${signal}`
+          : `Subagent exited with code ${code}`;
+        const fullMsg = errorMessage
+          ? `${errMsg}: ${errorMessage}`
+          : errMsg;
+        settle(null, new Error(fullMsg));
       }
     });
-    proc.stderr.resume();
-  }
 
-  // Process any remaining buffer on close
-  const originalOn = proc.on.bind(proc);
-  proc.on("close", () => {
-    if (buffer.trim()) {
-      processLine(buffer);
-    }
+    proc.on("error", (err) => {
+      if (settled) return;
+      settle(null, err);
+    });
   });
-
-  const usage: SubagentUsage = {
-    input: usageAcc.input,
-    output: usageAcc.output,
-    cacheRead: usageAcc.cacheRead,
-    cacheWrite: usageAcc.cacheWrite,
-    totalTokens: usageAcc.totalTokens,
-  };
-  return { text: finalText, usage, stopReason, errorMessage };
 }
 
 // ---------------------------------------------------------------------------
