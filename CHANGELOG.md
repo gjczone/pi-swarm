@@ -2,6 +2,23 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.3.2] - 2026-06-24
+
+### Fixed
+
+- **TUI truncation crash (#20)**: All three TUI components (progress, permission-prompt, team-dashboard) now properly truncate rendered lines to fit terminal width, preventing "Rendered line exceeds terminal width" crashes. Fixed an off-by-one bug in `borderTop` dash calculation. Added truncation guards to `renderMemberRow`, `buildSummary`, `renderPhaseRow`, `buildHeader`, `buildFooter`, and `padLine`.
+- **Keyword mode ambiguity (#21)**: Extracted `resolveKeywordMode()` function that correctly distinguishes "swarm" vs "swarm-team"/"swarm team" keywords with proper priority resolution. Replaced boolean `swarmActive` with `swarmMode` state machine (`"swarm" | "team" | null`).
+- **Startup console noise (#21)**: Removed `console.error` output during normal extension loading — pi-swarm now loads silently like pi built-in extensions.
+- **Visible auto-activation markers (#21)**: Keyword auto-activation markers now use `display: false` for transparent user experience.
+
+### Removed
+
+- **Dead code (#21)**: Removed unused functions `linkAbortSignal` (superseded by `linkAttemptSignals`), `extractRunId`, and `extractSwarmRoot`. Integrated `userCancellationReason` into `handleBatchAbort`.
+
+### Documentation
+
+- Test count updated to 90 tests across 8 test files in AGENTS.md, LOCAL_CI.md, OPS.md, LLM-REVIEW-GUIDE.md.
+
 ## [0.3.1] - 2026-06-24
 
 ### Fixed
