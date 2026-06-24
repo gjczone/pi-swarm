@@ -20,6 +20,8 @@ import type {
   RunSubagentOptions,
   SubagentHandle,
   SubagentCompletion,
+  BatchProgressSnapshot,
+  BatchMemberStatus,
 } from "./types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -162,6 +164,7 @@ export class SubagentBatchController<T> {
   private finished = false;
   private started = false;
   private startedSuccessCount = 0;
+  private readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
 
   constructor(
     private readonly launcher: SubagentBatchLauncher,
@@ -169,6 +172,7 @@ export class SubagentBatchController<T> {
     options: SubagentBatchOptions = {},
   ) {
     this.maxConcurrency = options.maxConcurrency;
+    this.onProgress = options.onProgress;
     this.states = tasks.map((task, index) => ({
       index,
       task,
@@ -232,6 +236,8 @@ export class SubagentBatchController<T> {
           { once: true },
         );
       }
+      // Emit initial snapshot (all queued) before scheduling starts
+      this.emitProgress();
       this.schedule();
     });
   }
@@ -374,6 +380,8 @@ export class SubagentBatchController<T> {
     attempt.cleanup = this.linkAttemptSignals(attempt, state.task);
     this.active.add(attempt);
     attempt.state.started = true;
+    // A task transitioned from queued to working
+    this.emitProgress();
 
     this.runAttempt(attempt).then(
       (outcome) => {
@@ -472,6 +480,8 @@ export class SubagentBatchController<T> {
     }
 
     this.results[attempt.state.index] = outcome;
+    // A task reached a terminal state (completed/failed/aborted)
+    this.emitProgress();
     this.schedule();
   }
 
@@ -498,6 +508,8 @@ export class SubagentBatchController<T> {
       error,
     );
     this.results[attempt.state.index] = result;
+    // A task reached a terminal state (completed/failed/aborted)
+    this.emitProgress();
     this.schedule();
   }
 
@@ -525,6 +537,8 @@ export class SubagentBatchController<T> {
     }
 
     this.shrinkRateLimitCapacity(Date.now());
+    // A task was suspended and requeued due to rate limiting
+    this.emitProgress();
     this.schedule();
   }
 
@@ -626,11 +640,66 @@ export class SubagentBatchController<T> {
     return false;
   }
 
+  private emitProgress(): void {
+    if (!this.onProgress) return;
+
+    let completed = 0;
+    let failed = 0;
+    let active = 0;
+    const members: BatchMemberStatus[] = [];
+
+    for (const state of this.states) {
+      const result = this.results[state.index];
+      const isActiveState = Array.from(this.active).some(
+        (a) => a.state.index === state.index,
+      );
+
+      let phase: BatchMemberStatus["phase"] = "queued";
+      let error: string | undefined;
+
+      if (result) {
+        if (result.status === "completed") {
+          phase = "completed";
+          completed++;
+        } else {
+          phase = "failed";
+          failed++;
+          error = result.error;
+        }
+      } else if (isActiveState) {
+        phase = "working";
+        active++;
+      } else if (state.retryCount > 0 && state.retryReadyAt > Date.now()) {
+        phase = "suspended";
+      }
+
+      members.push({
+        index: state.task.swarmIndex ?? state.index + 1,
+        phase,
+        item: state.task.swarmItem,
+        error,
+      });
+    }
+
+    const queued = this.states.length - completed - failed - active;
+
+    this.onProgress({
+      total: this.states.length,
+      completed,
+      failed,
+      active,
+      queued,
+      members,
+    });
+  }
+
   private finish(results: Array<SubagentResult<T>>): void {
     if (this.finished) return;
     this.finished = true;
     this.clearNormalTimer();
     this.clearRateLimitTimer();
+    // Emit final snapshot so the TUI reflects the terminal state
+    this.emitProgress();
     this.resolve?.(results);
   }
 
@@ -678,6 +747,8 @@ export class SubagentBatchController<T> {
     }
     this.active.clear();
 
+    // Emit final snapshot so the TUI reflects the failed state
+    this.emitProgress();
     this.reject?.(error);
   }
 

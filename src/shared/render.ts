@@ -1,5 +1,5 @@
 /**
- * render — format AgentSwarm and AgentTeam output.
+ * render — format AgentSwarm and SwarmTeam output.
  *
  * Produces the structured XML output that the parent LLM reads.
  * Format is compatible with kimi-code's AgentSwarm output.
@@ -105,11 +105,11 @@ export function toSwarmRunResults<T>(
 }
 
 // ---------------------------------------------------------------------------
-// AgentTeam output (reserved for Phase 3)
+// SwarmTeam output (reserved for Phase 3)
 // ---------------------------------------------------------------------------
 
 /**
- * Render the aggregated AgentTeam result as an XML string.
+ * Render the aggregated SwarmTeam result as an XML string.
  *
  * Format:
  *   <agent_team_result>

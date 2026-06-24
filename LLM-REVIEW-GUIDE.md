@@ -4,7 +4,7 @@ You are reviewing **pi-swarm**, a pi-coding-agent extension that provides multi-
 
 ## Project Context
 
-- **What it is**: A TypeScript extension for [pi](https://github.com/earendil-works/pi) that registers two tools (`AgentSwarm`, `AgentTeam`) and two commands (`/swarm`, `/swarm-team`). Agents are spawned as `pi --print` child processes.
+- **What it is**: A TypeScript extension for [pi](https://github.com/earendil-works/pi) that registers two tools (`AgentSwarm`, `SwarmTeam`) and two commands (`/swarm`, `/swarm-team`). Agents are spawned as `pi --print` child processes.
 - **Size**: 19 source modules, ~4500 LOC, 55 tests.
 - **Runtime**: Node.js >= 18, runs inside pi's extension host. Linux + macOS.
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema). Everything else is custom.
@@ -122,6 +122,6 @@ Before starting the detailed review, do these quick checks and report anything t
 - [ ] `grep -r "TODO\|FIXME\|HACK\|XXX" src/` — any leftover markers?
 - [ ] `grep -r "\.crew" src/` — any remaining references to deprecated `.crew/` path?
 - [ ] `grep -r "console\.\(log\|error\)" src/` — are there debug logs that should be removed?
-- [ ] Does `src/index.ts` register both `AgentSwarm` and `AgentTeam` tools?
+- [ ] Does `src/index.ts` register both `AgentSwarm` and `SwarmTeam` tools?
 - [ ] Does `swarm/tool.ts` allow 1 item (not still requiring 2)?
 - [ ] Does `state/persistence.ts` always use `.pi/swarm/` (never `.crew/`)?

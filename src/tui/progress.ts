@@ -9,6 +9,10 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
+import type {
+  BatchProgressSnapshot,
+  BatchMemberStatus,
+} from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Constants (from kimi-code)
@@ -103,6 +107,67 @@ export interface SwarmProgressState {
   queued: number;
   /** Per-member status. */
   members: MemberStatus[];
+}
+
+// ---------------------------------------------------------------------------
+// Snapshot conversion (controller snapshot -> component state)
+// ---------------------------------------------------------------------------
+
+/**
+ * Convert a BatchProgressSnapshot from the concurrency controller into
+ * the SwarmProgressState expected by AgentSwarmProgressComponent.
+ *
+ * Maps the controller's coarse member phases onto the component's
+ * richer MemberPhase set, attaching a phaseStartedAt timestamp so the
+ * braille animation can run for working/suspended members.
+ */
+export function snapshotToProgressState(
+  snapshot: BatchProgressSnapshot,
+  title?: string,
+): SwarmProgressState {
+  const now = Date.now();
+  const members: MemberStatus[] = snapshot.members.map(
+    (m: BatchMemberStatus): MemberStatus => ({
+      index: m.index,
+      phase: mapMemberPhase(m.phase),
+      item: m.item,
+      error: m.error,
+      phaseStartedAt: isAnimatedPhase(m.phase) ? now : undefined,
+    }),
+  );
+
+  return {
+    title,
+    total: snapshot.total,
+    completed: snapshot.completed,
+    failed: snapshot.failed,
+    active: snapshot.active,
+    queued: snapshot.queued,
+    members,
+  };
+}
+
+function mapMemberPhase(
+  phase: BatchMemberStatus["phase"],
+): MemberPhase {
+  switch (phase) {
+    case "queued":
+      return "queued";
+    case "working":
+      return "working";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "suspended":
+      return "suspended";
+  }
+}
+
+function isAnimatedPhase(
+  phase: BatchMemberStatus["phase"],
+): boolean {
+  return phase === "working" || phase === "suspended";
 }
 
 // ---------------------------------------------------------------------------

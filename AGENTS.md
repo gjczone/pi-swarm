@@ -169,7 +169,7 @@ src/
 │   ├── command.ts        # /swarm slash command handler
 │   └── mode.ts           # SwarmMode state machine (enter/exit/reminders)
 ├── team/
-│   ├── tool.ts           # AgentTeam tool registration (pi.registerTool)
+│   ├── tool.ts           # SwarmTeam tool registration (pi.registerTool)
 │   ├── command.ts        # /swarm-team slash command handler
 │   ├── mailbox.ts        # JSONL mailbox system (inbox/outbox/delivery)
 │   ├── task-graph.ts     # Phase dependency graph (DAG)

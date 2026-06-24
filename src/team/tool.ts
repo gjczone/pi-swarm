@@ -1,7 +1,7 @@
 /**
- * team/tool — AgentTeam tool registration.
+ * team/tool — SwarmTeam tool registration.
  *
- * Registers the `AgentTeam` tool that the LLM can call to orchestrate
+ * Registers the `SwarmTeam` tool that the LLM can call to orchestrate
  * a team of role-based agents that collaborate via a shared mailbox.
  *
  * Inspired by pi-crew's team orchestration and CrewAI's hierarchical model.
@@ -43,9 +43,9 @@ const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const AGENT_TEAM_DESCRIPTION = `Launch a collaborative team of role-based agents to complete a complex multi-phase task.
 
-AgentTeam is best for tasks that require multiple steps across different roles:
+SwarmTeam is best for tasks that require multiple steps across different roles:
 explorer (codebase understanding) → planner (design) → coder (implementation)
-→ reviewer (quality check) → tester (verification).
+ → reviewer (quality check) → tester (verification).
 
 Each agent communicates via a shared mailbox. The supervisor decomposes the goal
 into phases, assigns each phase to a role agent, and synthesizes the final result.
@@ -54,7 +54,7 @@ Agents receive context from previous phases automatically.
 Default phases: explore → plan → implement → review → test.
 Custom phases and roles can be specified.
 
-If AgentTeam is called, that call must be the only tool call in the response.`;
+If SwarmTeam is called, that call must be the only tool call in the response.`;
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -64,8 +64,8 @@ export function registerAgentTeamTool(
   pi: ExtensionAPI,
 ): void {
   pi.registerTool({
-    name: "AgentTeam",
-    label: "Agent Team",
+    name: "SwarmTeam",
+    label: "Swarm Team",
     description: AGENT_TEAM_DESCRIPTION,
     parameters: Type.Object(
       {
@@ -308,7 +308,7 @@ export function registerAgentTeamTool(
           content: [
             {
               type: "text",
-              text: `AgentTeam failed: ${message}`,
+              text: `SwarmTeam failed: ${message}`,
             },
           ],
           isError: true,

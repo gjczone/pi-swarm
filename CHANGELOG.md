@@ -2,6 +2,18 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **TUI live progress (#1)**: AgentSwarm now renders a live braille progress panel above the editor during batch runs. The `SubagentBatchController` emits `BatchProgressSnapshot` via an `onProgress` callback at every lifecycle transition (start, complete, fail, rate-limit suspend, batch finish). The tool converts snapshots to `SwarmProgressState` and pushes them to an `AgentSwarmProgressComponent` widget. Non-TUI modes skip the widget.
+- **Swarm markers**: `index.ts` registers a `MessageRenderer` for `swarm:marker` custom messages, rendering activated/deactivated/ended marker lines in the transcript.
+- **`/swarm-team` command (#2)**: Enhanced to activate swarm mode, check/switch permission mode, emit a TUI marker, and delegate the goal to the SwarmTeam tool. A keyword auto-trigger (`swarm` / `swarm-team` in user input) activates swarm mode.
+
+### Changed
+
+- **Naming unification (#3)**: Renamed the team tool from `AgentTeam` to `SwarmTeam` (label "Swarm Team") across tool registration, descriptions, error messages, and documentation for consistency with the `/swarm-team` command and the `Swarm*` naming convention.
+
 ## [0.1.6] - 2026-06-24
 
 ### Changed
@@ -63,7 +75,7 @@ All notable changes to pi-swarm will be documented in this file.
 ### Features
 
 - **AgentSwarm tool**: Parallel subagent orchestration with item-template pattern (`{{item}}` placeholder). Ported from MoonshotAI/kimi-code.
-- **AgentTeam tool**: Collaborative role-based agents (explorer/planner/coder/reviewer/tester) with sequential phase execution and dependency graph. Inspired by pi-crew.
+- **SwarmTeam tool**: Collaborative role-based agents (explorer/planner/coder/reviewer/tester) with sequential phase execution and dependency graph. Inspired by pi-crew.
 - **`/swarm` command**: Slash command for `on`, `off`, toggle, and one-shot `<task>` with permission mode integration.
 - **`/swarm-team` command**: Slash command for launching collaborative team runs.
 - **SubagentBatch concurrency controller**: Full port of kimi-code's two-phase scheduler (normal ramp-up + rate-limit phase) with exponential backoff retry, capacity tracking, and abort handling.

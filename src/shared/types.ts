@@ -226,6 +226,29 @@ export interface SubagentBatchOptions {
    * `undefined` means no cap (legacy ramp behavior).
    */
   readonly maxConcurrency?: number;
+  /**
+   * Optional progress callback invoked when task states change.
+   * Receives a snapshot of the current batch progress.
+   */
+  readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
+}
+
+/** Snapshot of batch progress for TUI display. */
+export interface BatchProgressSnapshot {
+  readonly total: number;
+  readonly completed: number;
+  readonly failed: number;
+  readonly active: number;
+  readonly queued: number;
+  readonly members: ReadonlyArray<BatchMemberStatus>;
+}
+
+/** Per-member status in a progress snapshot. */
+export interface BatchMemberStatus {
+  readonly index: number;
+  readonly phase: "queued" | "working" | "completed" | "failed" | "suspended";
+  readonly item?: string;
+  readonly error?: string;
 }
 
 // ---------------------------------------------------------------------------

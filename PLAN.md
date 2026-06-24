@@ -11,7 +11,7 @@
 | Mode | Command | Trigger | Pattern |
 |------|---------|---------|---------|
 | **Swarm** | `/swarm <task>` | User or LLM calls `AgentSwarm` | Parallel, item-template, homogeneous agents |
-| **Team** | `/swarm-team <task>` | User or LLM calls `AgentTeam` | Collaborative, role-based, mailbox communication |
+| **Team** | `/swarm-team <task>` | User or LLM calls `SwarmTeam` | Collaborative, role-based, mailbox communication |
 
 Both modes share the same underlying infrastructure: subagent spawning (`pi --print`), concurrency control, rate-limit handling, and TUI progress rendering.
 
@@ -80,7 +80,7 @@ pi-swarm/
     │   ├── command.ts            # /swarm slash command
     │   └── mode.ts               # SwarmMode state machine
     ├── team/
-    │   ├── tool.ts               # AgentTeam tool (collaborative, mailbox-based)
+    │   ├── tool.ts               # SwarmTeam tool (collaborative, mailbox-based)
     │   ├── command.ts            # /swarm-team slash command
     │   ├── mailbox.ts            # Mailbox system (JSONL inbox/outbox/delivery)
     │   ├── supervisor.ts         # Team supervisor (task decomposition, assignment)
@@ -138,7 +138,7 @@ User: /swarm Review all files in src/ for bugs
 
 ```
 User: /swarm-team Implement user authentication with tests
-       or LLM calls AgentTeam({goal, roles, phases})
+       or LLM calls SwarmTeam({goal, roles, phases})
 
   ┌─────────────────────────────────────────────┐
   │           Team Supervisor                   │
@@ -180,12 +180,12 @@ User: /swarm-team Implement user authentication with tests
 
 ---
 
-## 4. AgentTeam Tool Design
+## 4. SwarmTeam Tool Design
 
 ### 4.1 Input Schema
 
 ```typescript
-interface AgentTeamInput {
+interface SwarmTeamInput {
   goal: string;                          // High-level goal description
   description: string;                   // Team run description
   roles?: AgentRoleConfig[];            // Custom role definitions (optional)
@@ -263,7 +263,7 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
   </agent>
 </phase>
 <!-- ... -->
-<resume_hint>Call AgentTeam with resume_agent_ids to retry failed phases.</resume_hint>
+<resume_hint>Call SwarmTeam with resume_agent_ids to retry failed phases.</resume_hint>
 </agent_team_result>
 ```
 
@@ -311,6 +311,20 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
 │  completed: 1, failed: 1, working: 1, queued: 1     │
 └─────────────────────────────────────────────────────┘
 ```
+
+**Wiring**: The `SubagentBatchController` accepts an optional `onProgress`
+callback that receives a `BatchProgressSnapshot` at every lifecycle transition
+(task started, completed, failed, rate-limited, batch finished). The
+`AgentSwarm` tool passes this callback through, converting each snapshot to a
+`SwarmProgressState` via `snapshotToProgressState` and pushing it to an
+`AgentSwarmProgressComponent` installed above the editor via
+`ctx.ui.setWidget`. The widget is torn down in a `finally` block so it never
+lingers after the run. Non-TUI modes (print/rpc/json) skip the widget entirely.
+
+**Swarm markers**: `/swarm` and `/swarm-team` commands (and the keyword auto
+trigger) send `swarm:marker` custom messages. `index.ts` registers a
+`MessageRenderer` for `swarm:marker` that renders a `SwarmModeMarkerComponent`
+line (activated / deactivated / ended) in the transcript.
 
 ### 6.2 Team Dashboard
 
@@ -378,13 +392,15 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
 - [ ] Mailbox system (`team/mailbox.ts`) — JSONL inbox/outbox
 - [ ] Task graph (`team/task-graph.ts`) — phases with dependencies
 - [ ] Team supervisor (`team/supervisor.ts`) — task decomposition & assignment
-- [ ] AgentTeam tool (`team/tool.ts`) — `pi.registerTool`
+- [ ] SwarmTeam tool (`team/tool.ts`) — `pi.registerTool`
 - [ ] `/swarm-team` command (`team/command.ts`)
 
 ### Phase 4: TUI
 
-- [ ] Progress component (`tui/progress.ts`) — braille bars
-- [ ] Swarm markers (`tui/swarm-markers.ts`)
+- [x] Progress component (`tui/progress.ts`) — braille bars
+- [x] Swarm markers (`tui/swarm-markers.ts`)
+- [x] Wire `onProgress` callback through controller → tool → widget
+- [x] Register `swarm:marker` message renderer in `index.ts`
 - [ ] Team dashboard (`tui/team-dashboard.ts`)
 - [ ] Permission prompt (`tui/permission-prompt.ts`)
 
