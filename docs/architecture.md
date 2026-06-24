@@ -509,6 +509,21 @@ Live phase progress dashboard for SwarmTeam mode. Renders a multi-row panel show
 
 **Integration**: The team supervisor calls the progress callback after each phase state change. The callback updates the dashboard component via TUI invalidation, providing real-time visual feedback during team runs.
 
+### 6.5 Widget Wiring Pattern
+
+Both the Progress Panel and Team Dashboard are installed as extension widgets via `ctx.ui.setWidget(key, factory, options)`.  A critical implementation detail:
+
+The `setWidget` factory receives `(tui: TUI, theme: Theme)` from the framework.  The `tui` reference MUST be captured and exposed to the component so that `setInterval`-based animation timers can call `tui.requestRender()` after `invalidate()`.  Without this call the TUI framework has no trigger to redraw the widget, and braille bars / spinners appear frozen.
+
+```
+setWidget(key, (tui, _theme) => {
+  capturedTui = tui;
+  return component;  // component calls capturedTui.requestRender() on each animation tick
+}, { placement: "aboveEditor" });
+```
+
+This pattern was ported from pi-crew's `requestRenderTarget(tui)` callback.
+
 ---
 
 ## 7. State & Persistence

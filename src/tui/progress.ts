@@ -176,8 +176,20 @@ export class AgentSwarmProgressComponent implements Component {
   private startTime = Date.now();
   private renderedWidth: number | undefined;
   private cachedLines: string[] | undefined;
+  private onRequestRender: (() => void) | undefined;
 
-  constructor() {
+  /**
+   * @param onRequestRender  Optional callback to request a TUI re-render.
+   *   When provided, called on every animation tick so the braille bars
+   *   animate.  Without it the component still renders correctly but the
+   *   animation won't be visible to the user.
+   *
+   *   业务说明：TUI 框架不会自动轮询组件；需要通过 requestRender() 主动
+   *   触发重绘才能使 braille 进度条动起来。此回调由 setWidget 工厂函数
+   *   在捕获 tui 引用后传入。
+   */
+  constructor(onRequestRender?: () => void) {
+    this.onRequestRender = onRequestRender;
     this.startAnimation();
   }
 
@@ -219,6 +231,8 @@ export class AgentSwarmProgressComponent implements Component {
       clearInterval(this.animationFrame);
       this.animationFrame = undefined;
     }
+    // 断开与 TUI 框架的连接，防止内存泄漏
+    this.onRequestRender = undefined;
   }
 
   // -------------------------------------------------------------------
@@ -282,6 +296,8 @@ export class AgentSwarmProgressComponent implements Component {
   private startAnimation(): void {
     this.animationFrame = setInterval(() => {
       this.invalidate();
+      // 通知 TUI 框架重绘，使 braille 动画可见
+      this.onRequestRender?.();
     }, FRAME_INTERVAL_MS);
   }
 }

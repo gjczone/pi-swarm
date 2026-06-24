@@ -245,8 +245,10 @@ src/
 - **Adding a new shared utility**: Create `shared/<name>.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
 - **Adding a new tool**: Create `swarm/<name>.ts` or `team/<name>.ts` with `register*` function → import and call in `index.ts`
 - **Adding a new command**: Create handler in `swarm/command.ts` or `team/command.ts` → register with `pi.registerCommand` in `index.ts`
-- **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`
+- **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`. If the component uses `setInterval` for animation, accept a `requestRender` callback and call it on each animation tick so the TUI framework knows to redraw.
 - **Adding a team dashboard**: Create `tui/team-dashboard.ts` implementing `Component` from `@earendil-works/pi-tui`; add `TeamProgressSnapshot`, `TeamPhaseStatus`, `TeamProgressCallback` to `shared/types.ts`
+- **Adding tool call/result rendering**: Implement `renderCall` and `renderResult` on the tool definition using `Container`/`Text`/`Spacer` from `@earendil-works/pi-tui` for rich display in the conversation transcript.
+- **Wiring a TUI widget**: Use `setWidget(key, (tui, theme) => component, opts)` — capture the `tui` reference and pass it to your component so animation timers can call `tui.requestRender()`.
 - **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update PLAN.md and docs/architecture.md
 - **Changing the team workflow**: Modify `team/supervisor.ts` or `team/task-graph.ts` → update PLAN.md

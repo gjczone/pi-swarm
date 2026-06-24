@@ -12,6 +12,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import {
   SubagentBatchController,
   resolveSwarmMaxConcurrency,
@@ -210,6 +211,86 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         clearProgressWidget(ctx);
       }
     },
+
+    // -------------------------------------------------------------------
+    // Custom TUI rendering
+    // -------------------------------------------------------------------
+
+    /**
+     * Render the tool call in the conversation transcript with arg summary.
+     * 业务说明：在对话记录中展示 swarm 调用信息 —— 包含类型、数量、
+     * prompt 模板预览。
+     */
+    renderCall(args, theme, _context) {
+      const subagentType = (args.subagent_type as string) || "coder";
+      const itemCount = (args.items as string[] | undefined)?.length ?? 0;
+      const resumeCount = Object.keys(
+        (args.resume_agent_ids as Record<string, string> | undefined) ?? {},
+      ).length;
+      const totalCount = itemCount + resumeCount;
+      const hasResume = resumeCount > 0;
+
+      const container = new Container();
+      const title = `${theme.fg("toolTitle", theme.bold("swarm "))}${theme.fg("accent", `${totalCount} agent${totalCount !== 1 ? "s" : ""}`)}${hasResume ? theme.fg("warning", ` (${resumeCount} resume)`) : ""}${theme.fg("muted", ` [${subagentType}]`)}`;
+      container.addChild(new Text(title, 0, 0));
+
+      const desc = args.description as string;
+      if (desc) {
+        container.addChild(new Spacer(1));
+        container.addChild(
+          new Text(theme.fg("dim", desc.length > 80 ? `${desc.slice(0, 80)}...` : desc), 0, 0),
+        );
+      }
+
+      const templatePreview = (args.prompt_template as string | undefined);
+      if (templatePreview) {
+        container.addChild(new Spacer(1));
+        const preview = templatePreview.length > 60
+          ? `${templatePreview.slice(0, 60)}...`
+          : templatePreview;
+        container.addChild(
+          new Text(theme.fg("muted", `${preview}`), 0, 0),
+        );
+      }
+      return container;
+    },
+
+    /**
+     * Render the tool result in the conversation transcript.
+     * 业务说明：根据执行结果展示成功/失败图标和概要统计。
+     */
+    renderResult(result, _options, theme, context) {
+      const text = result.content[0]?.type === "text"
+        ? result.content[0].text
+        : "";
+      const icon = context.isError
+        ? theme.fg("error", "x")
+        : theme.fg("success", "V");
+
+      // Extract summary stats from the XML output
+      const completedMatch = /completed="(\d+)"/.exec(text);
+      const failedMatch = /failed="(\d+)"/.exec(text);
+      const completed = completedMatch ? completedMatch[1]! : "?";
+      const failed = failedMatch ? failedMatch[1]! : "?";
+
+      const container = new Container();
+      container.addChild(
+        new Text(
+          `${icon} ${theme.fg("toolTitle", "swarm ")}${theme.fg("accent", `done: ${completed}`)}${failed !== "0" ? theme.fg("error", `  failed: ${failed}`) : ""}`,
+          0,
+          0,
+        ),
+      );
+
+      if (context.isError && text) {
+        container.addChild(new Spacer(1));
+        const errorPreview = text.length > 100 ? `${text.slice(0, 100)}...` : text;
+        container.addChild(
+          new Text(theme.fg("error", errorPreview), 0, 0),
+        );
+      }
+      return container;
+    },
   });
 }
 
@@ -347,6 +428,10 @@ interface ProgressHandle {
  * 业务说明：在 TUI 模式下注册一个实时进度面板，展示每个子 Agent 的
  * 运行状态（队列/运行中/完成/失败/限流挂起）。非 TUI 模式下返回
  * undefined，避免无意义的 UI 调用。
+ *
+ * 关键修复：setWidget 的工厂函数接收 (tui, theme) 参数，我们捕获 tui
+ * 引用并传给组件，使组件在动画定时器触发时能调用 tui.requestRender()
+ * 通知 TUI 框架重绘，否则 braille 进度条不会动。
  */
 function createProgressWidget(
   ctx: ExtensionContext,
@@ -356,10 +441,18 @@ function createProgressWidget(
   const setWidget = ctx.ui?.setWidget;
   if (typeof setWidget !== "function") return undefined;
 
-  const component = new AgentSwarmProgressComponent();
+  // 捕获 tui 引用，供组件动画 tick 时调用 requestRender()
+  let capturedTui: { requestRender(force?: boolean): void } | undefined;
+
+  const component = new AgentSwarmProgressComponent(() => {
+    capturedTui?.requestRender();
+  });
   try {
-    // 工厂函数返回预先创建的组件实例；TUI 框架会在刷新周期调用 render
-    setWidget(PROGRESS_WIDGET_KEY, () => component, {
+    // 工厂函数接收 tui 和 theme，捕获 tui 供动画驱动使用
+    setWidget(PROGRESS_WIDGET_KEY, (tui, _theme) => {
+      capturedTui = tui;
+      return component;
+    }, {
       placement: "aboveEditor",
     });
   } catch {

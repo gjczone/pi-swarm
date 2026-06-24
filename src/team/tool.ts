@@ -12,6 +12,7 @@ import type {
   ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
+import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import {
   SubagentBatchController,
   resolveSwarmMaxConcurrency,
@@ -319,6 +320,99 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         clearTeamDashboardWidget(ctx);
       }
     },
+
+    // -------------------------------------------------------------------
+    // Custom TUI rendering
+    // -------------------------------------------------------------------
+
+    /**
+     * Render the tool call with goal summary and phase list.
+     * 业务说明：在对话记录中展示 team 调用信息 —— 目标、阶段数、角色配置。
+     */
+    renderCall(args, theme, _context) {
+      const goal = (args.goal as string) || "";
+      const phases = args.phases as
+        | { name: string; role: string }[]
+        | undefined;
+      const phaseCount = phases?.length ?? 5; // Default 5 phases
+      const maxAgents = (args.max_agents as number) ?? 4;
+
+      const container = new Container();
+      const title = `${theme.fg("toolTitle", theme.bold("team "))}${theme.fg("accent", `${phaseCount} phase${phaseCount !== 1 ? "s" : ""}`)}${theme.fg("muted", `  max ${maxAgents} agents`)}`;
+      container.addChild(new Text(title, 0, 0));
+
+      container.addChild(new Spacer(1));
+      const goalPreview = goal.length > 80 ? `${goal.slice(0, 80)}...` : goal;
+      container.addChild(
+        new Text(theme.fg("dim", goalPreview), 0, 0),
+      );
+
+      if (phases && phases.length > 0) {
+        container.addChild(new Spacer(1));
+        const phaseNames = phases
+          .slice(0, 8)
+          .map((p) => `${theme.fg("muted", p.role)}:${theme.fg("accent", p.name)}`)
+          .join("  ");
+        const more = phases.length > 8
+          ? `  ${theme.fg("muted", `+${phases.length - 8} more`)}`
+          : "";
+        container.addChild(new Text(`${phaseNames}${more}`, 0, 0));
+      }
+      return container;
+    },
+
+    /**
+     * Render the tool result with phase completion summary.
+     * 业务说明：展示团队执行结果 —— 各阶段完成/失败状态。
+     */
+    renderResult(result, _options, theme, context) {
+      const text = result.content[0]?.type === "text"
+        ? result.content[0].text
+        : "";
+      const icon = context.isError
+        ? theme.fg("error", "x")
+        : theme.fg("success", "V");
+
+      // Extract summary from XML output
+      const summaryMatch = /<summary>(.*?)<\/summary>/.exec(text);
+      const summary = summaryMatch ? summaryMatch[1]! : "";
+
+      // Count phase results
+      const phaseMatches = text.match(/<phase name="(\w+)" status="(\w+)"/g);
+      let completedCount = 0;
+      let failedCount = 0;
+      if (phaseMatches) {
+        for (const m of phaseMatches) {
+          if (m.includes('status="completed"')) completedCount += 1;
+          else if (m.includes('status="failed"')) failedCount += 1;
+        }
+      }
+
+      const container = new Container();
+      container.addChild(
+        new Text(
+          `${icon} ${theme.fg("toolTitle", "team ")}${theme.fg("accent", `${completedCount} done`)}${failedCount > 0 ? theme.fg("error", `  ${failedCount} failed`) : ""}`,
+          0,
+          0,
+        ),
+      );
+
+      if (summary) {
+        container.addChild(new Spacer(1));
+        container.addChild(
+          new Text(theme.fg("dim", summary), 0, 0),
+        );
+      }
+
+      if (context.isError && text) {
+        container.addChild(new Spacer(1));
+        const errorPreview = text.length > 100 ? `${text.slice(0, 100)}...` : text;
+        container.addChild(
+          new Text(theme.fg("error", errorPreview), 0, 0),
+        );
+      }
+      return container;
+    },
   });
 }
 
@@ -339,9 +433,18 @@ function createTeamDashboardWidget(
   const setWidget = ctx.ui?.setWidget;
   if (typeof setWidget !== "function") return undefined;
 
-  const component = new TeamDashboardComponent();
+  // 捕获 tui 引用，供组件动画 tick 时调用 requestRender()
+  let capturedTui: { requestRender(force?: boolean): void } | undefined;
+
+  const component = new TeamDashboardComponent(() => {
+    capturedTui?.requestRender();
+  });
   try {
-    setWidget(TEAM_DASHBOARD_WIDGET_KEY, () => component, {
+    // 工厂函数接收 tui 和 theme，捕获 tui 供动画驱动使用
+    setWidget(TEAM_DASHBOARD_WIDGET_KEY, (tui, _theme) => {
+      capturedTui = tui;
+      return component;
+    }, {
       placement: "aboveEditor",
     });
   } catch {

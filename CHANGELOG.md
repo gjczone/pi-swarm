@@ -2,6 +2,16 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.3.1] - 2026-06-24
+
+### Fixed
+
+- **TUI widget animation not rendering (#20)**: The `setWidget` factory functions in both `swarm/tool.ts` and `team/tool.ts` were discarding the `(tui, theme)` parameters from the TUI framework. This meant the braille animation timers called `invalidate()` to clear caches but never called `tui.requestRender()` to notify the framework to redraw — progress bars appeared frozen. Fixed by capturing the `tui` reference and passing a `requestRender` callback to both `AgentSwarmProgressComponent` and `TeamDashboardComponent`.
+
+### Added
+
+- **Rich tool call/result rendering (#20)**: Both `AgentSwarm` and `SwarmTeam` tools now implement `renderCall` and `renderResult` using `Container`/`Text`/`Spacer` from `@earendil-works/pi-tui`, matching the pattern used by the built-in pi-coding-agent subagent extension. Tool calls show agent count, prompt template preview, and phase lists. Tool results show success/failure icons with summary statistics.
+
 ## [0.3.0] - 2026-06-24
 
 ### Added
