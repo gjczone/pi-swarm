@@ -25,10 +25,7 @@ function makeSpawnSpec(index: number, item: string): SwarmSpawnSpec {
   };
 }
 
-function makeResumeSpec(
-  index: number,
-  agentId: string,
-): SwarmResumeSpec {
+function makeResumeSpec(index: number, agentId: string): SwarmResumeSpec {
   return {
     kind: "resume",
     index,

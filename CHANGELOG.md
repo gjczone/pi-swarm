@@ -2,6 +2,17 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [Unreleased]
+
+### Added
+
+- **Team dashboard (#16)**: New `TeamDashboardComponent` (tui/team-dashboard.ts) for live phase progress during SwarmTeam runs. The `TeamSupervisor` emits `TeamProgressSnapshot` via an `onProgress` callback at every phase lifecycle transition. The tool converts snapshots and pushes them to a dashboard widget. Types `TeamProgressSnapshot`, `TeamPhaseStatus`, and `TeamProgressCallback` added to shared/types.ts. 12 new tests in tests/team-dashboard.test.ts.
+
+### Changed
+
+- **Internal tool function renamed (#17)**: `registerAgentTeamTool` renamed to `registerSwarmTeamTool` in src/team/tool.ts; import and call updated in src/index.ts for consistency with the `SwarmTeam` public name.
+- **Naming unification (#18)**: `crewRoot` → `swarmRoot`, `resolveCrewRoot` → `resolveSwarmRoot`, `extractCrewRoot` → `extractSwarmRoot`, `PI_SWARM_CREW_ROOT` → `PI_SWARM_ROOT`, `<agent_team_result>` → `<swarm_team_result>` across all src/, tests/, and docs/*.md files.
+
 ## [0.2.0] - 2026-06-24
 
 ### Added
@@ -96,7 +107,7 @@ All notable changes to pi-swarm will be documented in this file.
 - CI pipeline: typecheck, test (ubuntu + macos), build, security audit
 - npm publish workflow triggered by GitHub Release
 - `pi.extensions` auto-discovery via `package.json`
-- Environment variable config: `PI_SWARM_MAX_CONCURRENCY`, `PI_SWARM_CREW_ROOT`
+- Environment variable config: `PI_SWARM_MAX_CONCURRENCY`, `PI_SWARM_ROOT`
 - macOS + Linux support, Node.js >= 18
 
 ### Credit

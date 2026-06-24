@@ -11,8 +11,11 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAgentSwarmTool } from "./swarm/tool.js";
-import { registerSwarmCommand, type SwarmCommandHost } from "./swarm/command.js";
-import { registerAgentTeamTool } from "./team/tool.js";
+import {
+  registerSwarmCommand,
+  type SwarmCommandHost,
+} from "./swarm/command.js";
+import { registerSwarmTeamTool } from "./team/tool.js";
 import { registerTeamCommand } from "./team/command.js";
 import { recoverRuns } from "./state/recovery.js";
 import {
@@ -156,14 +159,10 @@ export default function (pi: ExtensionAPI): void {
     try {
       const result = recoverRuns(process.cwd());
       if (result.abandoned.length > 0) {
-        log(
-          `Recovery: ${result.abandoned.length} abandoned run(s) marked.`,
-        );
+        log(`Recovery: ${result.abandoned.length} abandoned run(s) marked.`);
       }
       if (result.cleanedUp.length > 0) {
-        log(
-          `Recovery: ${result.cleanedUp.length} expired run(s) cleaned up.`,
-        );
+        log(`Recovery: ${result.cleanedUp.length} expired run(s) cleaned up.`);
       }
       if (result.resumable.length > 0) {
         log(
@@ -220,18 +219,19 @@ export default function (pi: ExtensionAPI): void {
   // 通过 sendMessage 发送 swarm:marker 消息；此处注册渲染器将其显示为
   // 一行带标签的状态标记。
   pi.registerMessageRenderer<unknown>("swarm:marker", (message) => {
-    const content =
-      typeof message.content === "string" ? message.content : "";
+    const content = typeof message.content === "string" ? message.content : "";
     const state = resolveMarkerState(content);
     return new SwarmModeMarkerComponent(state);
   });
 
   registerAgentSwarmTool(pi);
   registerSwarmCommand(pi, commandHost);
-  registerAgentTeamTool(pi);
+  registerSwarmTeamTool(pi);
   registerTeamCommand(pi, commandHost);
 
-  log("Extension loaded — AgentSwarm + SwarmTeam tools + /swarm, /swarm-team commands registered.");
+  log(
+    "Extension loaded — AgentSwarm + SwarmTeam tools + /swarm, /swarm-team commands registered.",
+  );
 }
 
 // ---------------------------------------------------------------------------

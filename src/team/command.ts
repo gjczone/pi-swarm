@@ -7,7 +7,10 @@
  * The command delegates to the SwarmTeam tool internally.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 import type { SwarmCommandHost } from "../swarm/command.js";
 
 // ---------------------------------------------------------------------------
@@ -26,10 +29,7 @@ export function registerTeamCommand(
       const prompt = args.trim();
 
       if (prompt.length === 0) {
-        ctx.ui?.notify?.(
-          "Usage: /swarm-team <goal>",
-          "warning",
-        );
+        ctx.ui?.notify?.("Usage: /swarm-team <goal>", "warning");
         return;
       }
 

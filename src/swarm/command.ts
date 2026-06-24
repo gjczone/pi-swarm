@@ -10,7 +10,10 @@
  * Ported from MoonshotAI/kimi-code's swarm command.
  */
 
-import type { ExtensionAPI, ExtensionCommandContext } from "@earendil-works/pi-coding-agent";
+import type {
+  ExtensionAPI,
+  ExtensionCommandContext,
+} from "@earendil-works/pi-coding-agent";
 import type { SwarmModeTrigger } from "./mode.js";
 
 // ---------------------------------------------------------------------------
@@ -59,12 +62,7 @@ export function registerSwarmCommand(
 
       // No args: toggle
       if (prompt.length === 0) {
-        await applySwarmMode(
-          host,
-          !host.swarmActive,
-          "/swarm",
-          ctx,
-        );
+        await applySwarmMode(host, !host.swarmActive, "/swarm", ctx);
         return;
       }
 
@@ -114,7 +112,9 @@ async function applySwarmMode(
     }
 
     host.setSwarmActive(true, "manual");
-    host.showStatus("Swarm mode enabled. AgentSwarm tool is now auto-approved.");
+    host.showStatus(
+      "Swarm mode enabled. AgentSwarm tool is now auto-approved.",
+    );
 
     // Insert swarm mode marker (via pi.sendMessage for TUI rendering)
     host.pi.sendMessage?.({
@@ -170,9 +170,7 @@ async function startSwarmTask(
 // Helpers
 // ---------------------------------------------------------------------------
 
-function swarmModeSubcommand(
-  input: string,
-): boolean | undefined {
+function swarmModeSubcommand(input: string): boolean | undefined {
   const command = input.toLowerCase();
   if (command === "on") return true;
   if (command === "off") return false;

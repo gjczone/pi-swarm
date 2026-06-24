@@ -71,9 +71,7 @@ export class SwarmPermissionPromptComponent implements Component {
     lines.push(borderTop(safeWidth));
     lines.push(padLine("Manual mode can block swarm work.", safeWidth));
     lines.push(padLine("", safeWidth));
-    lines.push(
-      padLine("Choose a permission mode for this swarm:", safeWidth),
-    );
+    lines.push(padLine("Choose a permission mode for this swarm:", safeWidth));
     lines.push(padLine("", safeWidth));
 
     for (let i = 0; i < this.choices.length; i += 1) {
@@ -86,7 +84,10 @@ export class SwarmPermissionPromptComponent implements Component {
 
     lines.push(padLine("", safeWidth));
     lines.push(
-      padLine("Use arrow keys to select, Enter to confirm, Esc to cancel.", safeWidth),
+      padLine(
+        "Use arrow keys to select, Enter to confirm, Esc to cancel.",
+        safeWidth,
+      ),
     );
     lines.push(borderBottom(safeWidth));
 

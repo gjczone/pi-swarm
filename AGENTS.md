@@ -201,9 +201,10 @@ src/
 │   ├── task-graph.ts     # Phase dependency graph (DAG)
 │   └── supervisor.ts     # Team supervisor (decomposition + assignment + synthesis)
 ├── tui/
-│   ├── progress.ts       # AgentSwarmProgressComponent (live braille progress bars)
-│   ├── swarm-markers.ts  # SwarmModeMarkerComponent (activated/deactivated/ended)
-│   └── permission-prompt.ts # Permission prompt dialog for manual mode
+│   ├── progress.ts        # AgentSwarmProgressComponent (live braille progress bars)
+│   ├── swarm-markers.ts   # SwarmModeMarkerComponent (activated/deactivated/ended)
+│   ├── permission-prompt.ts  # Permission prompt dialog for manual mode
+│   └── team-dashboard.ts  # SwarmTeam live phase progress dashboard
 └── state/
     ├── persistence.ts    # Durable state (manifest, tasks, events, atomic writes)
     └── recovery.ts       # Crash recovery (stale run detection, cleanup)
@@ -242,6 +243,7 @@ This project ports the AgentSwarm architecture from [MoonshotAI/kimi-code](https
 - **Adding a new tool**: Create `swarm/<name>.ts` or `team/<name>.ts` with `register*` function → import and call in `index.ts`
 - **Adding a new command**: Create handler in `swarm/command.ts` or `team/command.ts` → register with `pi.registerCommand` in `index.ts`
 - **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`
+- **Adding a team dashboard**: Create `tui/team-dashboard.ts` implementing `Component` from `@earendil-works/pi-tui`; add `TeamProgressSnapshot`, `TeamPhaseStatus`, `TeamProgressCallback` to `shared/types.ts`
 - **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update PLAN.md and docs/architecture.md
 - **Changing the team workflow**: Modify `team/supervisor.ts` or `team/task-graph.ts` → update PLAN.md
@@ -273,7 +275,7 @@ This project ports the AgentSwarm architecture from [MoonshotAI/kimi-code](https
 ## Testing Rules
 
 - Type correctness: Run `npm run typecheck` after every change. This is the minimum verification gate.
-- All tests must pass: `npm test` — 55 tests across 5 test files, 0 failures, 0 skipped.
+- All tests must pass: `npm test` — 67 tests across 6 test files, 0 failures, 0 skipped.
 - Integration testing: Symlink `dist/` into `~/.pi/agent/extensions/pi-swarm` and verify tool calls in a live Pi session.
 - Verification: Test with 2-3 items first, then scale to 10+ to verify concurrency behavior.
 
@@ -300,7 +302,7 @@ This project ports the AgentSwarm architecture from [MoonshotAI/kimi-code](https
 ## Verification Before Completion
 
 - `npm run typecheck` passes with zero errors.
-- `npm test` — 55 tests pass across 5 test files.
+- `npm test` — 67 tests pass across 6 test files.
 - `npm run build` succeeds with `dist/index.js` and `dist/index.d.ts` present.
 - AgentSwarm tool: callable from Pi, returns valid `<agent_swarm_result>` XML.
 - /swarm command: responds correctly to `on`, `off`, and task inputs.
@@ -326,7 +328,7 @@ Before committing or creating a PR, verify ALL of the following:
 
 - [ ] `npm run typecheck` passes with zero errors
 - [ ] `npm run build` succeeds with `dist/index.js` and `dist/index.d.ts` present
-- [ ] `npm test` passes with 55 tests, 0 failures
+- [ ] `npm test` passes with 67 tests, 0 failures
 - [ ] `LOCAL_CI.md` all steps passed
 - [ ] `PLAN.md` updated if architecture, API, or module specs changed
 - [ ] `docs/architecture.md` updated if design rationale or data flows changed

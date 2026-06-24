@@ -9,7 +9,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
-  resolveCrewRoot,
+  resolveSwarmRoot,
   listActiveRuns,
   readManifest,
   updateManifest,
@@ -50,25 +50,25 @@ export interface RecoveryResult {
  * - Returns lists of resumable and abandoned runs.
  */
 export function recoverRuns(cwd: string): RecoveryResult {
-  const crewRoot = resolveCrewRoot(cwd);
-  const runsDir = path.join(crewRoot, "state", "runs");
+  const swarmRoot = resolveSwarmRoot(cwd);
+  const runsDir = path.join(swarmRoot, "state", "runs");
 
   if (!fs.existsSync(runsDir)) {
     return { resumable: [], abandoned: [], cleanedUp: [] };
   }
 
-  const runIds = listActiveRuns(crewRoot);
+  const runIds = listActiveRuns(swarmRoot);
   const now = Date.now();
   const resumable: RunManifest[] = [];
   const abandoned: RunManifest[] = [];
   const cleanedUp: string[] = [];
 
   for (const runId of runIds) {
-    const manifest = readManifest(crewRoot, runId);
+    const manifest = readManifest(swarmRoot, runId);
     if (!manifest) {
       // Orphaned directory — clean up
       try {
-        deleteRunState(crewRoot, runId);
+        deleteRunState(swarmRoot, runId);
         cleanedUp.push(runId);
       } catch {
         // Best effort
@@ -88,8 +88,8 @@ export function recoverRuns(cwd: string): RecoveryResult {
             status: "abandoned",
             completedAt: now,
           };
-          updateManifest(crewRoot, updated);
-          appendEvent(crewRoot, runId, {
+          updateManifest(swarmRoot, updated);
+          appendEvent(swarmRoot, runId, {
             type: "run.abandoned",
             reason: "stale",
             timestamp: new Date().toISOString(),
@@ -108,7 +108,7 @@ export function recoverRuns(cwd: string): RecoveryResult {
         const age = now - completedAt;
         if (age > COMPLETED_RUN_RETENTION_MS) {
           try {
-            deleteRunState(crewRoot, runId);
+            deleteRunState(swarmRoot, runId);
             cleanedUp.push(runId);
           } catch {
             // Best effort
@@ -122,7 +122,7 @@ export function recoverRuns(cwd: string): RecoveryResult {
           const abandonedAt = manifest.completedAt ?? manifest.startedAt;
           if (now - abandonedAt > COMPLETED_RUN_RETENTION_MS) {
             try {
-              deleteRunState(crewRoot, runId);
+              deleteRunState(swarmRoot, runId);
               cleanedUp.push(runId);
             } catch {
               // Best effort
@@ -140,32 +140,24 @@ export function recoverRuns(cwd: string): RecoveryResult {
  * Check whether a run has unfinished tasks.
  * Used to decide whether to offer resume or start fresh.
  */
-export function hasUnfinishedTasks(
-  crewRoot: string,
-  runId: string,
-): boolean {
-  const manifest = readManifest(crewRoot, runId);
+export function hasUnfinishedTasks(swarmRoot: string, runId: string): boolean {
+  const manifest = readManifest(swarmRoot, runId);
   if (!manifest) return false;
   if (manifest.status === "completed") return false;
   if (manifest.status !== "running") return false;
 
   // Check if any agent status files indicate unfinished work
-  const agentsDir = path.join(
-    crewRoot,
-    "state",
-    "runs",
-    runId,
-    "agents",
-  );
+  const agentsDir = path.join(swarmRoot, "state", "runs", runId, "agents");
   if (!fs.existsSync(agentsDir)) return true;
 
   // Check each agent directory for non-terminal status
-  const agentDirs = fs.readdirSync(agentsDir, { withFileTypes: true })
+  const agentDirs = fs
+    .readdirSync(agentsDir, { withFileTypes: true })
     .filter((d) => d.isDirectory())
     .map((d) => d.name);
 
   for (const agentId of agentDirs) {
-    const status = loadAgentStatus(crewRoot, runId, agentId);
+    const status = loadAgentStatus(swarmRoot, runId, agentId);
     if (!status) return true;
     const state = String(status.status ?? status.state ?? "");
     if (state === "running" || state === "started" || state === "") {
@@ -181,17 +173,17 @@ export function hasUnfinishedTasks(
  * Returns a map of agentId → last known status.
  */
 export function getResumableAgents(
-  crewRoot: string,
+  swarmRoot: string,
   runId: string,
 ): Map<string, string> {
-  const manifest = readManifest(crewRoot, runId);
+  const manifest = readManifest(swarmRoot, runId);
   const result = new Map<string, string>();
 
   if (!manifest) return result;
 
   for (const agentId of manifest.agentIds) {
     const statusDir = path.join(
-      crewRoot,
+      swarmRoot,
       "state",
       "runs",
       runId,

@@ -5,7 +5,11 @@
  * Format is compatible with kimi-code's AgentSwarm output.
  */
 
-import type { SwarmSpawnSpec, SwarmResumeSpec, SubagentResult } from "./types.js";
+import type {
+  SwarmSpawnSpec,
+  SwarmResumeSpec,
+  SubagentResult,
+} from "./types.js";
 
 // ---------------------------------------------------------------------------
 // AgentSwarm XML output
@@ -31,9 +35,7 @@ interface SwarmRunResult {
  *   ...
  *   </agent_swarm_result>
  */
-export function renderSwarmResults(
-  results: readonly SwarmRunResult[],
-): string {
+export function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   const completed = results.filter((r) => r.status === "completed").length;
   const failed = results.filter((r) => r.status === "failed").length;
   const aborted = results.filter((r) => r.status === "aborted").length;
@@ -61,16 +63,12 @@ export function renderSwarmResults(
       result.agentId === undefined
         ? ""
         : ` agent_id="${escapeXml(result.agentId)}"`;
-    const mode =
-      result.spec.kind === "resume" ? ' mode="resume"' : "";
+    const mode = result.spec.kind === "resume" ? ' mode="resume"' : "";
     const item =
       result.spec.item === undefined
         ? ""
         : ` item="${escapeXml(result.spec.item)}"`;
-    const state =
-      result.state === undefined
-        ? ""
-        : ` state="${result.state}"`;
+    const state = result.state === undefined ? "" : ` state="${result.state}"`;
     const body =
       result.status === "completed"
         ? (result.result ?? "")
@@ -112,17 +110,17 @@ export function toSwarmRunResults<T>(
  * Render the aggregated SwarmTeam result as an XML string.
  *
  * Format:
- *   <agent_team_result>
+ *   <swarm_team_result>
  *   <summary>Phases completed: 5/6. Tasks: 8/10 succeeded, 2 failed.</summary>
  *   <phase name="explore" status="completed">...</phase>
  *   ...
- *   </agent_team_result>
+ *   </swarm_team_result>
  */
 export function renderTeamResults(
   _results: readonly Record<string, unknown>[],
 ): string {
   // Placeholder — full implementation in Phase 3.
-  return "<agent_team_result>\n<summary>Not yet implemented.</summary>\n</agent_team_result>";
+  return "<swarm_team_result>\n<summary>Not yet implemented.</summary>\n</swarm_team_result>";
 }
 
 // ---------------------------------------------------------------------------

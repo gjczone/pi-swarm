@@ -41,7 +41,7 @@ Claude Code has a **hooks system** (shell scripts triggered by lifecycle events)
 Agents communicate by reading/writing JSONL files in a shared mailbox directory:
 
 ```
-.crew/state/runs/{runId}/
+.pi/swarm/state/runs/{runId}/
   mailbox/
     inbox.jsonl       # Messages addressed to this agent/team
     outbox.jsonl      # Messages sent by this agent/team
@@ -164,7 +164,7 @@ User: /swarm-team Implement user authentication with tests
   ┌──────────────────────────┐
   │     Shared Mailbox       │
   │                          │
-  │  .crew/mailbox/          │
+  │  .pi/swarm/mailbox/          │
   │    inbox.jsonl           │
   │    outbox.jsonl          │
   │    delivery.json         │
@@ -250,7 +250,7 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
 ### 4.5 Team Output Format
 
 ```xml
-<agent_team_result>
+<swarm_team_result>
 <summary>Phases completed: 5/6. Tasks: 8/10 succeeded, 2 failed.</summary>
 <phase name="explore" status="completed">
   <agent role="explorer" agent_id="team-001">
@@ -264,7 +264,7 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
 </phase>
 <!-- ... -->
 <resume_hint>Call SwarmTeam with resume_agent_ids to retry failed phases.</resume_hint>
-</agent_team_result>
+</swarm_team_result>
 ```
 
 ---
@@ -401,7 +401,7 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Swarm markers (`tui/swarm-markers.ts`)
 - [x] Wire `onProgress` callback through controller → tool → widget
 - [x] Register `swarm:marker` message renderer in `index.ts`
-- [ ] Team dashboard (`tui/team-dashboard.ts`)
+- [x] Team dashboard (`tui/team-dashboard.ts`)
 - [ ] Permission prompt (`tui/permission-prompt.ts`)
 
 ### Phase 5: Persistence & Integration

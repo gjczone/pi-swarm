@@ -53,7 +53,8 @@ src/
 ├── tui/                  # TUI components (imports from shared/ + pi-tui)
 │   ├── progress.ts       # Braille progress bar panel
 │   ├── swarm-markers.ts  # Swarm mode state markers
-│   └── permission-prompt.ts  # Manual-mode permission dialog
+│   ├── permission-prompt.ts  # Manual-mode permission dialog
+│   └── team-dashboard.ts # SwarmTeam live phase progress dashboard
 └── state/                # Persistence layer (imports from shared/)
     ├── persistence.ts    # Atomic file writes, manifest/task/event I/O
     └── recovery.ts       # Crash detection, stale run cleanup, resume support
@@ -293,7 +294,7 @@ A JSONL-based messaging system for inter-agent communication.
 
 **Directory structure**:
 ```
-.crew/state/runs/{runId}/mailbox/
+.pi/swarm/state/runs/{runId}/mailbox/
   inbox.jsonl          # Team-level incoming messages
   outbox.jsonl         # Team-level outgoing messages  
   delivery.json        # Message delivery/acknowledgment state
@@ -349,7 +350,7 @@ Orchestrates the team run by managing the task graph and spawning agents.
 3. Build a phase-specific prompt that includes context from completed dependency phases
 4. Spawn a role agent for the current phase
 5. Collect results and advance the task graph
-6. Synthesize the final `<agent_team_result>` XML output
+6. Synthesize the final `<swarm_team_result>` XML output
 
 **Phase prompt construction**: Each agent receives:
 - Role description (e.g., "You are the coder agent...")
@@ -457,6 +458,31 @@ A dialog component for manual permission mode. When the user in manual mode trie
 
 **Input handling**: Up/Down arrows or j/k to navigate, Enter to select, Escape to cancel. This matches kimi-code's SwarmStartPermissionPromptComponent.
 
+### 6.4 Team Dashboard (`tui/team-dashboard.ts`)
+
+Live phase progress dashboard for SwarmTeam mode. Renders a multi-row panel showing each phase's status, assigned role, and elapsed time during team execution.
+
+**Visual layout**:
+```
+┌─ Swarm Team ─────────────────────────────────────────────┐
+│  Goal: Implement login with tests                         │
+│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
+│  explore    ──→ plan    ──→ implement ──→ review ──→ test │
+│    done         done        running        queued  queued │
+│   (coder)      (planner)    (coder)                                │
+│   2.3s         1.8s         12.5s                                  │
+└──────────────────────────────────────────────────────────┘
+```
+
+**Parameters**:
+- Uses `TeamProgressSnapshot` from `shared/types.ts` for phase status data
+- `TeamPhaseStatus` enum: queued, running, completed, failed, skipped
+- `TeamProgressCallback` type: `(snapshot: TeamProgressSnapshot) => void`
+
+**Phase display**: Each phase shows its status with a role label and elapsed time. Phases are connected by arrows showing the flow direction. Running phases display a spinner or elapsed timer. Completed phases show their duration. Failed phases are highlighted. Skipped phases are grayed out.
+
+**Integration**: The team supervisor calls the progress callback after each phase state change. The callback updates the dashboard component via TUI invalidation, providing real-time visual feedback during team runs.
+
 ---
 
 ## 7. State & Persistence
@@ -484,7 +510,7 @@ Provides durable file-based state for all runs.
 
 **Why atomic writes**: Crash safety. If the process crashes mid-write, the original file is intact (the temp file is orphaned but harmless). Without atomic writes, a crash during `writeFileSync` could leave a truncated manifest, making the run unrecoverable.
 
-**Crew root resolution**:
+**Swarm root resolution**:
 - If `.pi/` exists → use `.pi/swarm/` (reuse existing pi directory)
 - Otherwise → use `.crew/` (clean separation for non-pi projects)
 
@@ -579,7 +605,7 @@ SwarmTeam.execute()
   │
   ├─ supervisor.finalize()
   ├─ supervisor.synthesizeResult()
-  └─ return <agent_team_result> XML
+  └─ return <swarm_team_result> XML
 ```
 
 ---

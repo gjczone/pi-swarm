@@ -90,10 +90,7 @@ export class TaskGraph {
   getCurrentPhase(): PhaseState | undefined {
     for (const name of this.order) {
       const state = this.phases.get(name)!;
-      if (
-        state.status === "queued" ||
-        state.status === "running"
-      ) {
+      if (state.status === "queued" || state.status === "running") {
         return state;
       }
     }
@@ -117,9 +114,7 @@ export class TaskGraph {
     if (!this.isComplete()) return "running";
     const allCompleted = this.order.every((name) => {
       const state = this.phases.get(name)!;
-      return (
-        state.status === "completed" || state.status === "skipped"
-      );
+      return state.status === "completed" || state.status === "skipped";
     });
     return allCompleted ? "completed" : "failed";
   }
@@ -132,7 +127,9 @@ export class TaskGraph {
    * Start a phase.  Fails if dependencies are not satisfied.
    * Returns the phase state or an error.
    */
-  startPhase(name: string): { ok: true; phase: PhaseState } | { ok: false; error: string } {
+  startPhase(
+    name: string,
+  ): { ok: true; phase: PhaseState } | { ok: false; error: string } {
     const state = this.phases.get(name);
     if (!state) {
       return { ok: false, error: `Unknown phase: ${name}` };
@@ -231,14 +228,12 @@ export class TaskGraph {
       for (const [name, stateData] of Object.entries(phases)) {
         const state = graph.phases.get(name);
         if (state && stateData) {
-          state.status =
-            (stateData.status as PhaseStatus) ?? "queued";
+          state.status = (stateData.status as PhaseStatus) ?? "queued";
           state.agentId = stateData.agentId as string | undefined;
           state.result = stateData.result as string | undefined;
           state.error = stateData.error as string | undefined;
           state.startedAt = stateData.startedAt as number | undefined;
-          state.completedAt =
-            stateData.completedAt as number | undefined;
+          state.completedAt = stateData.completedAt as number | undefined;
         }
       }
     }

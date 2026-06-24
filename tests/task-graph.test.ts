@@ -3,23 +3,14 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  TaskGraph,
-  DEFAULT_TEAM_PHASES,
-} from "../src/team/task-graph.js";
+import { TaskGraph, DEFAULT_TEAM_PHASES } from "../src/team/task-graph.js";
 
 describe("TaskGraph", () => {
   it("initializes with default phases in queued state", () => {
     const graph = new TaskGraph(DEFAULT_TEAM_PHASES);
 
     const names = graph.getPhaseNames();
-    expect(names).toEqual([
-      "explore",
-      "plan",
-      "implement",
-      "review",
-      "test",
-    ]);
+    expect(names).toEqual(["explore", "plan", "implement", "review", "test"]);
 
     for (const name of names) {
       const phase = graph.getPhase(name);

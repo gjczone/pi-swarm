@@ -28,9 +28,7 @@ export interface SwarmModeAgent {
      * Pop a matched message from the context.
      * Returns true if a message was removed.
      */
-    popMatchedMessage(
-      predicate: (origin: unknown) => boolean,
-    ): boolean;
+    popMatchedMessage(predicate: (origin: unknown) => boolean): boolean;
   };
   /** Emit a status update event. */
   emitStatusUpdated(): void;
@@ -80,10 +78,10 @@ export class SwarmMode {
     this.active = trigger;
 
     if (trigger !== "tool") {
-      this.agent.context.appendSystemReminder(
-        SWARM_MODE_ENTER_REMINDER,
-        { kind: "injection", variant: "swarm_mode" },
-      );
+      this.agent.context.appendSystemReminder(SWARM_MODE_ENTER_REMINDER, {
+        kind: "injection",
+        variant: "swarm_mode",
+      });
     }
 
     this.agent.emitStatusUpdated();
@@ -107,24 +105,19 @@ export class SwarmMode {
 
     // Try to pop the enter reminder first
     if (
-      this.agent.context.popMatchedMessage(
-        (origin: unknown) => {
-          const o = origin as { kind?: string; variant?: string } | null;
-          return (
-            o?.kind === "injection" &&
-            o?.variant === "swarm_mode"
-          );
-        },
-      )
+      this.agent.context.popMatchedMessage((origin: unknown) => {
+        const o = origin as { kind?: string; variant?: string } | null;
+        return o?.kind === "injection" && o?.variant === "swarm_mode";
+      })
     ) {
       return;
     }
 
     // If we couldn't pop it, inject an exit reminder
-    this.agent.context.appendSystemReminder(
-      SWARM_MODE_EXIT_REMINDER,
-      { kind: "injection", variant: "swarm_mode_exit" },
-    );
+    this.agent.context.appendSystemReminder(SWARM_MODE_EXIT_REMINDER, {
+      kind: "injection",
+      variant: "swarm_mode_exit",
+    });
   }
 
   /** Whether swarm mode is currently active. */

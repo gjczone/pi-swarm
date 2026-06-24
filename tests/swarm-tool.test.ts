@@ -61,9 +61,7 @@ function createAgentSwarmSpecs(args: {
   const promptTemplate = args.prompt_template?.trim() || undefined;
 
   if (items.length > 0 && promptTemplate === undefined) {
-    throw new Error(
-      "prompt_template is required when items are provided.",
-    );
+    throw new Error("prompt_template is required when items are provided.");
   }
 
   if (
@@ -235,7 +233,7 @@ describe("createAgentSwarmSpecs", () => {
     const specs = createAgentSwarmSpecs({
       prompt_template: "Process {{item}}",
       items: ["a"],
-      resume_agent_ids: { "r1": "go" },
+      resume_agent_ids: { r1: "go" },
     });
 
     expect(specs[0]!.index).toBe(1); // resume
