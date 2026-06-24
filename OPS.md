@@ -60,7 +60,7 @@ Reference `LOCAL_CI.md`. Run ALL steps. **NEVER** proceed to Phase 4 if any step
 npm run ci
 ```
 
-**Pass**: typecheck → 55 tests → build → dist verified. All green, 0 failures.
+**Pass**: typecheck → 67 tests → build → dist verified. All green, 0 failures.
 
 ---
 
