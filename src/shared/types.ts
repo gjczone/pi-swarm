@@ -104,6 +104,12 @@ export interface TeamPhase {
   readonly role: AgentRole;
   /** Phases that must complete before this one starts. */
   readonly dependsOn?: string[];
+  /** Model tier override for this phase. */
+  readonly modelTier?: ModelTier;
+  /** Explicit model name override (takes precedence over tier). */
+  readonly model?: string;
+  /** Tool whitelist override for this phase. */
+  readonly tools?: string[];
 }
 
 /** A mailbox message for inter-agent communication. */
@@ -136,7 +142,16 @@ export interface RunSubagentOptions {
   readonly swarmRoot?: string;
   readonly runId?: string;
   readonly outputLogPath?: string;
+  readonly model?: string;
+  readonly tools?: string[];
+  readonly cwd?: string;
 }
+
+/** Model tier for cost-optimized routing. */
+export type ModelTier = "default" | "small";
+
+/** Roles that automatically use the small/fast model when configured. */
+export const SMALL_MODEL_ROLES: ReadonlySet<string> = new Set(["explorer"]);
 
 /** Options specific to spawning a NEW subagent. */
 export interface SpawnSubagentOptions extends RunSubagentOptions {

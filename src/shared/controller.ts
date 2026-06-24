@@ -382,6 +382,9 @@ export class SubagentBatchController<T> {
       swarmRoot: task.swarmRoot,
       runId: task.runId,
       outputLogPath: task.outputLogPath,
+      model: task.model,
+      tools: task.tools,
+      cwd: task.cwd,
     };
 
     let handle: SubagentHandle;
