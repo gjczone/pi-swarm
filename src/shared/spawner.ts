@@ -313,7 +313,9 @@ function parseEventStream(
         }
 
         const content = msg.content;
-        if (content && Array.isArray(content)) {
+        if (typeof content === "string" && content) {
+          finalText += content;
+        } else if (content && Array.isArray(content)) {
           for (const block of content) {
             if (block.type === "text" && block.text) {
               finalText += block.text;

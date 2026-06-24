@@ -367,35 +367,176 @@ export class TeamSupervisor {
 
   /**
    * Synthesize the final team result from all completed phases.
+   * Max characters of phase output to include inline; rest is truncated.
    */
+  private static readonly MAX_PHASE_OUTPUT_CHARS = 12000;
+
   synthesizeResult(): string {
+    const allPhases = this.state.taskGraph.getAllPhases();
+    const durationMs =
+      (this.state.completedAt ?? Date.now()) - this.state.startedAt;
+
     const lines: string[] = [
       "<swarm_team_result>",
       `<summary>${this.buildSummary()}</summary>`,
+      `<total_duration_ms>${durationMs}</total_duration_ms>`,
     ];
 
-    for (const phase of this.state.taskGraph.getAllPhases()) {
+    // Per-phase results
+    for (const phase of allPhases) {
       const name = phase.phase.name;
       const role = phase.phase.role;
       const status = phase.status;
       const result = phase.result ?? "";
       const error = phase.error ?? "";
+      const agentId = phase.agentId ?? "";
+      const duration =
+        phase.startedAt && phase.completedAt
+          ? phase.completedAt - phase.startedAt
+          : undefined;
 
-      lines.push(
-        `<phase name="${escapeXml(name)}" role="${escapeXml(role)}" outcome="${escapeXml(status)}">`,
-      );
+      const attrs = [
+        `name="${escapeAttr(name)}"`,
+        `role="${escapeAttr(role)}"`,
+        `outcome="${escapeAttr(status)}"`,
+      ];
+      if (agentId) attrs.push(`agent_id="${escapeAttr(agentId)}"`);
+      if (duration !== undefined)
+        attrs.push(`duration_ms="${String(duration)}"`);
 
-      if (status === "completed" && result) {
-        lines.push(escapeXml(result));
+      lines.push(`<phase ${attrs.join(" ")}>`);
+
+      if (status === "completed") {
+        if (result.trim()) {
+          const truncated = this.truncateForOutput(result);
+          lines.push(truncated);
+        } else {
+          lines.push(
+            "(agent returned no text output; see per-agent output.log for full session transcript)",
+          );
+        }
       } else if (status === "failed" && error) {
-        lines.push(`<error>${escapeXml(error)}</error>`);
+        lines.push(`<error>${escapeBody(error)}</error>`);
+      } else if (status === "skipped") {
+        lines.push("(phase skipped due to failed dependency)");
       }
 
       lines.push(`</phase>`);
     }
 
+    // Supervisor synthesis — a consolidated summary across all phases
+    lines.push("<supervisor_synthesis>");
+    lines.push(this.buildSynthesis(allPhases));
+    lines.push("</supervisor_synthesis>");
+
     lines.push("</swarm_team_result>");
     return lines.join("\n");
+  }
+
+  /**
+   * Truncate a phase result to MAX_PHASE_OUTPUT_CHARS with a note.
+   */
+  private truncateForOutput(text: string): string {
+    if (text.length <= TeamSupervisor.MAX_PHASE_OUTPUT_CHARS) {
+      return text;
+    }
+    const truncated = text.slice(0, TeamSupervisor.MAX_PHASE_OUTPUT_CHARS);
+    return (
+      truncated +
+      `\n\n... [output truncated: ${text.length - TeamSupervisor.MAX_PHASE_OUTPUT_CHARS} additional characters omitted. See output.log for full content.]`
+    );
+  }
+
+  /**
+   * Build a consolidated synthesis across all completed phases.
+   *
+   * Extracts the first non-empty line or heading from each phase to create
+   * an executive summary, then lists all phases with their key outcomes.
+   */
+  private buildSynthesis(phases: readonly PhaseState[]): string {
+    const sections: string[] = [];
+    const completedPhases = phases.filter((p) => p.status === "completed");
+    const failedPhases = phases.filter((p) => p.status === "failed");
+
+    sections.push(`### Team Run: ${this.config.goal.slice(0, 200)}`);
+    sections.push("");
+
+    if (failedPhases.length > 0) {
+      sections.push(`### Errors`);
+      for (const p of failedPhases) {
+        sections.push(
+          `- **${p.phase.name}** (${p.phase.role}): ${p.error ?? "unknown error"}`,
+        );
+      }
+      sections.push("");
+    }
+
+    sections.push(`### Phase Outcomes`);
+    for (const p of phases) {
+      const status = p.status;
+      const bullet =
+        status === "completed"
+          ? "DONE"
+          : status === "failed"
+            ? "FAIL"
+            : status === "skipped"
+              ? "SKIP"
+              : "??";
+      const firstLine = this.extractFirstMeaningfulLine(p.result ?? "");
+      const suffix = firstLine ? ` — ${firstLine}` : "";
+      sections.push(`- [${bullet}] **${p.phase.name}** (${p.phase.role})${suffix}`);
+    }
+
+    if (completedPhases.length > 0) {
+      sections.push("");
+      sections.push(`### Key Deliverables`);
+      for (const p of completedPhases) {
+        const excerpt = this.extractExcerpt(p.result ?? "");
+        if (excerpt) {
+          sections.push(`#### ${p.phase.name} (${p.phase.role})`);
+          sections.push(excerpt);
+          sections.push("");
+        }
+      }
+    }
+
+    return sections.join("\n");
+  }
+
+  /**
+   * Extract the first meaningful line (not empty, not a mailbox tag).
+   */
+  private extractFirstMeaningfulLine(text: string): string {
+    const lines = text.split("\n");
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith("<mailbox_message")) continue;
+      if (trimmed.startsWith("</mailbox_message")) continue;
+      // Strip leading markdown heading markers
+      const cleaned = trimmed.replace(/^#+\s*/, "");
+      return cleaned.slice(0, 120);
+    }
+    return "";
+  }
+
+  /**
+   * Extract a short excerpt (first ~400 chars of meaningful content) from a phase result.
+   */
+  private extractExcerpt(text: string): string {
+    const lines = text.split("\n");
+    const meaningful: string[] = [];
+    let total = 0;
+    for (const line of lines) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      if (trimmed.startsWith("<mailbox_message")) continue;
+      if (trimmed.startsWith("</mailbox_message")) continue;
+      meaningful.push(line);
+      total += line.length;
+      if (total > 400) break;
+    }
+    return meaningful.join("\n").slice(0, 500);
   }
 
   // -------------------------------------------------------------------
@@ -487,10 +628,26 @@ export class TeamSupervisor {
 // Helpers
 // ---------------------------------------------------------------------------
 
-function escapeXml(value: string): string {
+/**
+ * Escape a string for use in an XML attribute value.
+ * Full XML special character escaping.
+ */
+function escapeAttr(value: string): string {
   return value
     .replaceAll("&", "&amp;")
     .replaceAll('"', "&quot;")
+    .replaceAll("'", "&apos;")
     .replaceAll("<", "&lt;")
     .replaceAll(">", "&gt;");
+}
+
+/**
+ * Minimal escaping for XML element body content.
+ * Only escapes & and ]]> to prevent XML parsing errors while
+ * preserving markdown formatting (headers, lists, bold, etc.).
+ */
+function escapeBody(value: string): string {
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("]]>", "]]&gt;");
 }
