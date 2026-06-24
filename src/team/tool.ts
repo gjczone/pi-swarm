@@ -23,7 +23,12 @@ import type {
   QueuedSubagentTask,
   SubagentResult,
 } from "../shared/types.js";
-import { resolveCrewRoot } from "../state/persistence.js";
+import {
+  resolveCrewRoot,
+  createManifest,
+  saveTaskState,
+  updateHeartbeat,
+} from "../state/persistence.js";
 import { TeamSupervisor } from "./supervisor.js";
 import type {
   TeamPhase,
@@ -162,6 +167,17 @@ export function registerAgentTeamTool(
           maxAgents: p.max_agents ?? 4,
         });
 
+        // Create manifest and save initial state
+        createManifest(crewRoot, {
+          runId,
+          type: "team",
+          status: "running",
+          goal: p.goal,
+          startedAt: Date.now(),
+          agentIds: [],
+        });
+        saveTaskState(crewRoot, runId, supervisor.state.taskGraph.toJSON());
+
         // Run phases sequentially through the task graph
         const allResults: SubagentResult<unknown>[] = [];
         let currentPhase = supervisor.startNextPhase();
@@ -169,6 +185,9 @@ export function registerAgentTeamTool(
         while (currentPhase !== null) {
           // Check abort signal between phases
           signal?.throwIfAborted();
+
+          // Update heartbeat before phase
+          updateHeartbeat(crewRoot, runId);
 
           const { phase, role, prompt: phasePrompt } =
             currentPhase;
@@ -211,6 +230,8 @@ export function registerAgentTeamTool(
               phase.phase.name,
               err instanceof Error ? err.message : String(err),
             );
+            // Save state after failure
+            saveTaskState(crewRoot, runId, supervisor.state.taskGraph.toJSON());
             // Abort signal: stop the entire run, save partial state
             if (signal?.aborted) {
               supervisor.finalize();
@@ -243,6 +264,9 @@ export function registerAgentTeamTool(
               result.error ?? "Unknown error",
             );
           }
+
+          // Save state after each phase
+          saveTaskState(crewRoot, runId, supervisor.state.taskGraph.toJSON());
 
           currentPhase = supervisor.startNextPhase();
         }
