@@ -106,6 +106,7 @@ export interface RunManifest {
   completedAt?: number;
   lastHeartbeatAt?: number;
   agentIds: string[];
+  error?: string;
 }
 
 /**
@@ -161,6 +162,23 @@ export function updateHeartbeat(swarmRoot: string, runId: string): void {
   if (manifest.status !== "running") return;
   manifest.lastHeartbeatAt = Date.now();
   updateManifest(swarmRoot, manifest);
+}
+
+/**
+ * Register an agent ID in the run manifest.
+ * Called when a new agent spawns so the manifest tracks all agents in the run.
+ */
+export function registerAgentInManifest(
+  swarmRoot: string,
+  runId: string,
+  agentId: string,
+): void {
+  const manifest = readManifest(swarmRoot, runId);
+  if (!manifest) return;
+  if (!manifest.agentIds.includes(agentId)) {
+    manifest.agentIds.push(agentId);
+    updateManifest(swarmRoot, manifest);
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -285,6 +303,22 @@ export function loadAgentStatus(
   } catch {
     return null;
   }
+}
+
+/**
+ * Create a writable stream for the agent's output.log file.
+ * Returns undefined if swarmRoot/runId are not provided.
+ */
+export function createAgentLogStream(
+  swarmRoot: string | undefined,
+  runId: string | undefined,
+  agentId: string,
+): fs.WriteStream | undefined {
+  if (!swarmRoot || !runId) return undefined;
+  const dir = resolveAgentStateDir(swarmRoot, runId, agentId);
+  fs.mkdirSync(dir, { recursive: true });
+  const logPath = path.join(dir, "output.log");
+  return fs.createWriteStream(logPath, { flags: "a", encoding: "utf-8" });
 }
 
 /**

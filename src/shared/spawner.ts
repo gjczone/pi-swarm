@@ -7,6 +7,8 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
+import { mkdirSync, createWriteStream, type WriteStream } from "node:fs";
+import { dirname, join } from "node:path";
 import { getPiInvocation, buildSubagentArgs } from "./pi-invoke.js";
 import type {
   SpawnSubagentOptions,
@@ -36,7 +38,25 @@ export async function spawnSubagent(
   opts.signal.throwIfAborted();
 
   const agentId = `swarm-${randomId()}`;
-  const completion = runSubagentProcess(agentId, opts);
+
+  // Resolve output log path if swarm root and run ID are provided
+  let resolvedOpts = opts;
+  if (opts.swarmRoot && opts.runId && !opts.outputLogPath) {
+    const agentDir = join(
+      opts.swarmRoot,
+      "state",
+      "runs",
+      opts.runId,
+      "agents",
+      agentId,
+    );
+    resolvedOpts = {
+      ...opts,
+      outputLogPath: join(agentDir, "output.log"),
+    };
+  }
+
+  const completion = runSubagentProcess(agentId, resolvedOpts);
 
   opts.onReady?.();
 
@@ -57,8 +77,24 @@ export async function resumeSubagent(
 ): Promise<SubagentHandle> {
   opts.signal.throwIfAborted();
 
+  let resolvedOpts = opts;
+  if (opts.swarmRoot && opts.runId && !opts.outputLogPath) {
+    const agentDir = join(
+      opts.swarmRoot,
+      "state",
+      "runs",
+      opts.runId,
+      "agents",
+      agentId,
+    );
+    resolvedOpts = {
+      ...opts,
+      outputLogPath: join(agentDir, "output.log"),
+    };
+  }
+
   const spawnOpts: SpawnSubagentOptions = {
-    ...opts,
+    ...resolvedOpts,
     profileName: "subagent",
   };
   const completion = runSubagentProcess(agentId, spawnOpts);
@@ -138,6 +174,31 @@ async function runSubagentProcess(
     env: { ...process.env },
   });
 
+  let logStream: WriteStream | undefined;
+  if (opts.outputLogPath) {
+    mkdirSync(dirname(opts.outputLogPath), { recursive: true });
+    logStream = createWriteStream(opts.outputLogPath, {
+      flags: "a",
+      encoding: "utf-8",
+    });
+    const header = [
+      "=".repeat(72),
+      `Agent: ${agentId}`,
+      `Profile: ${opts.profileName}`,
+      `CWD: ${cwd}`,
+      `Model: ${opts.model ?? "(inherited)"}`,
+      `Tools: ${opts.tools?.join(", ") ?? "(all)"}`,
+      `Started: ${new Date().toISOString()}`,
+      "-".repeat(72),
+      "PROMPT:",
+      opts.prompt,
+      "-".repeat(72),
+      "OUTPUT:",
+      "",
+    ].join("\n");
+    logStream.write(header);
+  }
+
   let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let streamReject: ((err: Error) => void) | undefined;
@@ -155,6 +216,14 @@ async function runSubagentProcess(
     }
     if (opts.signal) {
       opts.signal.removeEventListener("abort", onAbort);
+    }
+  };
+
+  const closeLog = (footer: string) => {
+    if (logStream) {
+      logStream.write(`\n${"-".repeat(72)}\n${footer}\n`);
+      logStream.end();
+      logStream = undefined;
     }
   };
 
@@ -208,15 +277,29 @@ async function runSubagentProcess(
   try {
     const result = await new Promise<ParsedResult>((resolve, reject) => {
       streamReject = reject;
-      parseEventStream(proc, agentId).then(
+      parseEventStream(proc, agentId, logStream).then(
         (parsed) => {
           if (settled) return;
           cleanup();
+          const footer = [
+            `Completed: ${new Date().toISOString()}`,
+            `Stop reason: ${parsed.stopReason ?? "unknown"}`,
+            `Tokens: in=${parsed.usage.input}, out=${parsed.usage.output}, total=${parsed.usage.totalTokens}`,
+            "",
+            "RESULT:",
+            parsed.text || "(no output)",
+          ].join("\n");
+          closeLog(footer);
           resolve(parsed);
         },
         (err) => {
           if (settled) return;
           cleanup();
+          const footer = [
+            `Failed: ${new Date().toISOString()}`,
+            `Error: ${err instanceof Error ? err.message : String(err)}`,
+          ].join("\n");
+          closeLog(footer);
           reject(err);
         },
       );
@@ -228,6 +311,13 @@ async function runSubagentProcess(
     };
   } catch (err) {
     cleanup();
+    if (logStream) {
+      const footer = [
+        `Aborted: ${new Date().toISOString()}`,
+        `Error: ${err instanceof Error ? err.message : String(err)}`,
+      ].join("\n");
+      closeLog(footer);
+    }
     throw err;
   }
 }
@@ -239,6 +329,7 @@ async function runSubagentProcess(
 function parseEventStream(
   proc: ChildProcess,
   agentId: string,
+  logStream?: WriteStream,
 ): Promise<ParsedResult> {
   return new Promise<ParsedResult>((resolve, reject) => {
     const usageAcc = {
@@ -342,7 +433,9 @@ function parseEventStream(
     if (proc.stdout) {
       proc.stdout.on("data", (data: Buffer) => {
         if (settled) return;
-        buffer += data.toString();
+        const text = data.toString();
+        buffer += text;
+        if (logStream) logStream.write(text);
 
         if (buffer.length > MAX_LINE_BUFFER_SIZE) {
           settle(
@@ -380,6 +473,9 @@ function parseEventStream(
       proc.stderr.on("data", (data: Buffer) => {
         if (settled) return;
         const text = data.toString();
+        if (logStream) {
+          logStream.write(`[stderr] ${text}`);
+        }
         if (text.trim()) {
           if (errorMessage) errorMessage += "\n";
           errorMessage += text.trim();

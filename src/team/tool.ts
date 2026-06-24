@@ -27,8 +27,11 @@ import type { QueuedSubagentTask, SubagentResult } from "../shared/types.js";
 import {
   resolveSwarmRoot,
   createManifest,
+  readManifest,
+  updateManifest,
   saveTaskState,
   updateHeartbeat,
+  registerAgentInManifest,
 } from "../state/persistence.js";
 import { TeamSupervisor } from "./supervisor.js";
 import type { TeamPhase, AgentRoleConfig } from "../shared/types.js";
@@ -135,12 +138,13 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
       const ctx = ctxRaw as ExtensionContext;
       const dashboard = createTeamDashboardWidget(ctx, p.description);
 
+      // Persistent run state - declared outside try for catch access
+      const swarmRoot =
+        process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
+      const runId = `team-${Date.now().toString(36)}`;
+      let runCreated = false;
       let supervisor: TeamSupervisor | null = null;
       try {
-        const swarmRoot =
-          process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
-        const runId = `team-${Date.now().toString(36)}`;
-
         // Build phase definitions
         const phases: TeamPhase[] | undefined = p.phases?.map((ph) => ({
           name: ph.name,
@@ -179,6 +183,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
           startedAt: Date.now(),
           agentIds: [],
         });
+        runCreated = true;
         saveTaskState(swarmRoot, runId, supervisor.state.taskGraph.toJSON());
 
         // Run phases sequentially through the task graph
@@ -211,6 +216,8 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               model: roleConfig.model,
               tools: roleConfig.tools,
               cwd: supervisor.config.cwd,
+              swarmRoot,
+              runId,
             },
           ];
 
@@ -244,6 +251,15 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             // Abort signal: stop the entire run, save partial state
             if (signal?.aborted) {
               supervisor.finalize();
+              if (runCreated) {
+                const m = readManifest(swarmRoot, runId);
+                if (m) {
+                  m.status = "failed";
+                  m.completedAt = Date.now();
+                  m.error = "Aborted by user";
+                  updateManifest(swarmRoot, m);
+                }
+              }
               const partialOutput = supervisor.synthesizeResult();
               return {
                 content: [{ type: "text", text: partialOutput }],
@@ -264,11 +280,17 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               result.agentId ?? phase.phase.name,
             );
             supervisor.completePhase(phase.phase.name, result.result ?? "");
+            if (result.agentId) {
+              registerAgentInManifest(swarmRoot, runId, result.agentId);
+            }
           } else if (result) {
             supervisor.failPhase(
               phase.phase.name,
               result.error ?? "Unknown error",
             );
+            if (result.agentId) {
+              registerAgentInManifest(swarmRoot, runId, result.agentId);
+            }
           }
 
           // Save state after each phase
@@ -279,6 +301,17 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
 
         // Finalize and render
         supervisor.finalize();
+
+        // Mark run as completed
+        if (runCreated) {
+          const manifest = readManifest(swarmRoot, runId);
+          if (manifest) {
+            manifest.status = "completed";
+            manifest.completedAt = Date.now();
+            updateManifest(swarmRoot, manifest);
+          }
+        }
+
         dashboard?.component.complete();
         const output = supervisor.synthesizeResult();
 
@@ -288,6 +321,18 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         };
       } catch (error) {
         const message = error instanceof Error ? error.message : String(error);
+
+        // Mark run as failed
+        if (runCreated) {
+          const manifest = readManifest(swarmRoot, runId);
+          if (manifest) {
+            manifest.status = "failed";
+            manifest.completedAt = Date.now();
+            manifest.error = message;
+            updateManifest(swarmRoot, manifest);
+          }
+        }
+
         // Return partial state if available
         if (supervisor) {
           try {

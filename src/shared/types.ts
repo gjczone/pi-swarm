@@ -133,6 +133,9 @@ export interface RunSubagentOptions {
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
   readonly timeout?: number;
+  readonly swarmRoot?: string;
+  readonly runId?: string;
+  readonly outputLogPath?: string;
 }
 
 /** Options specific to spawning a NEW subagent. */
@@ -201,6 +204,12 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly tools?: string[];
   /** Working directory override (optional, defaults to process.cwd()). */
   readonly cwd?: string;
+  /** Swarm root directory for state persistence (optional). */
+  readonly swarmRoot?: string;
+  /** Run ID this agent belongs to (optional). */
+  readonly runId?: string;
+  /** Path to write per-agent output log (optional). */
+  readonly outputLogPath?: string;
 }
 
 /** A task that spawns a NEW subagent. */
