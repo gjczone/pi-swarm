@@ -164,6 +164,21 @@ export function ackMessages(paths: MailboxPaths, messageIds: string[]): void {
 }
 
 /**
+ * Acknowledge (delete) messages from a task-specific inbox.
+ */
+export function ackTaskMessages(
+  paths: MailboxPaths,
+  taskId: string,
+  messageIds: string[],
+): void {
+  const taskPaths = resolveTaskMailboxPaths(paths, taskId);
+  const messages = readJsonLines(taskPaths.inbox);
+  const idSet = new Set(messageIds);
+  const remaining = messages.filter((m) => !idSet.has(m.messageId));
+  writeJsonLines(taskPaths.inbox, remaining);
+}
+
+/**
  * Get delivery state (which messages have been delivered/read).
  */
 export function getDeliveryState(paths: MailboxPaths): Record<string, string> {
