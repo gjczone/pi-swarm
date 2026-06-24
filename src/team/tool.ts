@@ -343,19 +343,20 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
 
       container.addChild(new Spacer(1));
       const goalPreview = goal.length > 80 ? `${goal.slice(0, 80)}...` : goal;
-      container.addChild(
-        new Text(theme.fg("dim", goalPreview), 0, 0),
-      );
+      container.addChild(new Text(theme.fg("dim", goalPreview), 0, 0));
 
       if (phases && phases.length > 0) {
         container.addChild(new Spacer(1));
         const phaseNames = phases
           .slice(0, 8)
-          .map((p) => `${theme.fg("muted", p.role)}:${theme.fg("accent", p.name)}`)
+          .map(
+            (p) => `${theme.fg("muted", p.role)}:${theme.fg("accent", p.name)}`,
+          )
           .join("  ");
-        const more = phases.length > 8
-          ? `  ${theme.fg("muted", `+${phases.length - 8} more`)}`
-          : "";
+        const more =
+          phases.length > 8
+            ? `  ${theme.fg("muted", `+${phases.length - 8} more`)}`
+            : "";
         container.addChild(new Text(`${phaseNames}${more}`, 0, 0));
       }
       return container;
@@ -366,9 +367,8 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
      * 业务说明：展示团队执行结果 —— 各阶段完成/失败状态。
      */
     renderResult(result, _options, theme, context) {
-      const text = result.content[0]?.type === "text"
-        ? result.content[0].text
-        : "";
+      const text =
+        result.content[0]?.type === "text" ? result.content[0].text : "";
       const icon = context.isError
         ? theme.fg("error", "x")
         : theme.fg("success", "V");
@@ -399,17 +399,14 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
 
       if (summary) {
         container.addChild(new Spacer(1));
-        container.addChild(
-          new Text(theme.fg("dim", summary), 0, 0),
-        );
+        container.addChild(new Text(theme.fg("dim", summary), 0, 0));
       }
 
       if (context.isError && text) {
         container.addChild(new Spacer(1));
-        const errorPreview = text.length > 100 ? `${text.slice(0, 100)}...` : text;
-        container.addChild(
-          new Text(theme.fg("error", errorPreview), 0, 0),
-        );
+        const errorPreview =
+          text.length > 100 ? `${text.slice(0, 100)}...` : text;
+        container.addChild(new Text(theme.fg("error", errorPreview), 0, 0));
       }
       return container;
     },
@@ -441,12 +438,16 @@ function createTeamDashboardWidget(
   });
   try {
     // 工厂函数接收 tui 和 theme，捕获 tui 供动画驱动使用
-    setWidget(TEAM_DASHBOARD_WIDGET_KEY, (tui, _theme) => {
-      capturedTui = tui;
-      return component;
-    }, {
-      placement: "aboveEditor",
-    });
+    setWidget(
+      TEAM_DASHBOARD_WIDGET_KEY,
+      (tui, _theme) => {
+        capturedTui = tui;
+        return component;
+      },
+      {
+        placement: "aboveEditor",
+      },
+    );
   } catch {
     component.dispose();
     return undefined;

@@ -238,19 +238,25 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       if (desc) {
         container.addChild(new Spacer(1));
         container.addChild(
-          new Text(theme.fg("dim", desc.length > 80 ? `${desc.slice(0, 80)}...` : desc), 0, 0),
+          new Text(
+            theme.fg(
+              "dim",
+              desc.length > 80 ? `${desc.slice(0, 80)}...` : desc,
+            ),
+            0,
+            0,
+          ),
         );
       }
 
-      const templatePreview = (args.prompt_template as string | undefined);
+      const templatePreview = args.prompt_template as string | undefined;
       if (templatePreview) {
         container.addChild(new Spacer(1));
-        const preview = templatePreview.length > 60
-          ? `${templatePreview.slice(0, 60)}...`
-          : templatePreview;
-        container.addChild(
-          new Text(theme.fg("muted", `${preview}`), 0, 0),
-        );
+        const preview =
+          templatePreview.length > 60
+            ? `${templatePreview.slice(0, 60)}...`
+            : templatePreview;
+        container.addChild(new Text(theme.fg("muted", `${preview}`), 0, 0));
       }
       return container;
     },
@@ -260,9 +266,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
      * 业务说明：根据执行结果展示成功/失败图标和概要统计。
      */
     renderResult(result, _options, theme, context) {
-      const text = result.content[0]?.type === "text"
-        ? result.content[0].text
-        : "";
+      const text =
+        result.content[0]?.type === "text" ? result.content[0].text : "";
       const icon = context.isError
         ? theme.fg("error", "x")
         : theme.fg("success", "V");
@@ -284,10 +289,9 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
 
       if (context.isError && text) {
         container.addChild(new Spacer(1));
-        const errorPreview = text.length > 100 ? `${text.slice(0, 100)}...` : text;
-        container.addChild(
-          new Text(theme.fg("error", errorPreview), 0, 0),
-        );
+        const errorPreview =
+          text.length > 100 ? `${text.slice(0, 100)}...` : text;
+        container.addChild(new Text(theme.fg("error", errorPreview), 0, 0));
       }
       return container;
     },
@@ -449,12 +453,16 @@ function createProgressWidget(
   });
   try {
     // 工厂函数接收 tui 和 theme，捕获 tui 供动画驱动使用
-    setWidget(PROGRESS_WIDGET_KEY, (tui, _theme) => {
-      capturedTui = tui;
-      return component;
-    }, {
-      placement: "aboveEditor",
-    });
+    setWidget(
+      PROGRESS_WIDGET_KEY,
+      (tui, _theme) => {
+        capturedTui = tui;
+        return component;
+      },
+      {
+        placement: "aboveEditor",
+      },
+    );
   } catch {
     // setWidget 失败不应阻断 swarm 执行
     component.dispose();
