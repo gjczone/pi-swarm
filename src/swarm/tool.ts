@@ -7,7 +7,7 @@
  * Ported from MoonshotAI/kimi-code's AgentSwarmTool.
  */
 
-import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI, ExtensionContext } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   SubagentBatchController,
@@ -25,6 +25,13 @@ import type {
   SwarmResumeSpec,
   SwarmSpec,
 } from "../shared/types.js";
+import {
+  AgentSwarmProgressComponent,
+  snapshotToProgressState,
+} from "../tui/progress.js";
+
+/** Widget key used to render the live swarm progress panel. */
+const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -94,7 +101,7 @@ export function registerAgentSwarmTool(
       params: Record<string, unknown>,
       signal: AbortSignal | undefined,
       _onUpdate: unknown,
-      _ctx: unknown,
+      ctxRaw: unknown,
     ) => {
       const { description, subagent_type, prompt_template, items, resume_agent_ids } =
         params as {
@@ -104,6 +111,9 @@ export function registerAgentSwarmTool(
           items?: string[];
           resume_agent_ids?: Record<string, string>;
         };
+
+      const ctx = ctxRaw as ExtensionContext;
+      const progress = createProgressWidget(ctx);
 
       try {
         const profileName =
@@ -160,9 +170,19 @@ export function registerAgentSwarmTool(
         const controller = new SubagentBatchController<SwarmSpec>(
           { spawn: spawnSubagent, resume: resumeSubagent, retry: retrySubagent },
           tasks,
-          { maxConcurrency },
+          {
+            maxConcurrency,
+            onProgress: (snapshot) => {
+              progress?.component.update(
+                snapshotToProgressState(snapshot, description),
+              );
+            },
+          },
         );
         const results = await controller.run();
+
+        // Trigger completion animation before tearing down
+        progress?.component.complete();
 
         // Render output
         const swarmResults = toSwarmRunResults(results);
@@ -180,6 +200,10 @@ export function registerAgentSwarmTool(
           isError: true,
           details: undefined,
         };
+      } finally {
+        // Always tear down the progress widget so it does not linger
+        progress?.dispose();
+        clearProgressWidget(ctx);
       }
     },
   });
@@ -300,4 +324,68 @@ function normalizeOptionalString(
   if (value === undefined) return undefined;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : undefined;
+}
+
+// ---------------------------------------------------------------------------
+// Live progress widget
+// ---------------------------------------------------------------------------
+
+/** Handle returned by createProgressWidget for teardown. */
+interface ProgressHandle {
+  readonly component: AgentSwarmProgressComponent;
+  dispose(): void;
+}
+
+/**
+ * Install a live progress widget above the editor when running in TUI mode.
+ *
+ * Returns undefined in non-TUI modes (print/rpc/json) where setWidget is a
+ * no-op, so the controller's onProgress callback stays a cheap no-op too.
+ *
+ * 业务说明：在 TUI 模式下注册一个实时进度面板，展示每个子 Agent 的
+ * 运行状态（队列/运行中/完成/失败/限流挂起）。非 TUI 模式下返回
+ * undefined，避免无意义的 UI 调用。
+ */
+function createProgressWidget(
+  ctx: ExtensionContext,
+): ProgressHandle | undefined {
+  // 仅在 TUI 模式下展示进度面板；其他模式（print/rpc/json）无可用 UI
+  if (ctx.mode !== "tui") return undefined;
+  const setWidget = ctx.ui?.setWidget;
+  if (typeof setWidget !== "function") return undefined;
+
+  const component = new AgentSwarmProgressComponent();
+  try {
+    // 工厂函数返回预先创建的组件实例；TUI 框架会在刷新周期调用 render
+    setWidget(
+      PROGRESS_WIDGET_KEY,
+      () => component,
+      { placement: "aboveEditor" },
+    );
+  } catch {
+    // setWidget 失败不应阻断 swarm 执行
+    component.dispose();
+    return undefined;
+  }
+
+  return {
+    component,
+    dispose(): void {
+      component.dispose();
+    },
+  };
+}
+
+/**
+ * Remove the progress widget after the swarm run completes or fails.
+ */
+function clearProgressWidget(ctx: ExtensionContext): void {
+  if (ctx.mode !== "tui") return;
+  const setWidget = ctx.ui?.setWidget;
+  if (typeof setWidget !== "function") return;
+  try {
+    setWidget(PROGRESS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
+  } catch {
+    // Best effort — widget teardown failure is non-fatal
+  }
 }

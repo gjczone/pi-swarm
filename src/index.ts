@@ -15,6 +15,10 @@ import { registerSwarmCommand, type SwarmCommandHost } from "./swarm/command.js"
 import { registerAgentTeamTool } from "./team/tool.js";
 import { registerTeamCommand } from "./team/command.js";
 import { recoverRuns } from "./state/recovery.js";
+import {
+  SwarmModeMarkerComponent,
+  type SwarmModeMarkerState,
+} from "./tui/swarm-markers.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -180,12 +184,70 @@ export default function (pi: ExtensionAPI): void {
     swarmActive = false;
   });
 
+  // ---- Keyword trigger: auto-activate swarm mode when user mentions it ----
+
+  pi.on("input", (event) => {
+    if (event.source !== "interactive") return;
+    const text = event.text.toLowerCase();
+    if (text.includes("swarm-team") || text.includes("swarm team")) {
+      if (!swarmActive) {
+        swarmActive = true;
+        log("Swarm mode auto-activated (keyword: swarm-team).");
+        pi.sendMessage?.({
+          customType: "swarm:marker",
+          content: "active",
+          display: true,
+        });
+      }
+    } else if (text.includes("swarm") && !text.includes("swarm-team")) {
+      if (!swarmActive) {
+        swarmActive = true;
+        log("Swarm mode auto-activated (keyword: swarm).");
+        pi.sendMessage?.({
+          customType: "swarm:marker",
+          content: "active",
+          display: true,
+        });
+      }
+    }
+  });
+
   // ---- Tool & Command Registration ----
+
+  // Register a renderer for swarm:marker custom messages so the
+  // activated/deactivated/ended markers render as a labelled line in
+  // the conversation transcript. 业务说明：当 swarm 模式开启/关闭/结束时，
+  // 通过 sendMessage 发送 swarm:marker 消息；此处注册渲染器将其显示为
+  // 一行带标签的状态标记。
+  pi.registerMessageRenderer<unknown>("swarm:marker", (message) => {
+    const content =
+      typeof message.content === "string" ? message.content : "";
+    const state = resolveMarkerState(content);
+    return new SwarmModeMarkerComponent(state);
+  });
 
   registerAgentSwarmTool(pi);
   registerSwarmCommand(pi, commandHost);
   registerAgentTeamTool(pi);
-  registerTeamCommand(pi);
+  registerTeamCommand(pi, commandHost);
 
-  log("Extension loaded — AgentSwarm + AgentTeam tools + /swarm, /swarm-team commands registered.");
+  log("Extension loaded — AgentSwarm + SwarmTeam tools + /swarm, /swarm-team commands registered.");
+}
+
+// ---------------------------------------------------------------------------
+// Marker helpers
+// ---------------------------------------------------------------------------
+
+/** Map a swarm:marker message content string to a marker state. */
+function resolveMarkerState(content: string): SwarmModeMarkerState {
+  switch (content) {
+    case "active":
+      return "active";
+    case "inactive":
+      return "inactive";
+    case "ended":
+      return "ended";
+    default:
+      return "active";
+  }
 }

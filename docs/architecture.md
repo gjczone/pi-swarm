@@ -11,7 +11,7 @@ pi-swarm is a **subagent orchestration system** with two operational modes:
 | Mode | Pattern | Trigger | Communication |
 |------|---------|---------|---------------|
 | **Swarm** | Parallel, item-template, homogeneous | `AgentSwarm` tool or `/swarm` command | None (independent) |
-| **Team** | Sequential, role-based, heterogeneous | `AgentTeam` tool or `/swarm-team` command | JSONL mailbox |
+| **Team** | Sequential, role-based, heterogeneous | `SwarmTeam` tool or `/swarm-team` command | JSONL mailbox |
 
 The design follows these principles:
 
@@ -45,7 +45,7 @@ src/
 │   ├── command.ts        # /swarm slash command
 │   └── mode.ts           # SwarmMode lifecycle state machine
 ├── team/                 # Team mode (imports from shared/)
-│   ├── tool.ts           # AgentTeam tool (pi.registerTool)
+│   ├── tool.ts           # SwarmTeam tool (pi.registerTool)
 │   ├── command.ts        # /swarm-team slash command
 │   ├── mailbox.ts        # JSONL inbox/outbox/delivery
 │   ├── task-graph.ts     # Directed acyclic phase graph with dependencies
@@ -359,9 +359,9 @@ Orchestrates the team run by managing the task graph and spawning agents.
 
 This is analogous to CrewAI's task context chaining — each task receives the output of its predecessor tasks as input context.
 
-### 5.4 AgentTeam Tool (`team/tool.ts`)
+### 5.4 SwarmTeam Tool (`team/tool.ts`)
 
-Registered via `pi.registerTool("AgentTeam", ...)`.
+Registered via `pi.registerTool("SwarmTeam", ...)`.
 
 **Input parameters**:
 | Parameter | Required | Description |
@@ -384,7 +384,7 @@ Registered via `pi.registerTool("AgentTeam", ...)`.
 
 ### 5.5 /swarm-team Command (`team/command.ts`)
 
-Sends the goal as a user message. The LLM can then decide whether to call AgentTeam directly or handle the goal differently. This is a lightweight command — the heavy lifting is in the tool.
+Sends the goal as a user message. The LLM can then decide whether to call SwarmTeam directly or handle the goal differently. This is a lightweight command — the heavy lifting is in the tool.
 
 ---
 
@@ -555,10 +555,10 @@ User: /swarm-team Implement login with tests
 /swarm-team command handler
   │  sends user prompt
   ▼
-LLM receives prompt → decides to call AgentTeam
+LLM receives prompt → decides to call SwarmTeam
   │
   ▼
-AgentTeam.execute()
+SwarmTeam.execute()
   │
   ├─ new TeamSupervisor(config)
   │     ├─ resolves phases (default or custom)
@@ -606,7 +606,7 @@ AgentTeam.execute()
 |--------|-----------|---------|----------|
 | Subagent execution | In-process session API | Out-of-process spawn | Out-of-process spawn |
 | Concurrency model | Two-phase SubagentBatch | Task queue with configurable cap | Two-phase SubagentBatch (ported from kimi-code) |
-| Swarm mode | AgentSwarm tool + /swarm | N/A (team only) | AgentSwarm + AgentTeam dual mode |
+| Swarm mode | AgentSwarm tool + /swarm | N/A (team only) | AgentSwarm + SwarmTeam dual mode |
 | Team mode | N/A | Task graph + supervisor + mailbox | Task graph + supervisor + mailbox (inspired by pi-crew) |
 | State persistence | In-memory | Full state machine (JSONL + atomic writes) | Manifest + tasks + events (atomic writes) |
 | TUI | Braille progress + swarm markers | Dashboard + widget + powerbar | Braille progress + markers + permission dialog |
