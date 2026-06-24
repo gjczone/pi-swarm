@@ -2,6 +2,26 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.3.3] - 2026-06-24
+
+### Fixed
+
+- **Subagent output capture (#25, #27, #29)**: Agent results were always "(no output)" because the event stream parser only read `message_end` events and ignored tool outputs. Fixed by accumulating tool output from `tool_result` events and handling both string-form and array-form message content. Added `cwd` support to spawner so subagents inherit the correct working directory. Added timeout handling for subagent processes.
+- **Per-agent output.log persistence (#31)**: Subagents now write their full session output to `output.log` under the agent state directory. Includes headers, raw stdout, and footers for debugging. Run manifests track agent IDs and completion status for both AgentSwarm and SwarmTeam.
+- **Supervisor context passing (#30)**: Phases now receive accumulated results from their dependencies instead of starting from scratch. `task_assignment` messages include full `dependsOn` lists and `dependencyResults` maps. Messages are acknowledged (deleted) after consumption to prevent cross-phase leakage when the same role runs multiple phases. All three message types (`task_assignment`, `handoff`, `task_result`) are now rendered with full context.
+- **Spawner string content (#30)**: Fixed message content extraction to handle both string-form and array-form `msg.content` from `message_end` events.
+
+### Added
+
+- **Per-role model tier routing (#26)**: `SwarmTeam` now supports a `small_model` parameter for configuring a lightweight model used by exploration roles. `explorer` role automatically routes to the small model; all other roles use the default model. Phases support `modelTier` (`"small"` / `"default"`) and `model` (explicit name) overrides with a clear priority chain. Role configs support `model` and `tools` overrides. New `ModelTier` type and `SMALL_MODEL_ROLES` constant in shared types.
+- **Enhanced SwarmTeam result format (#28)**: Result XML now includes actual per-phase output (instead of "(no output)" placeholders), `agent_id` and `duration_ms` attributes on each `<phase>`, `<total_duration_ms>` top-level element, and a `<supervisor_synthesis>` section with consolidated phase outcomes, error summaries, and key deliverables excerpts. Outputs longer than 12,000 characters are truncated with a note. XML escaping split into `escapeAttr()` (full) and `escapeBody()` (minimal, preserving markdown).
+
+### Changed
+
+- `model`, `tools`, `cwd` fields added to `RunSubagentOptions` and `BaseQueuedSubagentTask` for threading through the spawn chain.
+- `TeamPhase` now supports `modelTier`, `model`, and `tools` fields for per-phase overrides.
+- `TeamSupervisor` gains `getPhaseExecutionConfig()` for centralized model/tools/cwd resolution.
+
 ## [0.3.2] - 2026-06-24
 
 ### Fixed

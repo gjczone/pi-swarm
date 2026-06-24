@@ -8,7 +8,7 @@ Think of it as **kimi-code's AgentSwarm + Claude Code's agent teams** — inside
 
 **Swarm** — 1 to 128 parallel agents. Like kimi-code's AgentSwarm: one template, many items, running simultaneously. Also works for single subagent delegation. Each agent is an isolated `pi --print` child process with its own context window.
 
-**Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Every agent runs as an independent child process.
+**Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Every agent runs as an independent child process. Optional per-role model tier routing: use a cheaper/faster model for exploration while keeping reasoning-heavy roles on the default model.
 
 All agents are created on-the-fly. No `agents/*.md` files. The main agent decides what to spawn based on the task.
 
@@ -81,6 +81,7 @@ State is stored under `.pi/swarm/state/`. The extension auto-creates `.pi/` if i
   events.jsonl           # Append-only event log
   agents/{agentId}/
     status.json          # Per-agent status snapshot
+    output.log           # Full agent session output (header, raw stdout, footer)
   mailbox/               # Team inter-agent messages
     inbox.jsonl
     outbox.jsonl
@@ -109,6 +110,20 @@ Default max concurrency is **5**. Recommended: **3-10**. Can be set to any posit
 Priority: project settings > global settings > `PI_SWARM_MAX_CONCURRENCY` env var.
 
 Lower values (3-5) are safer for API rate limits. Values above 10 work if your provider allows high concurrent requests. No hard upper limit.
+
+## Team Model Tier
+
+When using `SwarmTeam`, you can configure a lightweight model for exploration roles to reduce costs:
+
+```json
+{
+  "pi-swarm": {
+    "smallModel": "deepseek/deepseek-v4-flash"
+  }
+}
+```
+
+The `explorer` role automatically uses the small model. All other roles (`planner`, `coder`, `reviewer`, `tester`, `fixer`, `supervisor`) use the default model. Per-phase overrides are available via `modelTier` and `model` fields.
 
 ## Credits
 

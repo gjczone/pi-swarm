@@ -243,6 +243,7 @@ src/
 ## Change Map
 
 - **Adding a new shared utility**: Create `shared/<name>.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
+- **Adding a new type**: Add to `shared/types.ts`; if it's a value (e.g., `SMALL_MODEL_ROLES`), use `import` (not `import type`) in consumers
 - **Adding a new tool**: Create `swarm/<name>.ts` or `team/<name>.ts` with `register*` function → import and call in `index.ts`
 - **Adding a new command**: Create handler in `swarm/command.ts` or `team/command.ts` → register with `pi.registerCommand` in `index.ts`
 - **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`. If the component uses `setInterval` for animation, accept a `requestRender` callback and call it on each animation tick so the TUI framework knows to redraw.
@@ -250,6 +251,10 @@ src/
 - **Adding tool call/result rendering**: Implement `renderCall` and `renderResult` on the tool definition using `Container`/`Text`/`Spacer` from `@earendil-works/pi-tui` for rich display in the conversation transcript.
 - **Wiring a TUI widget**: Use `setWidget(key, (tui, theme) => component, opts)` — capture the `tui` reference and pass it to your component so animation timers can call `tui.requestRender()`.
 - **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed
+- **Adding per-agent output.log**: Configure `agentDir` in `resolveAgentStateDir` → write to `output.log` in `spawnSubagent` with header/raw output/footer
+- **Adding supervisor context passing**: Update `mailbox.ts` (new message types, `ackTaskMessages`) → update `supervisor.ts` (`buildPhasePrompt`, `startNextPhase` dependency results)
+- **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → add `getPhaseExecutionConfig()` to `supervisor.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask` → add `small_model`/`modelTier`/`model`/`tools` to `team/tool.ts` schema
+- **Enhancing result format**: Update `supervisor.ts` `synthesizeResult()` → add `buildSynthesis()`, `truncateForOutput()`, `extractFirstMeaningfulLine()`, `extractExcerpt()` → replace `escapeXml()` with `escapeAttr()`/`escapeBody()`
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update PLAN.md and docs/architecture.md
 - **Changing the team workflow**: Modify `team/supervisor.ts` or `team/task-graph.ts` → update PLAN.md
 
@@ -258,11 +263,13 @@ src/
 - `PLAN.md` — full architecture design and module specs
 - `docs/architecture.md` — detailed design rationale, data flows, comparisons
 - `src/shared/controller.ts` — concurrency controller (most complex module, ported from kimi-code SubagentBatch)
-- `src/swarm/tool.ts` — AgentSwarm tool definition
-- `src/team/supervisor.ts` — Team supervisor (goal decomposition + phase orchestration)
-- `src/team/mailbox.ts` — JSONL mailbox system (inspired by pi-crew)
+- `src/swarm/tool.ts` — AgentSwarm tool definition (with output.log persistence and run manifests)
+- `src/team/supervisor.ts` — Team supervisor (goal decomposition, phase orchestration, context passing, model tier routing, result synthesis)
+- `src/team/mailbox.ts` — JSONL mailbox system with message acknowledgment (inspired by pi-crew)
+- `src/team/task-graph.ts` — Phase dependency graph (DAG) with timing tracking
+- `src/team/tool.ts` — SwarmTeam tool definition (includes small_model, per-phase model/tools overrides)
 - `src/tui/progress.ts` — TUI progress panel (ported from kimi-code AgentSwarmProgressComponent)
-- `src/state/persistence.ts` — Durable state with atomic writes
+- `src/state/persistence.ts` — Durable state with atomic writes, per-agent output.log
 - `src/index.ts` — extension entry, all registrations
 
 # General Project Rules
@@ -337,7 +344,8 @@ Before committing or creating a PR, verify ALL of the following:
 - [ ] `LOCAL_CI.md` all steps passed
 - [ ] `PLAN.md` updated if architecture, API, or module specs changed
 - [ ] `docs/architecture.md` updated if design rationale or data flows changed
-- [ ] `README.md` updated if user-facing features changed
+- [ ] `README.md` updated if user-facing features changed (small_model, result format, output.log)
+- [ ] `CHANGELOG.md` updated with version entry
 - [ ] `AGENTS.md` updated if new module/tool/command/hook/data flow was added
 - [ ] `LLM-REVIEW-GUIDE.md` LOC count, test count, file lists match current code
 - [ ] Credit to MoonshotAI/kimi-code preserved in README.md

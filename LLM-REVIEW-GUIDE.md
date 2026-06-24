@@ -5,12 +5,12 @@ You are reviewing **pi-swarm**, a pi-coding-agent extension that provides multi-
 ## Project Context
 
 - **What it is**: A TypeScript extension for [pi](https://github.com/earendil-works/pi) that registers two tools (`AgentSwarm`, `SwarmTeam`) and two commands (`/swarm`, `/swarm-team`). Agents are spawned as `pi --print` child processes.
-- **Size**: 19 source modules, ~5400 LOC, 90 tests.
+- **Size**: 20 source modules, ~6000 LOC, 90 tests.
 - **Runtime**: Node.js >= 18, runs inside pi's extension host. Linux + macOS.
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema). Everything else is custom.
 - **Concurrency model**: Two-phase scheduler ported from kimi-code. Normal phase (5 initial + 1/700ms ramp-up), rate-limit phase (capacity tracking + exponential backoff).
-- **Team model**: Sequential phases (explore → plan → implement → review → test) with JSONL mailbox for inter-agent messages.
-- **State**: Durable file-based state under `.pi/swarm/state/`, crash recovery on session start.
+- **Team model**: Sequential phases (explore → plan → implement → review → test) with JSONL mailbox for inter-agent messages. Per-role model tier routing (explorer → small model, others → default). Context passing via dependency results injection and mailbox message acknowledgment.
+- **State**: Durable file-based state under `.pi/swarm/state/`, crash recovery on session start. Per-agent `output.log` with full session transcripts.
 - **TUI**: Live braille progress panel via `onProgress` callback wiring from controller through tool to widget. Swarm mode markers rendered via `swarm:marker` message renderer.
 
 ## Review Rules
