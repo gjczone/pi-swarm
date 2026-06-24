@@ -42,6 +42,7 @@ Cross-reference changed source files against the checklist below:
 | `.github/workflows/` changed       | `LOCAL_CI.md`                                                       |
 | Test count/file changed            | `LOCAL_CI.md`, `LLM-REVIEW-GUIDE.md`, `AGENTS.md`                   |
 | Release process changed            | `OPS.md` (this file)                                                |
+| `scripts/release.sh` changed       | `OPS.md`
 
 ### 1.1 CHANGELOG.md
 
@@ -100,19 +101,34 @@ Cross-reference changed source files against the checklist below:
 
 ## Phase 2: Version Bump & Build
 
-```bash
-npm version patch   # or minor / major
-```
-
-Updates `package.json`, creates git tag, commits.
-
-Update CHANGELOG: change `## [Unreleased]` to `## [X.Y.Z] - YYYY-MM-DD`.
+### 2.1 Run Release Script
 
 ```bash
-git add CHANGELOG.md && git commit -m "release: vX.Y.Z"
+./scripts/release.sh patch   # or minor, major
 ```
 
-**Pass**: version is consistent across `package.json` and git tag. Build succeeds.
+This script handles:
+
+- `npm version` bump in `package.json`
+- `npm run build` + `npm run ci` (typecheck + test + build + dist verify)
+- Git commit + annotated tag `vX.Y.Z`
+- Push to `origin master --tags`
+- Auto-extract current version section from `CHANGELOG.md` for GitHub Release notes
+- `gh release create vX.Y.Z` with CHANGELOG-derived notes (triggers npm publish via GitHub Actions)
+- Auto-delete merged remote temporary branches (cleanup after PR merge)
+- Wait for npm publish
+- Update local Pi extension + global npm install
+
+### 2.2 Commit CHANGELOG.md (if release.sh didn't capture it)
+
+If CHANGELOG.md was updated after the release script ran:
+
+```bash
+git add CHANGELOG.md && git commit -m "docs: update CHANGELOG.md for vX.Y.Z"
+git push origin master
+```
+
+**Pass**: version is consistent across `package.json` and git tag. All CI steps pass. GitHub Release created.
 
 ---
 
@@ -288,8 +304,8 @@ Answer each question. NEVER leave a "yes" answer without acting on it in the sam
 6. [ ] docs/architecture.md synced (Phase 1.5)
 7. [ ] LOCAL_CI.md synced (Phase 1.6)
 8. [ ] LLM-REVIEW-GUIDE.md synced (Phase 1.7)
-9. [ ] Version bumped + build succeeded (Phase 2)
-10. [ ] CHANGELOG unreleased -> version tag committed (Phase 2)
+9. [ ] Release script executed successfully (Phase 2.1)
+10. [ ] CHANGELOG.md committed if updated after script (Phase 2.2)
 11. [ ] Local CI passed — 0 failures (Phase 3)
 12. [ ] Release published — notes verified via `gh release view` (Phase 4)
 13. [ ] npm registry shows correct version (Phase 5.2)
@@ -307,12 +323,13 @@ Answer each question. NEVER leave a "yes" answer without acting on it in the sam
 
 ```bash
 # After docs synced and Phase 1 passed:
-V=$(npm version patch | sed 's/^v//')
-npm run ci
-git push origin master --tags
-gh release create "v$V" --title "v$V" \
-  --notes "$(sed -n '/^## \['$V'\]/,/^## \[/p' CHANGELOG.md | sed '$d')"
-sleep 30
+./scripts/release.sh patch   # or minor / major
+# Script handles: bump -> build -> CI -> commit -> tag -> push -> GitHub Release -> npm wait -> local update
+```
+
+After the script completes, verify:
+```bash
 npm view @gjczone/pi-swarm version
 pi install npm:@gjczone/pi-swarm@latest
+pi -p "/swarm on" 2>&1 | grep -q "Extension error" && echo "FAIL" || echo "OK"
 ```

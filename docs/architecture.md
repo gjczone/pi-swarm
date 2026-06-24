@@ -1,7 +1,5 @@
 # pi-swarm Architecture
 
-> Credit: AgentSwarm parallel architecture ported from MoonshotAI/kimi-code. Team mailbox system inspired by pi-crew. Design informed by LangGraph, CrewAI, OpenAI Swarm, and AutoGen research.
-
 ---
 
 ## 1. Design Philosophy

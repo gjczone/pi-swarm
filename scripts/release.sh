@@ -1,0 +1,194 @@
+#!/bin/bash
+# pi-swarm release script — bumps version, builds, tags, and publishes
+#
+# Usage: ./scripts/release.sh [patch|minor|major]
+#
+# This script:
+# 1. Bumps version in package.json
+# 2. Syncs version to all surfaces
+# 3. Builds and runs full CI
+# 4. Commits and tags
+# 5. Pushes to GitHub
+# 6. Creates GitHub Release (triggers npm publish)
+# 7. Cleans up merged remote branches
+# 8. Waits for npm publish
+# 9. Updates local Pi extension and global npm install
+# 10. Verifies all installations match
+
+set -e
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+NC='\033[0m' # No Color
+
+log() {
+    echo -e "${GREEN}[release]${NC} $1"
+}
+
+warn() {
+    echo -e "${YELLOW}[warn]${NC} $1"
+}
+
+error() {
+    echo -e "${RED}[error]${NC} $1"
+    exit 1
+}
+
+# Parse arguments
+BUMP_TYPE="${1:-patch}"
+if [[ ! "$BUMP_TYPE" =~ ^(patch|minor|major)$ ]]; then
+    error "Usage: $0 [patch|minor|major]"
+fi
+
+# Step 1: Check working directory is clean
+log "Step 1: Checking working directory..."
+if [[ -n $(git status --porcelain) ]]; then
+    error "Working directory not clean. Commit or stash changes first."
+fi
+
+# Step 2: Bump version
+log "Step 2: Bumping version ($BUMP_TYPE)..."
+NEW_VERSION=$(npm version "$BUMP_TYPE" --no-git-tag-version)
+NEW_VERSION="${NEW_VERSION#v}" # Remove 'v' prefix
+log "New version: $NEW_VERSION"
+
+# Step 3: Sync version to all surfaces
+log "Step 3: Syncing version to all surfaces..."
+# package.json already bumped by npm version above
+# No other surfaces carry explicit version strings for pi-swarm
+log "Version synced to package.json"
+
+# Step 4: Build
+log "Step 4: Building..."
+npm run build || error "Build failed"
+
+# Step 5: Run full CI (typecheck + test + build + dist verify)
+log "Step 5: Running full CI..."
+npm run ci || error "CI failed"
+
+# Step 6: Commit and tag
+log "Step 6: Committing and tagging..."
+git add -A
+git commit -m "chore: bump version to $NEW_VERSION"
+git tag -a "v$NEW_VERSION" -m "Version $NEW_VERSION"
+
+# Step 7: Push to GitHub
+log "Step 7: Pushing to GitHub..."
+git push origin master --tags
+
+# Step 8: Create GitHub Release with detailed notes from CHANGELOG
+log "Step 8: Creating GitHub Release..."
+
+# Extract current version section from CHANGELOG.md for release notes
+CHANGELOG_SECTION=$(awk -v ver="$NEW_VERSION" '
+  /^## \[/ { if (found) exit; if ($0 ~ ver) { found=1; next } }
+  found { print }
+' CHANGELOG.md 2>/dev/null)
+
+# Get previous version for diff link
+PREV_VERSION=$(grep -oP '\[\K[0-9]+\.[0-9]+\.[0-9]+' CHANGELOG.md | sed -n '2p')
+DIFF_LINK=""
+if [[ -n "$PREV_VERSION" ]]; then
+    DIFF_LINK="**Full Changelog**: https://github.com/gjczone/pi-swarm/compare/v${PREV_VERSION}...v${NEW_VERSION}"
+fi
+
+# Build release notes
+RELEASE_NOTES="# v$NEW_VERSION
+
+## What's Changed
+
+${CHANGELOG_SECTION}
+
+## Upgrade
+
+\`\`\`bash
+pi install npm:@gjczone/pi-swarm@latest
+\`\`\`
+
+${DIFF_LINK}"
+
+gh release create "v$NEW_VERSION" \
+    --title "v$NEW_VERSION" \
+    --notes "$RELEASE_NOTES" \
+    --verify-tag
+
+log "GitHub Release created with CHANGELOG content. npm publish will be triggered automatically."
+
+# Step 8.5: Clean up merged remote branches (both merge-commit and squash-merged)
+log "Step 8.5: Cleaning up merged remote branches..."
+
+# Phase A: git branch --merged (catches regular merge commits)
+MERGED_BRANCHES=$(git branch -r --merged origin/master | grep -v "origin/master\|origin/HEAD" | sed 's/  origin\///')
+if [[ -n "$MERGED_BRANCHES" ]]; then
+    for BRANCH in $MERGED_BRANCHES; do
+        log "  Deleting merged remote branch (--merged): $BRANCH"
+        git push origin --delete "$BRANCH" 2>/dev/null || warn "Failed to delete $BRANCH"
+    done
+fi
+
+# Phase B: gh pr list (catches squash-merged branches that --merged misses)
+SQUASH_MERGED=$(gh pr list --state merged --json headRefName --limit 50 --jq '.[].headRefName' 2>/dev/null)
+if [[ -n "$SQUASH_MERGED" ]]; then
+    for BRANCH in $SQUASH_MERGED; do
+        if git ls-remote --heads origin "$BRANCH" | grep -q "$BRANCH"; then
+            log "  Deleting squash-merged remote branch: $BRANCH"
+            git push origin --delete "$BRANCH" 2>/dev/null || warn "Failed to delete $BRANCH"
+        fi
+    done
+fi
+
+log "  Remote branch cleanup complete."
+
+# Step 9: Wait for npm publish
+log "Step 9: Waiting for npm publish (watching GitHub Actions)..."
+sleep 5
+
+RUN_ID=$(gh run list --workflow=publish.yml --limit=1 --json databaseId --jq '.[0].databaseId')
+if [[ -n "$RUN_ID" ]]; then
+    gh run watch "$RUN_ID" || warn "Could not watch workflow. Check manually: gh run list --workflow=publish.yml"
+fi
+
+# Step 10: Update local installations
+log "Step 10: Updating local installations..."
+
+log "Updating global npm..."
+npm install -g @gjczone/pi-swarm@latest --legacy-peer-deps 2>&1 | tail -3
+
+log "Updating Pi extension..."
+pi install npm:@gjczone/pi-swarm@latest 2>&1 | tail -5
+
+# Step 11: Verify
+log "Step 11: Verifying installations..."
+
+echo ""
+echo "=== Verification ==="
+
+GLOBAL_VERSION=$(npm ls -g @gjczone/pi-swarm 2>/dev/null | grep @gjczone/pi-swarm | sed 's/.*@//' | sed 's/ .*//')
+PI_VERSION=$(cat ~/.pi/agent/npm/node_modules/@gjczone/pi-swarm/package.json 2>/dev/null | grep '"version"' | sed 's/.*"//' | sed 's/".*//')
+NPM_VERSION=$(npm view @gjczone/pi-swarm version)
+
+echo "Global npm: v$GLOBAL_VERSION"
+echo "Pi extension: v$PI_VERSION"
+echo "npm registry: v$NPM_VERSION"
+
+if [[ "$GLOBAL_VERSION" == "$NEW_VERSION" && "$PI_VERSION" == "$NEW_VERSION" ]]; then
+    echo ""
+    log "All installations synced to v$NEW_VERSION"
+else
+    warn "Version mismatch detected! Manual sync may be needed."
+    warn "Run: npm install -g @gjczone/pi-swarm@latest --legacy-peer-deps && pi install npm:@gjczone/pi-swarm@latest"
+fi
+
+echo ""
+log "Release v$NEW_VERSION complete!"
+log ""
+log "Next steps:"
+log "  - Smoke test: pi -p \"/swarm on\" 2>&1 | grep -q \"Extension error\" && echo FAIL || echo OK"
+log "  - E2E test: pi -p \"Use AgentSwarm with prompt_template 'Echo: {{item}}' and items [hello] and description 'smoke test'\""
+log "  - Check GitHub: gh release view v$NEW_VERSION"

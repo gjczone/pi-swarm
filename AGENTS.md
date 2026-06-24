@@ -240,10 +240,6 @@ src/
 | Team workflow        | Sequential phases with dependency graph (DAG)                                        |
 | Dual mode            | `/swarm` (parallel) + `/swarm-team` (collaborative)                                  |
 
-## Credit
-
-This project ports the AgentSwarm architecture from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code) to the pi-coding-agent extension ecosystem. The concurrency controller (SubagentBatch), tool definition (AgentSwarm), TUI progress component, and swarm mode state machine are all directly adapted from kimi-code's implementation. Thank you to the kimi-code team for their excellent design.
-
 ## Change Map
 
 - **Adding a new shared utility**: Create `shared/<name>.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
@@ -342,7 +338,7 @@ Before committing or creating a PR, verify ALL of the following:
 - [ ] `README.md` updated if user-facing features changed
 - [ ] `AGENTS.md` updated if new module/tool/command/hook/data flow was added
 - [ ] `LLM-REVIEW-GUIDE.md` LOC count, test count, file lists match current code
-- [ ] Credit to MoonshotAI/kimi-code preserved in README.md and docs/architecture.md
+- [ ] Credit to MoonshotAI/kimi-code preserved in README.md
 - [ ] All code comments, JSDoc, commit messages in English
 - [ ] Completion report: 做了什么 → 结果 → 已确认 → 需要你决策 → 待跟进
 - [ ] Address user as 老板, default to Chinese, explain in business terms, don't dump code

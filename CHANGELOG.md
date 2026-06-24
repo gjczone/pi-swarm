@@ -114,4 +114,4 @@ All notable changes to pi-swarm will be documented in this file.
 
 - AgentSwarm architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code)
 - Team mailbox patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew)
-- 100% vibe-coded with deepseek-v4-pro
+- 100% vibe-coded with deepseek-v4-pro, doubao-seed-2.1-pro, and doubao-seed-2.1-turbo

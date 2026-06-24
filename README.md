@@ -112,7 +112,7 @@ Lower values (3-5) are safer for API rate limits. Values above 10 work if your p
 
 ## Credits
 
-100% vibe-coded with deepseek-v4-pro. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Team patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew). Multi-agent design informed by LangGraph, CrewAI, OpenAI Swarm, and AutoGen.
+100% vibe-coded with deepseek-v4-pro, doubao-seed-2.1-pro, and doubao-seed-2.1-turbo. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Code implementation patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew). Agent team workflow approach inspired by Claude Code. Thank you to all these projects for their excellent work.
 
 ## License
 

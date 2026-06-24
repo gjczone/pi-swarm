@@ -1,7 +1,5 @@
 # pi-swarm Implementation Plan (v2 — Dual Mode)
 
-> **Credit**: AgentSwarm parallel architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code). Team/mailbox collaboration patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew). Multi-agent design informed by LangGraph, CrewAI, OpenAI Swarm, and AutoGen research.
-
 ---
 
 ## 1. Product Vision
