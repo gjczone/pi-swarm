@@ -83,6 +83,11 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               name: Type.String(),
               role: Type.String(),
               dependsOn: Type.Optional(Type.Array(Type.String())),
+              modelTier: Type.Optional(
+                Type.Union([Type.Literal("small"), Type.Literal("default")]),
+              ),
+              model: Type.Optional(Type.String()),
+              tools: Type.Optional(Type.Array(Type.String())),
             }),
             {
               description:
@@ -104,6 +109,12 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             },
           ),
         ),
+        small_model: Type.Optional(
+          Type.String({
+            description:
+              "Lightweight/fast model for exploration roles (e.g. explorer). Other roles use the default model.",
+          }),
+        ),
         max_agents: Type.Optional(
           Type.Number({
             description: "Max concurrent agents. Default 4.",
@@ -122,13 +133,21 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
       const p = params as {
         goal: string;
         description: string;
-        phases?: { name: string; role: string; dependsOn?: string[] }[];
+        phases?: {
+          name: string;
+          role: string;
+          dependsOn?: string[];
+          modelTier?: "small" | "default";
+          model?: string;
+          tools?: string[];
+        }[];
         roles?: {
           role: string;
           model?: string;
           tools?: string[];
           systemPrompt?: string;
         }[];
+        small_model?: string;
         max_agents?: number;
       };
 
@@ -146,6 +165,9 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
           name: ph.name,
           role: ph.role as TeamPhase["role"],
           dependsOn: ph.dependsOn,
+          modelTier: ph.modelTier,
+          model: ph.model,
+          tools: ph.tools,
         }));
 
         // Build role configs
@@ -164,6 +186,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
           goal: p.goal,
           phases,
           roles,
+          smallModel: p.small_model,
           maxAgents: p.max_agents ?? 4,
           onProgress: (snapshot) => {
             dashboard?.component.update(snapshotToDashboardState(snapshot));
@@ -194,6 +217,11 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
 
           const { phase, role, prompt: phasePrompt } = currentPhase;
 
+          // Resolve model/tools/cwd for this phase based on role config and tier
+          const execConfig = supervisor.getPhaseExecutionConfig(
+            phase.phase.name,
+          );
+
           // Spawn a single agent for this phase
           const tasks: QueuedSubagentTask<unknown>[] = [
             {
@@ -207,6 +235,9 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               runInBackground: false,
               signal,
               timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+              model: execConfig.model,
+              tools: execConfig.tools,
+              cwd: execConfig.cwd,
             },
           ];
 

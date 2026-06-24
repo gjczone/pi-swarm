@@ -13,7 +13,9 @@ import type {
   MailboxMessage,
   TeamProgressCallback,
   TeamProgressSnapshot,
+  ModelTier,
 } from "../shared/types.js";
+import { SMALL_MODEL_ROLES } from "../shared/types.js";
 import {
   TaskGraph,
   DEFAULT_TEAM_PHASES,
@@ -45,6 +47,8 @@ export interface TeamSupervisorConfig {
   readonly phases?: readonly TeamPhase[];
   /** Custom role configs. */
   readonly roles?: readonly AgentRoleConfig[];
+  /** Model to use for lightweight/exploration roles (e.g. explorer). */
+  readonly smallModel?: string;
   /** Max concurrent agents. */
   readonly maxAgents?: number;
   /** Progress callback for TUI dashboard updates. */
@@ -290,6 +294,70 @@ export class TeamSupervisor {
   assignAgent(phaseName: string, agentId: string): void {
     this.state.agentIds.set(phaseName, agentId);
     this.state.taskGraph.assignAgent(phaseName, agentId);
+  }
+
+  /**
+   * Resolve the model and tools configuration for a given phase.
+   *
+   * Resolution order (highest priority first):
+   * 1. Phase-level explicit model override (phase.model)
+   * 2. Phase-level modelTier (small → smallModel if configured)
+   * 3. Role-level model override from roles config
+   * 4. Auto-routing by role name: roles in SMALL_MODEL_ROLES → smallModel
+   * 5. Default model (undefined, inherits parent)
+   */
+  getPhaseExecutionConfig(phaseName: string): {
+    model?: string;
+    tools?: string[];
+    cwd: string;
+  } {
+    const phase = this.state.taskGraph.getPhase(phaseName);
+    const role = phase?.phase.role;
+    const roleConfig = role
+      ? this.config.roles?.find((r) => r.role === role)
+      : undefined;
+
+    let model: string | undefined;
+    let tools: string[] | undefined;
+
+    // Role-level tools whitelist
+    if (roleConfig?.tools) {
+      tools = [...roleConfig.tools];
+    }
+
+    // Phase-level explicit model (highest priority)
+    if (phase?.phase.model) {
+      model = phase.phase.model;
+    }
+    // Phase-level modelTier override
+    else if (phase?.phase.modelTier === "small" && this.config.smallModel) {
+      model = this.config.smallModel;
+    } else if (phase?.phase.modelTier === "default") {
+      model = undefined; // explicit default
+    }
+    // Role-level model override
+    else if (roleConfig?.model) {
+      model = roleConfig.model;
+    }
+    // Auto-routing: explorer (and other SMALL_MODEL_ROLES) → smallModel
+    else if (
+      role &&
+      SMALL_MODEL_ROLES.has(role) &&
+      this.config.smallModel
+    ) {
+      model = this.config.smallModel;
+    }
+
+    // Phase-level tools override (overrides role config)
+    if (phase?.phase.tools) {
+      tools = [...phase.phase.tools];
+    }
+
+    return {
+      model,
+      tools,
+      cwd: this.config.cwd,
+    };
   }
 
   // -------------------------------------------------------------------

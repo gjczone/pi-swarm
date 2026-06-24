@@ -379,6 +379,9 @@ export class SubagentBatchController<T> {
       },
       suppressRateLimitFailureEvent: true,
       timeout: task.timeout,
+      model: task.model,
+      tools: task.tools,
+      cwd: task.cwd,
     };
 
     let handle: SubagentHandle;

@@ -104,6 +104,12 @@ export interface TeamPhase {
   readonly role: AgentRole;
   /** Phases that must complete before this one starts. */
   readonly dependsOn?: string[];
+  /** Model tier override for this phase. */
+  readonly modelTier?: ModelTier;
+  /** Explicit model name override (takes precedence over tier). */
+  readonly model?: string;
+  /** Tool whitelist override for this phase. */
+  readonly tools?: string[];
 }
 
 /** A mailbox message for inter-agent communication. */
@@ -133,7 +139,16 @@ export interface RunSubagentOptions {
   readonly onReady?: () => void;
   readonly suppressRateLimitFailureEvent?: boolean;
   readonly timeout?: number;
+  readonly model?: string;
+  readonly tools?: string[];
+  readonly cwd?: string;
 }
+
+/** Model tier for cost-optimized routing. */
+export type ModelTier = "default" | "small";
+
+/** Roles that automatically use the small/fast model when configured. */
+export const SMALL_MODEL_ROLES: ReadonlySet<string> = new Set(["explorer"]);
 
 /** Options specific to spawning a NEW subagent. */
 export interface SpawnSubagentOptions extends RunSubagentOptions {
@@ -195,6 +210,12 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly timeout?: number;
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
+  /** Model override (optional, uses parent model if not set). */
+  readonly model?: string;
+  /** Tool whitelist (optional, all tools available if not set). */
+  readonly tools?: string[];
+  /** Working directory override (optional, uses parent cwd if not set). */
+  readonly cwd?: string;
 }
 
 /** A task that spawns a NEW subagent. */
