@@ -209,44 +209,46 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         runCreated = true;
         saveTaskState(swarmRoot, runId, supervisor.state.taskGraph.toJSON());
 
-        // Run phases sequentially through the task graph
+        // Run phases through the task graph — launch all ready phases concurrently
+        // 业务说明：同时启动所有依赖已满足的阶段。独立阶段并行执行，
+        // 有依赖的阶段在依赖完成后自动成为下一批。
         const allResults: SubagentResult<unknown>[] = [];
-        let currentPhase = supervisor.startNextPhase();
+        const maxConcurrency = p.max_agents ?? 4;
 
-        while (currentPhase !== null) {
-          // Check abort signal between phases
+        let currentPhases = supervisor.startReadyPhases();
+
+        while (currentPhases.length > 0) {
+          // Check abort signal between batches
           signal?.throwIfAborted();
 
-          // Update heartbeat before phase
+          // Update heartbeat before batch
           updateHeartbeat(swarmRoot, runId);
 
-          const { phase, role, prompt: phasePrompt } = currentPhase;
-
-          // Resolve model/tools/cwd for this phase based on role config and tier
-          const execConfig = supervisor.getPhaseExecutionConfig(
-            phase.phase.name,
-          );
-
-          // Spawn a single agent for this phase
-          const tasks: QueuedSubagentTask<unknown>[] = [
-            {
-              kind: "spawn",
-              data: { phase: phase.phase.name, role },
-              profileName: role,
-              parentToolCallId: toolCallId,
-              prompt: phasePrompt,
-              description: `${p.description} — ${phase.phase.name} (${role})`,
-              swarmIndex: 1,
-              runInBackground: false,
-              signal,
-              timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-              model: execConfig.model,
-              tools: execConfig.tools,
-              cwd: execConfig.cwd,
-              swarmRoot,
-              runId,
+          // Build tasks for all ready phases
+          const tasks: QueuedSubagentTask<unknown>[] = currentPhases.map(
+            (cp, idx) => {
+              const execConfig = supervisor!.getPhaseExecutionConfig(
+                cp.phase.phase.name,
+              );
+              return {
+                kind: "spawn" as const,
+                data: { phase: cp.phase.phase.name, role: cp.role },
+                profileName: cp.role,
+                parentToolCallId: toolCallId,
+                prompt: cp.prompt,
+                description: `${p.description} — ${cp.phase.phase.name} (${cp.role})`,
+                swarmIndex: idx + 1,
+                runInBackground: false,
+                signal,
+                timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+                model: execConfig.model,
+                tools: execConfig.tools,
+                cwd: execConfig.cwd,
+                swarmRoot,
+                runId,
+              };
             },
-          ];
+          );
 
           const controller = new SubagentBatchController<unknown>(
             {
@@ -256,26 +258,29 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             },
             tasks,
             {
-              maxConcurrency: 1, // Team phases run sequentially
+              maxConcurrency: Math.min(maxConcurrency, tasks.length),
             },
           );
 
-          let phaseResults: SubagentResult<unknown>[];
+          let batchResults: SubagentResult<unknown>[];
           try {
-            phaseResults = await controller.run();
+            batchResults = await controller.run();
           } catch (err) {
-            // Phase was aborted or failed catastrophically
-            supervisor.failPhase(
-              phase.phase.name,
-              err instanceof Error ? err.message : String(err),
-            );
+            // Batch was aborted or failed catastrophically
+            // Mark all phases in this batch as failed
+            for (const cp of currentPhases) {
+              supervisor.failPhase(
+                cp.phase.phase.name,
+                err instanceof Error ? err.message : String(err),
+              );
+            }
             // Save state after failure
             saveTaskState(
               swarmRoot,
               runId,
               supervisor.state.taskGraph.toJSON(),
             );
-            // Abort signal: stop the entire run, save partial state
+            // Abort signal: stop the entire run
             if (signal?.aborted) {
               supervisor.finalize();
               if (runCreated) {
@@ -293,37 +298,46 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
                 details: undefined,
               };
             }
-            // Non-abort error: try next phase
-            currentPhase = supervisor.startNextPhase();
+            // Non-abort error: try next batch
+            currentPhases = supervisor.startReadyPhases();
             continue;
           }
 
-          allResults.push(...phaseResults);
+          allResults.push(...batchResults);
 
-          const result = phaseResults[0];
-          if (result && result.status === "completed") {
-            supervisor.assignAgent(
-              phase.phase.name,
-              result.agentId ?? phase.phase.name,
-            );
-            supervisor.completePhase(phase.phase.name, result.result ?? "");
-            if (result.agentId) {
-              registerAgentInManifest(swarmRoot, runId, result.agentId);
-            }
-          } else if (result) {
-            supervisor.failPhase(
-              phase.phase.name,
-              result.error ?? "Unknown error",
-            );
-            if (result.agentId) {
-              registerAgentInManifest(swarmRoot, runId, result.agentId);
+          // Process each phase result
+          for (let i = 0; i < currentPhases.length; i += 1) {
+            const cp = currentPhases[i]!;
+            const result = batchResults[i];
+
+            if (result && result.status === "completed") {
+              supervisor.assignAgent(
+                cp.phase.phase.name,
+                result.agentId ?? cp.phase.phase.name,
+              );
+              supervisor.completePhase(
+                cp.phase.phase.name,
+                result.result ?? "",
+              );
+              if (result.agentId) {
+                registerAgentInManifest(swarmRoot, runId, result.agentId);
+              }
+            } else if (result) {
+              supervisor.failPhase(
+                cp.phase.phase.name,
+                result.error ?? "Unknown error",
+              );
+              if (result.agentId) {
+                registerAgentInManifest(swarmRoot, runId, result.agentId);
+              }
             }
           }
 
-          // Save state after each phase
+          // Save state after each batch
           saveTaskState(swarmRoot, runId, supervisor.state.taskGraph.toJSON());
 
-          currentPhase = supervisor.startNextPhase();
+          // Get next batch of ready phases
+          currentPhases = supervisor.startReadyPhases();
         }
 
         // Finalize and render

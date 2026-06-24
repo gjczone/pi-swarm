@@ -220,4 +220,74 @@ describe("TeamDashboardComponent", () => {
     // Should not throw
     component.dispose();
   });
+
+  it("renders multiple running phases with individual braille bars", () => {
+    const snapshot = makeSnapshot({
+      completedPhases: 0,
+      failedPhases: 0,
+      currentPhase: "explore-a, explore-b",
+      currentRole: "explorer",
+      phases: [
+        makePhase("explore-a", "explorer", "running"),
+        makePhase("explore-b", "explorer", "running"),
+        makePhase("plan", "planner", "queued"),
+      ],
+      totalPhases: 3,
+    });
+    const state = snapshotToDashboardState(snapshot);
+    const component = new TeamDashboardComponent();
+    component.update(state);
+
+    const lines = component.render(80);
+    const joined = lines.join("\n");
+    expect(joined).toContain("explore-a");
+    expect(joined).toContain("explore-b");
+    expect(joined).toContain("plan");
+    // Should show both as running
+    expect(joined).toMatch(/explore-a.*running/);
+    expect(joined).toMatch(/explore-b.*running/);
+  });
+
+  it("handles narrow terminal without overflow", () => {
+    const snapshot = makeSnapshot();
+    const state = snapshotToDashboardState(snapshot);
+    const component = new TeamDashboardComponent();
+    component.update(state);
+
+    // Render at very narrow width — should not crash or produce empty output
+    const lines = component.render(25);
+    expect(lines.length).toBeGreaterThan(0);
+    // Every line must fit within width
+    for (const line of lines) {
+      expect(line.length).toBeLessThanOrEqual(25);
+    }
+  });
+
+  it("maintains consistent line count across updates", () => {
+    const snapshot = makeSnapshot();
+    const state = snapshotToDashboardState(snapshot);
+    const component = new TeamDashboardComponent();
+    component.update(state);
+
+    const firstLines = component.render(60);
+    const firstCount = firstLines.length;
+
+    // Update with same number of phases but different status
+    const updatedSnapshot = makeSnapshot({
+      completedPhases: 3,
+      currentPhase: "review",
+      phases: [
+        makePhase("explore", "explorer", "completed"),
+        makePhase("plan", "planner", "completed"),
+        makePhase("implement", "coder", "completed"),
+        makePhase("review", "reviewer", "running"),
+        makePhase("test", "tester", "queued"),
+      ],
+    });
+    component.update(snapshotToDashboardState(updatedSnapshot));
+    const secondLines = component.render(60);
+
+    // Line count should remain stable
+    expect(secondLines.length).toBe(firstCount);
+  });
 });

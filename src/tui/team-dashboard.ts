@@ -46,7 +46,7 @@ export interface TeamDashboardState {
   completedPhases: number;
   failedPhases: number;
   currentPhase?: string;
-  currentRole?: string;
+  currentRoles?: string[];
   phases: TeamPhaseStatusWithMeta[];
   mailboxCount: number;
   startedAt: number;
@@ -73,6 +73,13 @@ export function snapshotToDashboardState(
   snapshot: TeamProgressSnapshot,
 ): TeamDashboardState {
   const now = Date.now();
+  // Collect all currently running phase names for multi-running display
+  const runningPhases = snapshot.phases
+    .filter((p) => p.status === "running")
+    .map((p) => p.name);
+  const runningRoles = snapshot.phases
+    .filter((p) => p.status === "running")
+    .map((p) => p.role);
   return {
     title: snapshot.title,
     goal: snapshot.goal,
@@ -80,8 +87,16 @@ export function snapshotToDashboardState(
     totalPhases: snapshot.totalPhases,
     completedPhases: snapshot.completedPhases,
     failedPhases: snapshot.failedPhases,
-    currentPhase: snapshot.currentPhase,
-    currentRole: snapshot.currentRole,
+    currentPhase:
+      runningPhases.length > 0
+        ? runningPhases.join(", ")
+        : snapshot.currentPhase,
+    currentRoles:
+      runningRoles.length > 0
+        ? runningRoles
+        : snapshot.currentRole
+          ? [snapshot.currentRole]
+          : undefined,
     phases: snapshot.phases.map((p) => ({
       name: p.name,
       role: p.role,
@@ -140,6 +155,7 @@ export class TeamDashboardComponent implements Component {
       this.state_.completedPhases =
         this.state_.totalPhases - this.state_.failedPhases;
       this.state_.currentPhase = undefined;
+      this.state_.currentRoles = undefined;
     }
     this.invalidate();
   }
@@ -228,14 +244,15 @@ export class TeamDashboardComponent implements Component {
 // ---------------------------------------------------------------------------
 
 function buildHeader(state: TeamDashboardState, width: number): string {
-  const titleLine = `Team: ${state.title}`;
+  const titlePart = truncateText(state.title, Math.max(10, width - 35));
+  const titleLine = `Team: ${titlePart || "..."}`;
   const status = state.status;
   const phaseInfo = state.currentPhase
-    ? `Phase: ${state.completedPhases + 1}/${state.totalPhases} (${state.currentPhase})`
-    : `Phases: ${state.completedPhases}/${state.totalPhases}`;
+    ? `Phase: ${state.completedPhases + state.failedPhases + 1}/${state.totalPhases} (${state.currentPhase})`
+    : `Phases: ${state.completedPhases + state.failedPhases}/${state.totalPhases}`;
   const full = `${titleLine}  |  Status: ${status}  |  ${phaseInfo}`;
   if (full.length <= width) return full;
-  // Truncate to fit width — preserve the beginning which has the most info
+  // Truncate from the end — preserve title and status
   return full.slice(0, width);
 }
 
@@ -252,24 +269,32 @@ function buildProgressBar(state: TeamDashboardState, width: number): string {
 
 function renderPhaseRow(phase: TeamPhaseStatusWithMeta, width: number): string {
   const statusIcon = phaseStatusIcon(phase);
-  const phaseName = truncateText(phase.name, 14);
+  const maxNameLen = Math.max(4, Math.min(14, Math.floor(width / 3)));
+  const phaseName = truncateText(phase.name, maxNameLen);
   const statusLabel = phase.status;
   const roleLabel = `(${phase.role})`;
 
   // Layout: <icon> <phaseName> <status> <role>
   const fixed = `${statusIcon} ${phaseName} ${statusLabel} ${roleLabel}`;
-  const fixedLen = visibleLen(fixed);
 
-  // If the fixed part alone exceeds width, truncate it
-  if (fixedLen >= width) {
-    return fixed.slice(0, width);
+  // If the fixed part alone exceeds width, truncate by component priority
+  if (visibleLen(fixed) >= width) {
+    const bare = `${statusIcon} ${phaseName}`;
+    if (visibleLen(bare) >= width) return bare.slice(0, Math.max(0, width));
+    const withStatus = `${bare} ${statusLabel}`;
+    if (visibleLen(withStatus) >= width)
+      return withStatus.slice(0, Math.max(0, width));
+    return fixed.slice(0, Math.max(0, width));
   }
 
   if (phase.status === "failed" && phase.error) {
     const errorPart = ` — ${phase.error}`;
-    const avail = Math.max(0, width - fixedLen);
-    const full = `${fixed}${errorPart.slice(0, avail)}`;
-    return full.slice(0, width);
+    const avail = Math.max(0, width - visibleLen(fixed));
+    if (avail > 0) {
+      const full = `${fixed}${errorPart.slice(0, avail)}`;
+      return full.slice(0, Math.max(0, width));
+    }
+    return fixed.slice(0, Math.max(0, width));
   }
 
   return fixed;
@@ -309,11 +334,12 @@ function renderBrailleBar(phase: TeamPhaseStatusWithMeta): string {
 }
 
 function buildFooter(state: TeamDashboardState, width: number): string {
-  const mailbox = `Mailbox: ${state.mailboxCount > 0 ? String(state.mailboxCount) : "0"} messages`;
+  const mailbox = `Mailbox: ${state.mailboxCount > 0 ? String(state.mailboxCount) : "0"} msgs`;
   const elapsed = formatElapsed(Date.now() - state.startedAt);
   const full = `${mailbox}  |  Elapsed: ${elapsed}`;
   if (full.length <= width) return full;
-  return full.slice(0, width);
+  // Edge case: narrow terminal — prioritize elapsed time
+  return `Elapsed: ${elapsed}`.slice(0, Math.max(0, width));
 }
 
 function formatElapsed(ms: number): string {
@@ -324,7 +350,8 @@ function formatElapsed(ms: number): string {
 }
 
 function bottomBorder(width: number): string {
-  return `\u2514${"\u2500".repeat(Math.max(0, width - 2))}\u2518`;
+  const safeWidth = Math.max(2, width);
+  return `\u2514${"\u2500".repeat(safeWidth - 2)}\u2518`;
 }
 
 // ---------------------------------------------------------------------------
