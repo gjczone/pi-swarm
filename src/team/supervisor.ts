@@ -350,11 +350,7 @@ export class TeamSupervisor {
       model = roleConfig.model;
     }
     // Auto-routing: explorer (and other SMALL_MODEL_ROLES) => smallModel
-    else if (
-      role &&
-      SMALL_MODEL_ROLES.has(role) &&
-      this.config.smallModel
-    ) {
+    else if (role && SMALL_MODEL_ROLES.has(role) && this.config.smallModel) {
       model = this.config.smallModel;
     }
 
@@ -562,7 +558,9 @@ export class TeamSupervisor {
               : "??";
       const firstLine = this.extractFirstMeaningfulLine(p.result ?? "");
       const suffix = firstLine ? ` — ${firstLine}` : "";
-      sections.push(`- [${bullet}] **${p.phase.name}** (${p.phase.role})${suffix}`);
+      sections.push(
+        `- [${bullet}] **${p.phase.name}** (${p.phase.role})${suffix}`,
+      );
     }
 
     if (completedPhases.length > 0) {
@@ -787,7 +785,5 @@ function escapeAttr(value: string): string {
  * preserving markdown formatting (headers, lists, bold, etc.).
  */
 function escapeBody(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("]]>", "]]&gt;");
+  return value.replaceAll("&", "&amp;").replaceAll("]]>", "]]&gt;");
 }
