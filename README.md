@@ -123,7 +123,7 @@ When using `SwarmTeam`, you can configure a lightweight model for exploration ro
 }
 ```
 
-The `explorer` role automatically uses the small model. All other roles (`planner`, `coder`, `reviewer`, `tester`, `fixer`, `supervisor`) use the default model. Per-phase overrides are available via `modelTier` and `model` fields.
+The `explorer` and `tester` roles (when assigned to a phase) automatically use the small model. Other roles (`planner`, `coder`, `reviewer`, `fixer`) use the default model unless overridden. No preset agents — you define phases and assign roles via the tool schema. Per-phase overrides are available via `modelTier` and `model` fields.
 
 ## Credits
 

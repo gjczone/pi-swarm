@@ -151,7 +151,10 @@ export interface RunSubagentOptions {
 export type ModelTier = "default" | "small";
 
 /** Roles that automatically use the small/fast model when configured. */
-export const SMALL_MODEL_ROLES: ReadonlySet<string> = new Set(["explorer"]);
+export const SMALL_MODEL_ROLES: ReadonlySet<string> = new Set([
+  "explorer",
+  "tester",
+]);
 
 /** Options specific to spawning a NEW subagent. */
 export interface SpawnSubagentOptions extends RunSubagentOptions {
