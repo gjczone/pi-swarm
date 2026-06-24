@@ -67,10 +67,10 @@ test -f dist/index.js && test -f dist/index.d.ts && echo "OK" || echo "FAIL"
 ### 7. Dist Module Count
 
 ```bash
-test $(find dist -name "*.js" | wc -l) -ge 17 && echo "OK: $(find dist -name '*.js' | wc -l) modules" || echo "FAIL: too few modules"
+test $(find dist -name "*.js" | wc -l) -ge 19 && echo "OK: $(find dist -name '*.js' | wc -l) modules" || echo "FAIL: too few modules"
 ```
 
-**Pass**: prints "OK: N modules" with N >= 17.
+**Pass**: prints "OK: N modules" with N >= 19.
 **Common fix**: new source files not compiled? Check tsconfig.json includes.
 
 ### 8. Pi Integration Smoke Test
