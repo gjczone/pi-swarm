@@ -5,7 +5,7 @@ You are reviewing **pi-swarm**, a pi-coding-agent extension that provides multi-
 ## Project Context
 
 - **What it is**: A TypeScript extension for [pi](https://github.com/earendil-works/pi) that registers two tools (`AgentSwarm`, `SwarmTeam`) and two commands (`/swarm`, `/swarm-team`). Agents are spawned as `pi --print` child processes.
-- **Size**: 19 source modules, ~5400 LOC, 67 tests.
+- **Size**: 19 source modules, ~5400 LOC, 90 tests.
 - **Runtime**: Node.js >= 18, runs inside pi's extension host. Linux + macOS.
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema). Everything else is custom.
 - **Concurrency model**: Two-phase scheduler ported from kimi-code. Normal phase (5 initial + 1/700ms ramp-up), rate-limit phase (capacity tracking + exponential backoff).
@@ -122,7 +122,7 @@ Before starting the detailed review, do these quick checks and report anything t
 
 - [ ] `npm run typecheck` passes with zero errors
 - [ ] `npm run build` produces all 20 expected `.js` files in `dist/`
-- [ ] `npm test` — all 67 tests pass
+- [ ] `npm test` — all 90 tests pass
 - [ ] `grep -r "TODO\|FIXME\|HACK\|XXX" src/` — any leftover markers?
 - [ ] `grep -rE "\.crew/|crewRoot" src/` — any remaining references to deprecated `.crew/` directory or `crewRoot` variable?
 - [ ] `grep -r "console\.\(log\|error\)" src/` — are there debug logs that should be removed?

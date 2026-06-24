@@ -198,7 +198,7 @@ export class TeamDashboardComponent implements Component {
     lines.push(`  ${sep}`);
 
     // Footer
-    const footerLine = buildFooter(state);
+    const footerLine = buildFooter(state, safeWidth - 2);
     lines.push(`  ${footerLine}`);
 
     // Bottom border
@@ -227,13 +227,16 @@ export class TeamDashboardComponent implements Component {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-function buildHeader(state: TeamDashboardState, _width: number): string {
+function buildHeader(state: TeamDashboardState, width: number): string {
   const titleLine = `Team: ${state.title}`;
   const status = state.status;
   const phaseInfo = state.currentPhase
     ? `Phase: ${state.completedPhases + 1}/${state.totalPhases} (${state.currentPhase})`
     : `Phases: ${state.completedPhases}/${state.totalPhases}`;
-  return `${titleLine}  |  Status: ${status}  |  ${phaseInfo}`;
+  const full = `${titleLine}  |  Status: ${status}  |  ${phaseInfo}`;
+  if (full.length <= width) return full;
+  // Truncate to fit width — preserve the beginning which has the most info
+  return full.slice(0, width);
 }
 
 function buildProgressBar(state: TeamDashboardState, width: number): string {
@@ -257,10 +260,16 @@ function renderPhaseRow(phase: TeamPhaseStatusWithMeta, width: number): string {
   const fixed = `${statusIcon} ${phaseName} ${statusLabel} ${roleLabel}`;
   const fixedLen = visibleLen(fixed);
 
+  // If the fixed part alone exceeds width, truncate it
+  if (fixedLen >= width) {
+    return fixed.slice(0, width);
+  }
+
   if (phase.status === "failed" && phase.error) {
     const errorPart = ` — ${phase.error}`;
-    const avail = Math.max(0, width - fixedLen - visibleLen(errorPart));
-    return `${fixed}${errorPart}`.slice(0, width);
+    const avail = Math.max(0, width - fixedLen);
+    const full = `${fixed}${errorPart.slice(0, avail)}`;
+    return full.slice(0, width);
   }
 
   return fixed;
@@ -299,10 +308,12 @@ function renderBrailleBar(phase: TeamPhaseStatusWithMeta): string {
   return result;
 }
 
-function buildFooter(state: TeamDashboardState): string {
+function buildFooter(state: TeamDashboardState, width: number): string {
   const mailbox = `Mailbox: ${state.mailboxCount > 0 ? String(state.mailboxCount) : "0"} messages`;
   const elapsed = formatElapsed(Date.now() - state.startedAt);
-  return `${mailbox}  |  Elapsed: ${elapsed}`;
+  const full = `${mailbox}  |  Elapsed: ${elapsed}`;
+  if (full.length <= width) return full;
+  return full.slice(0, width);
 }
 
 function formatElapsed(ms: number): string {

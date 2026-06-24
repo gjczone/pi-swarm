@@ -97,14 +97,35 @@ function findGitignore(cwd: string): string | null {
 // Default export — extension entry point
 // ---------------------------------------------------------------------------
 
+// ---------------------------------------------------------------------------
+// Keyword mode resolver (exported for testing)
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve which swarm mode (if any) should be activated based on user input keywords.
+ *
+ * Priority: "swarm-team" / "swarm team" > "swarm" alone.
+ * Returns null when no keyword matches.
+ *
+ * 业务说明：根据用户输入中的关键词判断应该激活 AgentSwarm 还是 SwarmTeam。
+ * "swarm-team" 或 "swarm team" 激活 team 模式，单独的 "swarm" 激活 swarm 模式。
+ * "swarm-team" 中包含 "swarm" 子串，因此 team 检查必须在 swarm 之前。
+ */
+export function resolveKeywordMode(text: string): "swarm" | "team" | null {
+  const t = text.toLowerCase();
+  if (t.includes("swarm-team") || t.includes("swarm team")) return "team";
+  if (t.includes("swarm")) return "swarm";
+  return null;
+}
+
 export default function (pi: ExtensionAPI): void {
   // ---- State ----
 
-  let swarmActive = false;
+  let swarmMode: "swarm" | "team" | null = null;
 
-  const log = (msg: string): void => {
-    // Use console for logging since ExtensionAPI does not expose logger directly.
-    console.error(`[pi-swarm] ${msg}`);
+  const log = (_msg: string): void => {
+    // Silent by default — pi extensions should not print startup noise.
+    // Only showError writes to console for genuine errors.
   };
 
   // ---- Command Host ----
@@ -112,10 +133,10 @@ export default function (pi: ExtensionAPI): void {
   const commandHost: SwarmCommandHost = {
     pi,
     get swarmActive() {
-      return swarmActive;
+      return swarmMode !== null;
     },
     setSwarmActive(active: boolean, _trigger: "manual" | "task" | "tool") {
-      swarmActive = active;
+      swarmMode = active ? "swarm" : null;
     },
     sendNormalUserInput(prompt: string) {
       pi.sendMessage({
@@ -149,8 +170,7 @@ export default function (pi: ExtensionAPI): void {
   // ---- Lifecycle hooks ----
 
   pi.on("session_start", async () => {
-    log("Session started — swarm extension loaded.");
-    swarmActive = false;
+    swarmMode = null;
 
     // Ensure .pi/swarm/state/ is gitignored
     ensureGitignore(process.cwd());
@@ -179,36 +199,24 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("session_shutdown", async () => {
-    log("Session shutting down.");
-    swarmActive = false;
+    swarmMode = null;
   });
 
   // ---- Keyword trigger: auto-activate swarm mode when user mentions it ----
 
   pi.on("input", (event) => {
     if (event.source !== "interactive") return;
-    const text = event.text.toLowerCase();
-    if (text.includes("swarm-team") || text.includes("swarm team")) {
-      if (!swarmActive) {
-        swarmActive = true;
-        log("Swarm mode auto-activated (keyword: swarm-team).");
-        pi.sendMessage?.({
-          customType: "swarm:marker",
-          content: "active",
-          display: true,
-        });
-      }
-    } else if (text.includes("swarm") && !text.includes("swarm-team")) {
-      if (!swarmActive) {
-        swarmActive = true;
-        log("Swarm mode auto-activated (keyword: swarm).");
-        pi.sendMessage?.({
-          customType: "swarm:marker",
-          content: "active",
-          display: true,
-        });
-      }
-    }
+    const mode = resolveKeywordMode(event.text);
+    if (mode === null) return;
+    if (swarmMode !== null) return; // Already active
+
+    swarmMode = mode;
+    log(`Swarm mode auto-activated (keyword: ${mode}).`);
+    pi.sendMessage?.({
+      customType: "swarm:marker",
+      content: "active",
+      display: false,
+    });
   });
 
   // ---- Tool & Command Registration ----
@@ -228,10 +236,6 @@ export default function (pi: ExtensionAPI): void {
   registerSwarmCommand(pi, commandHost);
   registerSwarmTeamTool(pi);
   registerTeamCommand(pi, commandHost);
-
-  log(
-    "Extension loaded — AgentSwarm + SwarmTeam tools + /swarm, /swarm-team commands registered.",
-  );
 }
 
 // ---------------------------------------------------------------------------

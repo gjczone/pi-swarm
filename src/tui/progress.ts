@@ -278,7 +278,7 @@ export class AgentSwarmProgressComponent implements Component {
     }
 
     // Summary
-    const summary = buildSummary(state);
+    const summary = buildSummary(state, safeWidth - 4);
     lines.push(`  ${summary}`);
 
     // Bottom border
@@ -308,7 +308,14 @@ export class AgentSwarmProgressComponent implements Component {
 
 function borderTop(title: string, width: number): string {
   const inner = ` ${title} `;
-  const dashes = Math.max(0, width - inner.length - 2);
+  // Reserve 2 chars for corner symbols (┌ and ┐), 1 for the leading dash
+  const minLen = inner.length + 3;
+  if (minLen > width) {
+    const maxInner = Math.max(0, width - 2);
+    const truncated = inner.slice(0, maxInner);
+    return `\u250C${truncated}\u2510`;
+  }
+  const dashes = width - inner.length - 3;
   return `\u250C${inner}\u2500${"\u2500".repeat(Math.max(0, dashes))}\u2510`;
 }
 
@@ -346,6 +353,12 @@ function renderMemberRow(member: MemberStatus, width: number): string {
   // Layout: #N [braille] Status  item
   const fixed = `${indexLabel} ${brailleBar} ${statusLabel}`;
   const fixedLen = visibleLen(fixed);
+
+  // If the fixed part alone exceeds width, truncate it
+  if (fixedLen >= width) {
+    return fixed.slice(0, width);
+  }
+
   const itemSpace = Math.max(0, width - fixedLen - 2);
   const truncatedItem = truncateText(itemLabel, itemSpace);
 
@@ -410,13 +423,15 @@ function memberPhaseLabel(phase: MemberPhase): string {
   }
 }
 
-function buildSummary(state: SwarmProgressState): string {
+function buildSummary(state: SwarmProgressState, width: number): string {
   const parts: string[] = [];
   if (state.completed > 0) parts.push(`completed: ${state.completed}`);
   if (state.failed > 0) parts.push(`failed: ${state.failed}`);
   if (state.active > 0) parts.push(`active: ${state.active}`);
   if (state.queued > 0) parts.push(`queued: ${state.queued}`);
-  return parts.join(", ");
+  const full = parts.join(", ");
+  if (full.length <= width) return full;
+  return full.slice(0, width);
 }
 
 // ---------------------------------------------------------------------------

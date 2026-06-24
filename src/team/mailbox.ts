@@ -223,23 +223,3 @@ function writeJsonLines(filePath: string, messages: MailboxMessage[]): void {
   const content = messages.map((m) => JSON.stringify(m)).join("\n");
   fs.writeFileSync(filePath, content + (content ? "\n" : ""), "utf-8");
 }
-
-function extractRunId(mailboxRoot: string): string {
-  // mailboxRoot = .../state/runs/{runId}/mailbox
-  const parts = mailboxRoot.split(path.sep);
-  const mailboxIdx = parts.lastIndexOf("mailbox");
-  if (mailboxIdx >= 2 && parts[mailboxIdx - 2] === "runs") {
-    return parts[mailboxIdx - 1]!;
-  }
-  return "unknown";
-}
-
-function extractSwarmRoot(mailboxRoot: string): string {
-  // mailboxRoot = {swarmRoot}/state/runs/{runId}/mailbox
-  const parts = mailboxRoot.split(path.sep);
-  const stateIdx = parts.lastIndexOf("state");
-  if (stateIdx >= 0) {
-    return parts.slice(0, stateIdx).join(path.sep);
-  }
-  return mailboxRoot;
-}
