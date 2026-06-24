@@ -75,6 +75,7 @@ export interface RunManifest {
   goal?: string;
   startedAt: number;
   completedAt?: number;
+  lastHeartbeatAt?: number;
   agentIds: string[];
 }
 
@@ -126,6 +127,20 @@ export function updateManifest(
     path.join(dir, "manifest.json"),
     JSON.stringify(manifest, null, 2),
   );
+}
+
+/**
+ * Update the heartbeat timestamp for a running manifest.
+ */
+export function updateHeartbeat(
+  crewRoot: string,
+  runId: string,
+): void {
+  const manifest = readManifest(crewRoot, runId);
+  if (!manifest) return;
+  if (manifest.status !== "running") return;
+  manifest.lastHeartbeatAt = Date.now();
+  updateManifest(crewRoot, manifest);
 }
 
 // ---------------------------------------------------------------------------

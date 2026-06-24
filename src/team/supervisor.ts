@@ -152,13 +152,21 @@ export class TeamSupervisor {
   failPhase(name: string, error: string): void {
     this.state.taskGraph.failPhase(name, error);
 
-    // Skip downstream phases that depend on this one
-    for (const otherName of this.state.taskGraph.getPhaseNames()) {
-      const other = this.state.taskGraph.getPhase(otherName);
-      if (!other || other.status !== "queued") continue;
-      const deps = other.phase.dependsOn ?? [];
-      if (deps.includes(name)) {
-        this.state.taskGraph.skipPhase(otherName);
+    // BFS: skip all phases that depend (directly or transitively) on a failed/skipped phase
+    const queue = [name];
+    const visited = new Set<string>();
+    while (queue.length > 0) {
+      const current = queue.shift()!;
+      if (visited.has(current)) continue;
+      visited.add(current);
+      for (const otherName of this.state.taskGraph.getPhaseNames()) {
+        const other = this.state.taskGraph.getPhase(otherName);
+        if (!other || other.status !== "queued") continue;
+        const deps = other.phase.dependsOn ?? [];
+        if (deps.includes(current)) {
+          this.state.taskGraph.skipPhase(otherName);
+          queue.push(otherName);
+        }
       }
     }
   }

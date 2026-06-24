@@ -14,6 +14,7 @@ import {
   readManifest,
   updateManifest,
   deleteRunState,
+  loadAgentStatus,
   type RunManifest,
   appendEvent,
 } from "./persistence.js";
@@ -77,8 +78,9 @@ export function recoverRuns(cwd: string): RecoveryResult {
 
     switch (manifest.status) {
       case "running": {
-        // Check for staleness
-        const age = now - manifest.startedAt;
+        // Check for staleness using last heartbeat if available
+        const lastActivity = manifest.lastHeartbeatAt ?? manifest.startedAt;
+        const age = now - lastActivity;
         if (age > STALE_RUN_THRESHOLD_MS) {
           // Mark as abandoned
           const updated: RunManifest = {
@@ -145,6 +147,7 @@ export function hasUnfinishedTasks(
   const manifest = readManifest(crewRoot, runId);
   if (!manifest) return false;
   if (manifest.status === "completed") return false;
+  if (manifest.status !== "running") return false;
 
   // Check if any agent status files indicate unfinished work
   const agentsDir = path.join(
@@ -154,11 +157,23 @@ export function hasUnfinishedTasks(
     runId,
     "agents",
   );
-  if (!fs.existsSync(agentsDir)) return manifest.status === "running";
+  if (!fs.existsSync(agentsDir)) return true;
 
-  // If there are agent IDs in the manifest, all are accounted for
-  // If fewer agents ran than expected, there is unfinished work
-  return true;
+  // Check each agent directory for non-terminal status
+  const agentDirs = fs.readdirSync(agentsDir, { withFileTypes: true })
+    .filter((d) => d.isDirectory())
+    .map((d) => d.name);
+
+  for (const agentId of agentDirs) {
+    const status = loadAgentStatus(crewRoot, runId, agentId);
+    if (!status) return true;
+    const state = String(status.status ?? status.state ?? "");
+    if (state === "running" || state === "started" || state === "") {
+      return true;
+    }
+  }
+
+  return false;
 }
 
 /**
