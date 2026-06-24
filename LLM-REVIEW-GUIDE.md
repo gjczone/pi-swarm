@@ -11,6 +11,7 @@ You are reviewing **pi-swarm**, a pi-coding-agent extension that provides multi-
 - **Concurrency model**: Two-phase scheduler ported from kimi-code. Normal phase (5 initial + 1/700ms ramp-up), rate-limit phase (capacity tracking + exponential backoff).
 - **Team model**: Sequential phases (explore → plan → implement → review → test) with JSONL mailbox for inter-agent messages.
 - **State**: Durable file-based state under `.pi/swarm/state/`, crash recovery on session start.
+- **TUI**: Live braille progress panel via `onProgress` callback wiring from controller through tool to widget. Swarm mode markers rendered via `swarm:marker` message renderer.
 
 ## Review Rules
 
@@ -32,7 +33,7 @@ You are reviewing **pi-swarm**, a pi-coding-agent extension that provides multi-
 3. **Inconsistent state**: scenarios where a run manifest says "running" but no agents are active, or task state shows "completed" but the result is missing.
 4. **LLM-facing tool description issues**: parameter descriptions that are misleading, missing constraint documentation (e.g., "must be only tool call" not stated), examples that don't work.
 5. **Settings/precedence bugs**: the concurrency setting not being read from the correct location, environment variable override not working, project settings not overriding global.
-6. **Edge cases**: empty items array, single item (newly supported — verify), resume with unknown agent IDs, concurrent mailbox writes, controller with 0 tasks.
+6. **Edge cases**: empty items array, single item (supported — verify), resume with unknown agent IDs, concurrent mailbox writes, controller with 0 tasks.
 7. **Performance**: O(n²) operations in the controller that could matter at 128 agents, excessive file I/O in hot paths, synchronous operations on the main thread.
 
 ### DO NOT report these (ignore — not useful)
@@ -55,34 +56,35 @@ Read these in order. The most critical modules are listed first.
 
 | File | What to check |
 |------|--------------|
-| `src/shared/controller.ts` | Two-phase scheduler correctness. Race conditions. Abort handling. Rate-limit detection. `finished` flag guards. |
-| `src/shared/spawner.ts` | Child process lifecycle. JSON Lines parsing robustness. Signal/timeout handling. Zombie process risk. |
-| `src/swarm/tool.ts` | Input validation. Spec creation edge cases (1 item, 128 items, resume). TypeBox schema vs actual params. |
-| `src/team/tool.ts` | Phase loop correctness. Abort propagation between phases. Partial state return on error. supervisor scope. |
+| `src/shared/controller.ts` | Two-phase scheduler correctness. Race conditions in `schedule`/`finish`. Abort handling. Rate-limit detection. `finished` flag guards. `onProgress` callback correctness at each lifecycle transition. |
+| `src/shared/spawner.ts` | Child process lifecycle — spawn, event stream parsing, stdout/stderr handling. JSON Lines robustness (partial lines, malformed JSON). Signal/timeout handling. Zombie process risk. `finalize` resource cleanup. |
+| `src/swarm/tool.ts` | Input validation via TypeBox. Spec creation edge cases (1 item, 128 items, resume). Prompt template + items combination. Progress callback wiring to TUI widget. |
+| `src/team/tool.ts` | Phase loop correctness. Abort propagation between phases. Partial state return on error. Supervisor lifecycle. Mailbox path construction. |
 
 ### Tier 2 — State & Recovery
 
 | File | What to check |
 |------|--------------|
-| `src/state/persistence.ts` | Atomic write correctness. Directory creation race conditions. JSON parse error handling. Orphaned temp files. |
-| `src/state/recovery.ts` | Staleness detection logic. Cleanup safety (deleting wrong directories). 7-day / 30-min thresholds. |
+| `src/state/persistence.ts` | Atomic write correctness (temp-file + rename). Directory creation race conditions. JSON parse error handling. Orphaned temp files. Manifest/task/event consistency. |
+| `src/state/recovery.ts` | Staleness detection logic (30min heartbeat). Cleanup safety (deleting wrong directories). 7-day auto-delete threshold. Cross-run state isolation. |
 
 ### Tier 3 — Team Infrastructure
 
 | File | What to check |
 |------|--------------|
-| `src/team/mailbox.ts` | JSONL append correctness. Concurrent write safety. Path construction (no traversal). Delivery state consistency. |
-| `src/team/task-graph.ts` | Dependency validation. Skip propagation correctness. Serialization round-trip. Duplicate phase name handling. |
-| `src/team/supervisor.ts` | Phase prompt construction. Result synthesis XML escaping. Dependency context injection. |
+| `src/team/mailbox.ts` | JSONL append correctness. Concurrent write safety. Path construction (no traversal). Delivery state consistency. `readJsonLines` robustness. |
+| `src/team/task-graph.ts` | Dependency validation. Skip propagation correctness. Serialization round-trip (`toJSON`/`fromJSON`). Duplicate phase name handling. Cycle detection. |
+| `src/team/supervisor.ts` | Phase prompt construction with dependency context injection. Result synthesis XML escaping. Phase status tracking. `resume_agent_ids` construction. |
 
 ### Tier 4 — TUI & Entry
 
 | File | What to check |
 |------|--------------|
-| `src/tui/progress.ts` | Render contract (lines <= width). Animation cleanup on dispose. Null state handling. |
-| `src/index.ts` | Auto-gitignore logic. Duplicate handler registration. ExtensionAPI type usage. |
-| `src/swarm/command.ts` | Permission mode handling. Empty/null args. |
-| `src/swarm/mode.ts` | Reminder injection/destruction pairing. Status update consistency. |
+| `src/tui/progress.ts` | Render contract (lines <= widget width). Animation lifecycle (start/stop/dispose). Null/empty state handling. `snapshotToProgressState` conversion. |
+| `src/tui/swarm-markers.ts` | Marker rendering (activated/deactivated/ended). Message renderer registration. Empty/null message handling. |
+| `src/index.ts` | Auto-gitignore logic for `.pi/`. Tool/command/handler registration completeness. `swarm:marker` message renderer registration. ExtensionAPI type usage. |
+| `src/swarm/command.ts` | Permission mode handling. Empty/null args. Mode toggle correctness. |
+| `src/swarm/mode.ts` | Reminder injection/destruction pairing. Status update consistency. Enter/exit transition guards. |
 
 ### Tests (reference only)
 
@@ -120,7 +122,7 @@ Before starting the detailed review, do these quick checks and report anything t
 - [ ] `npm run build` produces all 19 expected `.js` files in `dist/`
 - [ ] `npm test` — all 55 tests pass
 - [ ] `grep -r "TODO\|FIXME\|HACK\|XXX" src/` — any leftover markers?
-- [ ] `grep -r "\.crew" src/` — any remaining references to deprecated `.crew/` path?
+- [ ] `grep -r "\.crew/" src/` — any remaining paths referencing deprecated `.crew/` directory?
 - [ ] `grep -r "console\.\(log\|error\)" src/` — are there debug logs that should be removed?
 - [ ] Does `src/index.ts` register both `AgentSwarm` and `SwarmTeam` tools?
 - [ ] Does `swarm/tool.ts` allow 1 item (not still requiring 2)?
