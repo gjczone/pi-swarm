@@ -193,6 +193,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
           updateHeartbeat(swarmRoot, runId);
 
           const { phase, role, prompt: phasePrompt } = currentPhase;
+          const roleConfig = supervisor.getRoleConfig(role);
 
           // Spawn a single agent for this phase
           const tasks: QueuedSubagentTask<unknown>[] = [
@@ -207,6 +208,9 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               runInBackground: false,
               signal,
               timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+              model: roleConfig.model,
+              tools: roleConfig.tools,
+              cwd: supervisor.config.cwd,
             },
           ];
 

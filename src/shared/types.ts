@@ -195,6 +195,12 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly timeout?: number;
   /** Abort signal for cancellation. */
   readonly signal?: AbortSignal;
+  /** Model override for this subagent (optional). */
+  readonly model?: string;
+  /** Tool allowlist for this subagent (optional). */
+  readonly tools?: string[];
+  /** Working directory override (optional, defaults to process.cwd()). */
+  readonly cwd?: string;
 }
 
 /** A task that spawns a NEW subagent. */

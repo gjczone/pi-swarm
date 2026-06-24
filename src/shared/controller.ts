@@ -396,6 +396,9 @@ export class SubagentBatchController<T> {
         const spawnOptions: SpawnSubagentOptions = {
           profileName: task.profileName,
           swarmItem: task.swarmItem,
+          model: task.model,
+          tools: task.tools,
+          cwd: task.cwd,
           ...runOptions,
         };
         handle = await this.launcher.spawn(spawnOptions);

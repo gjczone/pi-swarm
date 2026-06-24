@@ -313,12 +313,19 @@ function parseEventStream(
         }
 
         const content = msg.content;
-        if (content && Array.isArray(content)) {
+        let messageText = "";
+        if (typeof content === "string") {
+          messageText = content;
+        } else if (Array.isArray(content)) {
           for (const block of content) {
             if (block.type === "text" && block.text) {
-              finalText += block.text;
+              messageText += block.text;
             }
           }
+        }
+        if (messageText) {
+          if (finalText) finalText += "\n";
+          finalText += messageText;
         }
       }
     };
