@@ -2,7 +2,7 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
-## [Unreleased]
+## [0.2.0] - 2026-06-24
 
 ### Added
 
