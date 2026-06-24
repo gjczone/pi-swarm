@@ -191,6 +191,7 @@ interface SwarmTeamInput {
   roles?: AgentRoleConfig[]; // Custom role definitions (optional)
   phases?: TeamPhase[]; // Custom phase definitions (optional)
   max_agents?: number; // Max concurrent agents (default: 4)
+  small_model?: string; // Lightweight model for exploration roles (optional)
   artifacts_dir?: string; // Where to write output artifacts
 }
 ```
@@ -232,22 +233,16 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
   "message_id": "uuid",
   "run_id": "uuid",
   "timestamp": "2026-06-23T10:30:00Z",
-  "from": "planner_01",
-  "to": "coder_01",
+  "from": "supervisor",
+  "to": "coder",
   "type": "task_assignment",
   "payload": {
-    "task_id": "uuid",
-    "spec": {
-      "goal": "Implement login endpoint",
-      "context": {
-        "design_doc": "See plan artifact #3",
-        "relevant_files": ["src/auth/login.ts"],
-        "constraints": ["Use bcrypt", "Pass existing tests"]
-      },
-      "expected_output": {
-        "type": "code_changes",
-        "files": ["src/auth/login.ts"]
-      }
+    "phase": "implement",
+    "goal": "Implement login endpoint",
+    "dependsOn": ["explore", "plan"],
+    "dependencyResults": {
+      "explore": "Found 3 relevant modules: auth, session, middleware.",
+      "plan": "Implementation plan: 4 files to create, 2 to modify."
     }
   }
 }
@@ -257,21 +252,52 @@ Phase 6: Fix        — [fixer]     Address review feedback (optional, loops bac
 
 ```xml
 <swarm_team_result>
-<summary>Phases completed: 5/6. Tasks: 8/10 succeeded, 2 failed.</summary>
-<phase name="explore" status="completed">
-  <agent role="explorer" agent_id="team-001">
-    Found 3 relevant modules: auth, session, middleware.
-  </agent>
+<summary>Phases completed: 5/6. Succeeded: 5, Failed: 0, Skipped: 1.</summary>
+<total_duration_ms>18432</total_duration_ms>
+<phase name="explore" role="explorer" outcome="completed" agent_id="team-abc1" duration_ms="5210">
+### Key Files Examined
+- src/auth/login.ts (LoginHandler, validateCredentials)
+- src/auth/session.ts (SessionManager, createSession)
+
+### Root Cause
+The login flow uses bcrypt for password hashing but doesn't verify...
 </phase>
-<phase name="plan" status="completed">
-  <agent role="planner" agent_id="team-002">
-    Implementation plan: 4 files to create, 2 to modify.
-  </agent>
+<phase name="plan" role="planner" outcome="completed" agent_id="team-abc2" duration_ms="8120">
+### Implementation Plan
+1. Add password verification step in LoginHandler
+2. Create test cases for valid/invalid/expired scenarios
+3. Update session creation to include auth timestamp
 </phase>
-<!-- ... -->
-<resume_hint>Call SwarmTeam with resume_agent_ids to retry failed phases.</resume_hint>
+<supervisor_synthesis>
+### Team Run: Implement user login with JWT
+
+### Phase Outcomes
+- [DONE] **explore** (explorer) — Key Files Examined
+- [DONE] **plan** (planner) — Implementation Plan
+- [DONE] **implement** (coder) — Changes made
+- [DONE] **review** (reviewer) — Approved
+- [SKIP] **test** (tester)
+
+### Key Deliverables
+#### explore (explorer)
+### Key Files Examined
+- src/auth/login.ts...
+#### plan (planner)
+### Implementation Plan
+1. Add password verification...
+</supervisor_synthesis>
 </swarm_team_result>
 ```
+
+### 4.6 Per-Role Model Tier Routing
+
+To optimize cost, SwarmTeam supports routing exploration roles to a cheaper/faster model:
+
+- `small_model` parameter configures a lightweight model (e.g., `deepseek/deepseek-v4-flash`)
+- `explorer` role automatically uses the small model when configured
+- All other roles (`planner`, `coder`, `reviewer`, `tester`, `fixer`, `supervisor`) use the default model
+- Per-phase override available via `modelTier` (`"small"` or `"default"`) or `model` (explicit name)
+- Resolution priority: phase-level model > phase-level modelTier > role-level config > auto-route > default
 
 ---
 
@@ -417,6 +443,15 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Main entry (`index.ts`) — wire everything together
 - [x] Lifecycle hooks (session_start, session_shutdown)
 - [x] Build verification, smoke tests
+
+### Phase 5.5: Bug Fixes & Enhancements
+
+- [x] Subagent output capture fix — accumulate tool outputs, handle string content
+- [x] Per-agent output.log persistence — write full session output to agent state dir
+- [x] Supervisor context passing — dependency results in task_assignment, message acknowledgment
+- [x] Per-role model tier routing — small_model for explorer, per-phase overrides
+- [x] Enhanced result format — per-phase output, duration_ms, supervisor_synthesis
+
 - [x] README.md with kimi-code + pi-crew credits
 
 ---

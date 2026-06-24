@@ -100,8 +100,11 @@ SubagentResult<T>
 For team mode, additional types include:
 
 - `AgentRole` — enumerated role strings (explorer, planner, coder, reviewer, tester, fixer)
-- `TeamPhase` — named phase with role assignment and optional dependencies
+- `TeamPhase` — named phase with role assignment, optional dependencies, model tier, model override, and tool whitelist
 - `MailboxMessage` — structured JSON message with `messageId`, `from`, `to`, `type`, `payload`
+- `ModelTier` — `"default"` or `"small"` for cost-optimized routing
+- `SMALL_MODEL_ROLES` — set of roles that auto-route to the small model (currently `explorer`)
+- `BaseQueuedSubagentTask` — includes optional `model`, `tools`, `cwd` fields for threading through the spawn chain
 
 ### 3.2 Pi CLI Invocation (`shared/pi-invoke.ts`)
 
@@ -139,7 +142,7 @@ Manages the full lifecycle of a child pi process.
 7. Handle abort signal: SIGTERM → wait 5s → SIGKILL
 8. Handle timeout: optional per-task deadline
 
-**Event parsing**: The `--print` mode produces one JSON object per line. `parseEventStream()` buffers stdout data, splits on newlines, and processes complete lines. Partial lines are held in the buffer. The `message_end` event with `role: "assistant"` carries the final result text and usage statistics.
+**Event parsing**: The `--print` mode produces one JSON object per line. `parseEventStream()` buffers stdout data, splits on newlines, and processes complete lines. Partial lines are held in the buffer. The `message_end` event with `role: "assistant"` carries the final result text and usage statistics. Content is extracted from both `tool_result` events (tool outputs) and `message_end` events (assistant text). Both string-form and array-form `msg.content` are handled.
 
 **Why `spawn` not `exec`**: `spawn` returns a `ChildProcess` with streaming stdout/stderr. This allows real-time progress tracking and avoids buffering the entire output in memory.
 
@@ -324,6 +327,7 @@ A JSONL-based messaging system for inter-agent communication.
 - `readInbox()` — reads all unacknowledged messages from team inbox
 - `readTaskInbox()` — reads messages addressed to a specific task
 - `ackMessages()` — removes acknowledged messages from inbox
+- `ackTaskMessages()` — removes specific messages from a per-role task inbox (used after messages are consumed in a phase prompt, preventing cross-phase leakage)
 - `getDeliveryState()` / `updateDeliveryState()` — tracks which messages have been delivered
 
 **Why JSONL not JSON**: JSONL (one JSON object per line) supports append-only writes without rewriting the entire file. This is critical for a mailbox where multiple agents may be writing concurrently. Each agent appends a line; no coordination needed.
@@ -367,19 +371,31 @@ Orchestrates the team run by managing the task graph and spawning agents.
 
 1. Decompose the goal into phases (using default or custom phase definitions)
 2. Determine which phase is ready to execute (dependencies satisfied)
-3. Build a phase-specific prompt that includes context from completed dependency phases
-4. Spawn a role agent for the current phase
-5. Collect results and advance the task graph
-6. Synthesize the final `<swarm_team_result>` XML output
+3. Resolve model/tools/cwd for each phase via `getPhaseExecutionConfig()` using priority: phase-level model > phase-level modelTier > role-level config > auto-route (explorer → small) > default
+4. Build a phase-specific prompt that includes context from completed dependency phases and mailbox messages
+5. Spawn a role agent for the current phase with resolved model/tools/cwd
+6. Collect results and advance the task graph
+7. Acknowledge (delete) consumed mailbox messages to prevent cross-phase leakage
+8. Synthesize the final `<swarm_team_result>` XML output with per-phase content, timing, and supervisor synthesis
 
 **Phase prompt construction**: Each agent receives:
 
-- Role description (e.g., "You are the coder agent...")
+- Role-specific system prompt (from role config, or generic default)
 - Team goal context
-- Results from completed dependency phases (injected as context)
-- Phase-specific instruction
+- Results from completed dependency phases (injected as context, with status badges)
+- Mailbox messages addressed to the role (task_assignment, handoff, task_result)
+- Phase-specific instruction with communication protocol
 
 This is analogous to CrewAI's task context chaining — each task receives the output of its predecessor tasks as input context.
+
+**Result synthesis**: The final XML includes:
+
+- `<summary>` with phase counts
+- `<total_duration_ms>` for overall wall-clock time
+- Per-phase `<phase>` elements with `agent_id`, `duration_ms`, `outcome` attributes and full markdown output (truncated at 12,000 chars)
+- `<supervisor_synthesis>` with consolidated outcomes, errors, and key deliverables excerpts
+- Failed phases get `<error>` sub-elements; skipped phases get explanatory messages
+- Empty results show a note pointing to `output.log` for full transcripts
 
 ### 5.4 SwarmTeam Tool (`team/tool.ts`)
 
@@ -391,17 +407,18 @@ Registered via `pi.registerTool("SwarmTeam", ...)`.
 | `goal` | Yes | High-level team goal |
 | `description` | Yes | Human-readable run description |
 | `phases` | No | Custom phase definitions; defaults to explore/plan/implement/review/test |
-| `roles` | No | Custom role configs with model/tools overrides |
+| `roles` | No | Custom role configs with model/tools/systemPrompt overrides |
+| `small_model` | No | Lightweight model for exploration roles (e.g. deepseek/deepseek-v4-flash) |
 | `max_agents` | No | Max concurrent agents (default 4) |
 | `resume_agent_ids` | No | Map for resuming failed phase agents |
 
 **Execution flow**:
 
-1. Create a TeamSupervisor with the run configuration
-2. Loop: get next ready phase → spawn agent → wait for completion → advance graph
-3. On phase completion: assign agent ID, save result
+1. Create a TeamSupervisor with the run configuration (including `smallModel`)
+2. Loop: get next ready phase → resolve model/tools/cwd via `getPhaseExecutionConfig()` → spawn agent with resolved config → wait for completion → advance graph
+3. On phase completion: assign agent ID, save result, update heartbeat
 4. On phase failure: mark as failed, skip downstream phases
-5. After all phases: finalize run, synthesize XML output
+5. After all phases: finalize run, synthesize enhanced XML output with per-phase content and supervisor synthesis
 
 **Why sequential not parallel for team phases**: Team phases have explicit dependencies (plan must finish before coding starts). Each phase agent needs the output of previous phases as context. Running phases in parallel would violate these dependencies. Future work could support parallel sub-phases within a single phase.
 
@@ -541,7 +558,7 @@ Provides durable file-based state for all runs.
   events.jsonl           # Append-only event log
   agents/{agentId}/
     status.json          # Per-agent status snapshot
-    output.log           # Agent stdout capture (future)
+    output.log           # Full agent session output (header, raw stdout, footer)
 ```
 
 **Atomic writes**: All file writes use a temp-file + rename pattern:
@@ -639,17 +656,21 @@ SwarmTeam.execute()
   ├─ Loop:
   │   ├─ supervisor.startNextPhase()
   │   │     ├─ checks dependencies
-  │   │     └─ builds phase prompt with dependency context
+  │   │     └─ builds phase prompt with dependency context + mailbox messages
+  │   │
+  │   ├─ supervisor.getPhaseExecutionConfig(phaseName)
+  │   │     └─ resolves model/tools/cwd via priority chain
   │   │
   │   ├─ spawn agent for phase (via controller)
+  │   │     ├─ agent runs with resolved model, tools, cwd
   │   │     └─ agent writes to mailbox if needed
   │   │
-  │   ├─ on complete: supervisor.completePhase()
+  │   ├─ on complete: supervisor.completePhase() + ackTaskMessages()
   │   ├─ on fail: supervisor.failPhase() + skip downstream
   │   └─ continue until no more ready phases
   │
   ├─ supervisor.finalize()
-  ├─ supervisor.synthesizeResult()
+  ├─ supervisor.synthesizeResult() → enhanced XML with per-phase output, timing, synthesis
   └─ return <swarm_team_result> XML
 ```
 
