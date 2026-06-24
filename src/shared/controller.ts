@@ -136,9 +136,9 @@ export class SubagentBatchController<T> {
   private readonly results: Array<SubagentResult<T> | undefined>;
   private readonly active = new Set<ActiveAttempt<T>>();
   private readonly controller = new AbortController();
-  private readonly batchSignal: AbortSignal | undefined;
-  private readonly batchAbortListener: () => void;
+  private readonly batchSignals: AbortSignal[];
   private readonly maxConcurrency: number | undefined;
+  private batchAborted = false;
 
   // Normal phase state
   private normalLaunchCount = 0;
@@ -181,19 +181,14 @@ export class SubagentBatchController<T> {
       length: tasks.length,
     }).fill(undefined) as Array<SubagentResult<T> | undefined>;
 
-    // Use the first task's signal as the batch signal
-    this.batchSignal = tasks.find((t) => t.signal !== undefined)?.signal;
-
-    this.batchAbortListener = () => {
-      this.controller.abort(this.batchSignal?.reason);
-      if (isUserCancellation(this.batchSignal?.reason)) {
-        this.finishWithUserCancellation();
-      } else {
-        this.fail(
-          this.batchSignal?.reason ?? new Error("Aborted"),
-        );
+    // Collect all unique task signals for batch abort
+    const signalSet = new Set<AbortSignal>();
+    for (const task of tasks) {
+      if (task.signal) {
+        signalSet.add(task.signal);
       }
-    };
+    }
+    this.batchSignals = Array.from(signalSet);
   }
 
   // -----------------------------------------------------------------------
@@ -221,18 +216,36 @@ export class SubagentBatchController<T> {
         return;
       }
 
-      if (this.batchSignal?.aborted) {
-        this.batchAbortListener();
-        return;
+      // Check if any signal is already aborted
+      for (const signal of this.batchSignals) {
+        if (signal.aborted) {
+          this.handleBatchAbort(signal);
+          return;
+        }
       }
 
-      this.batchSignal?.addEventListener(
-        "abort",
-        this.batchAbortListener,
-        { once: true },
-      );
+      // Listen to all batch signals
+      for (const signal of this.batchSignals) {
+        signal.addEventListener(
+          "abort",
+          () => this.handleBatchAbort(signal),
+          { once: true },
+        );
+      }
       this.schedule();
     });
+  }
+
+  private handleBatchAbort(signal: AbortSignal): void {
+    if (this.batchAborted) return;
+    this.batchAborted = true;
+
+    this.controller.abort(signal.reason);
+    if (isUserCancellation(signal.reason)) {
+      this.finishWithUserCancellation();
+    } else {
+      this.fail(signal.reason ?? new Error("Aborted"));
+    }
   }
 
   // -----------------------------------------------------------------------
@@ -360,6 +373,7 @@ export class SubagentBatchController<T> {
     };
     attempt.cleanup = this.linkAttemptSignals(attempt, state.task);
     this.active.add(attempt);
+    attempt.state.started = true;
 
     this.runAttempt(attempt).then(
       (outcome) => {
@@ -493,16 +507,6 @@ export class SubagentBatchController<T> {
   ): void {
     const state = attempt.state;
 
-    // If this is the only remaining task, fail fast.
-    if (this.pending.length === 0 && this.active.size === 0) {
-      this.results[state.index] = this.failedAttemptOutcome(
-        attempt,
-        new Error("Rate limit exceeded with no remaining work."),
-      );
-      this.schedule();
-      return;
-    }
-
     // Save agent id for retry and requeue at front
     state.retryAgentId = state.agentId ?? state.retryAgentId;
     state.retryCount += 1;
@@ -627,10 +631,6 @@ export class SubagentBatchController<T> {
     this.finished = true;
     this.clearNormalTimer();
     this.clearRateLimitTimer();
-    this.batchSignal?.removeEventListener(
-      "abort",
-      this.batchAbortListener,
-    );
     this.resolve?.(results);
   }
 
@@ -673,14 +673,11 @@ export class SubagentBatchController<T> {
 
     // Abort all active attempts
     for (const attempt of this.active) {
+      attempt.controller.abort(error);
       attempt.cleanup();
     }
     this.active.clear();
 
-    this.batchSignal?.removeEventListener(
-      "abort",
-      this.batchAbortListener,
-    );
     this.reject?.(error);
   }
 
@@ -729,13 +726,9 @@ export class SubagentBatchController<T> {
   // -----------------------------------------------------------------------
 
   private markAttemptReady(attempt: ActiveAttempt<T>): void {
+    if (attempt.ready) return;
     attempt.ready = true;
-    if (
-      !this.rateLimitMode &&
-      this.startedSuccessCount === 0
-    ) {
-      this.startedSuccessCount = 1;
-    }
+    this.startedSuccessCount += 1;
   }
 
   private countReadyActive(): number {

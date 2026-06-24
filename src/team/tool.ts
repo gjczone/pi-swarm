@@ -23,6 +23,7 @@ import type {
   QueuedSubagentTask,
   SubagentResult,
 } from "../shared/types.js";
+import { resolveCrewRoot } from "../state/persistence.js";
 import { TeamSupervisor } from "./supervisor.js";
 import type {
   TeamPhase,
@@ -109,12 +110,6 @@ export function registerAgentTeamTool(
               "Max concurrent agents. Default 4.",
           }),
         ),
-        resume_agent_ids: Type.Optional(
-          Type.Record(Type.String(), Type.String(), {
-            description:
-              "Map of existing agent_id to prompt for resuming failed phases.",
-          }),
-        ),
       },
       { additionalProperties: false },
     ),
@@ -131,13 +126,12 @@ export function registerAgentTeamTool(
         phases?: { name: string; role: string; dependsOn?: string[] }[];
         roles?: { role: string; model?: string; tools?: string[]; systemPrompt?: string }[];
         max_agents?: number;
-        resume_agent_ids?: Record<string, string>;
       };
 
       let supervisor: TeamSupervisor | null = null;
       try {
         const crewRoot =
-          process.env.PI_SWARM_CREW_ROOT ?? ".pi/swarm";
+          process.env.PI_SWARM_CREW_ROOT ?? resolveCrewRoot(process.cwd());
         const runId = `team-${Date.now().toString(36)}`;
 
         // Build phase definitions
@@ -167,15 +161,6 @@ export function registerAgentTeamTool(
           roles,
           maxAgents: p.max_agents ?? 4,
         });
-
-        // Process resume entries first
-        const resumeIds = p.resume_agent_ids ?? {};
-        for (const [agentId, prompt] of Object.entries(
-          resumeIds,
-        )) {
-          // Resume logic: re-spawn the agent with the new prompt
-          // For now, we track resumable agent IDs
-        }
 
         // Run phases sequentially through the task graph
         const allResults: SubagentResult<unknown>[] = [];
