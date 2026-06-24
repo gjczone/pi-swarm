@@ -92,27 +92,6 @@ function userCancellationReason(): Error {
 }
 
 /**
- * Link two AbortSignals so that either one aborting aborts the other.
- * Returns a cleanup function.
- */
-function linkAbortSignal(
-  source: AbortSignal,
-  target: AbortController,
-): () => void {
-  const handler = () => {
-    target.abort(source.reason);
-  };
-
-  if (source.aborted) {
-    target.abort(source.reason);
-    return () => {};
-  }
-
-  source.addEventListener("abort", handler, { once: true });
-  return () => source.removeEventListener("abort", handler);
-}
-
-/**
  * Detect whether an error indicates a provider rate limit.
  */
 function isProviderRateLimitError(error: unknown): boolean {
@@ -240,7 +219,10 @@ export class SubagentBatchController<T> {
     if (this.batchAborted) return;
     this.batchAborted = true;
 
-    this.controller.abort(signal.reason);
+    const reason = isUserCancellation(signal.reason)
+      ? userCancellationReason()
+      : signal.reason;
+    this.controller.abort(reason);
     if (isUserCancellation(signal.reason)) {
       this.finishWithUserCancellation();
     } else {

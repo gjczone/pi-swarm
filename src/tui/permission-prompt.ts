@@ -120,6 +120,10 @@ function borderBottom(width: number): string {
 
 function padLine(text: string, width: number): string {
   const inner = `\u2502 ${text}`;
-  const padding = Math.max(0, width - inner.length - 1);
+  if (inner.length >= width) {
+    // Truncate to fit width — reserve 1 char for the right border │
+    return inner.slice(0, width - 1) + "\u2502";
+  }
+  const padding = width - inner.length - 1;
   return `${inner}${" ".repeat(padding)}\u2502`;
 }

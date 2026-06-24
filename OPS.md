@@ -80,7 +80,7 @@ Cross-reference changed source files against the checklist below:
 
 ### 1.6 LOCAL_CI.md
 
-- [ ] Update test count in Step 4 (67 tests, 6 test files — adjust as needed)
+- [ ] Update test count in Step 4 (90 tests, 8 test files — adjust as needed)
 - [ ] Update dist module count minimum in Step 7 (20+ modules)
 - [ ] Add new steps if new tooling (linter, formatter, test framework) added
 
@@ -146,7 +146,7 @@ Plus manual steps from LOCAL_CI.md:
 - Dist module count: `test $(find dist -name "*.js" | wc -l) -ge 20`
 - Pi integration smoke test (symlink or npm install)
 
-**Pass**: typecheck -> 67 tests -> build -> dist verified. All green, 0 failures. Prettier: zero warnings. Dist: 20+ .js modules.
+**Pass**: typecheck -> 90 tests -> build -> dist verified. All green, 0 failures. Prettier: zero warnings. Dist: 20+ .js modules.
 
 ---
 
