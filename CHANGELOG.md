@@ -2,6 +2,18 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.3.4] - 2026-06-24
+
+### Fixed
+
+- **Parallel phase execution (#24)**: Independent SwarmTeam phases (no mutual dependencies) now execute concurrently instead of sequentially. `supervisor.startReadyPhases()` returns ALL phases with satisfied dependencies, and `tool.ts` launches them via `SubagentBatchController` with proper concurrency. Default pipeline (each phase depends on previous) remains sequential.
+- **TUI dashboard rendering (#23)**: Fixed text overlap and layout corruption during execution. Robust truncation at all rendering levels prevents content from overflowing into adjacent lines. Consistent line count maintained across updates. Support for multiple concurrently running phases with individual braille bars.
+
+### Changed
+
+- `TeamDashboardState` now tracks `currentRoles[]` (array) for multi-phase rendering support.
+
+
 ## [0.3.3] - 2026-06-24
 
 ### Fixed
