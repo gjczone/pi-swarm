@@ -24,6 +24,7 @@ import {
   ensureMailbox,
   sendMessage,
   readTaskInbox,
+  ackTaskMessages,
   updateDeliveryState,
   type MailboxPaths,
 } from "./mailbox.js";
@@ -137,6 +138,16 @@ export class TeamSupervisor {
     const result = this.state.taskGraph.startPhase(phase.phase.name);
     if (!result.ok) return null;
 
+    // Gather dependency results to include in assignment
+    const deps = phase.phase.dependsOn ?? [];
+    const depResults: Record<string, string> = {};
+    for (const dep of deps) {
+      const depState = this.state.taskGraph.getPhase(dep);
+      if (depState?.result) {
+        depResults[dep] = depState.result;
+      }
+    }
+
     // Send task assignment message to the role's mailbox
     const assignmentMessage: MailboxMessage = {
       messageId: this.generateMessageId(),
@@ -148,7 +159,8 @@ export class TeamSupervisor {
       payload: {
         phase: phase.phase.name,
         goal: this.config.goal,
-        dependsOn: phase.phase.dependsOn ?? [],
+        dependsOn: deps,
+        dependencyResults: depResults,
       },
     };
     sendMessage(this.mailboxPaths, assignmentMessage);
@@ -416,62 +428,124 @@ export class TeamSupervisor {
     const goal = this.config.goal;
     const role = phase.phase.role;
     const name = phase.phase.name;
+    const deps = phase.phase.dependsOn ?? [];
 
     // Gather context from completed dependency phases
-    const deps = phase.phase.dependsOn ?? [];
     let contextBlock = "";
     if (deps.length > 0) {
-      const depResults = deps
+      const depSections = deps
         .map((dep) => {
           const depState = this.state.taskGraph.getPhase(dep);
-          if (!depState || !depState.result) return null;
-          return `${dep} output:\n${depState.result}`;
+          if (!depState) return null;
+          const status = depState.status;
+          if (status === "failed") {
+            return `### ${dep} (${depState.phase.role}) — FAILED\nError: ${depState.error ?? "unknown"}`;
+          }
+          if (status === "skipped") {
+            return `### ${dep} (${depState.phase.role}) — SKIPPED`;
+          }
+          if (depState.result) {
+            return `### ${dep} (${depState.phase.role})\n${depState.result}`;
+          }
+          return null;
         })
         .filter(Boolean)
         .join("\n\n");
 
-      if (depResults) {
-        contextBlock = `\n\nContext from previous phases:\n${depResults}`;
+      if (depSections) {
+        contextBlock = `\n\n## Previous Phase Results\n\n${depSections}\n`;
       }
     }
 
     // Read messages addressed to this role
     let messagesBlock = "";
+    const ackIds: string[] = [];
     try {
       const roleMessages = readTaskInbox(this.mailboxPaths, role);
-      const handoffMessages = roleMessages.filter(
-        (m) => m.type === "handoff" || m.type === "task_assignment",
-      );
-      if (handoffMessages.length > 0) {
-        const messageText = handoffMessages
-          .map(
-            (m) =>
-              `Message from ${m.from}:\n${String(m.payload.content ?? m.payload.phase ?? "")}`,
-          )
-          .join("\n\n");
-        messagesBlock = `\n\nMessages for you:\n${messageText}`;
+      if (roleMessages.length > 0) {
+        const messageParts: string[] = [];
+        for (const m of roleMessages) {
+          ackIds.push(m.messageId);
+          if (m.type === "task_assignment") {
+            const depList = Array.isArray(m.payload.dependsOn)
+              ? (m.payload.dependsOn as string[]).join(", ")
+              : "(none)";
+            let depResultsText = "";
+            const depResults = m.payload.dependencyResults as
+              | Record<string, string>
+              | undefined;
+            if (depResults && Object.keys(depResults).length > 0) {
+              depResultsText = Object.entries(depResults)
+                .map(
+                  ([depName, depResult]) =>
+                    `#### ${depName} result:\n${depResult}`,
+                )
+                .join("\n\n");
+            }
+            messageParts.push(
+              `### Task Assignment from supervisor (${m.timestamp})\n` +
+                `Phase: ${m.payload.phase ?? name}\n` +
+                `Dependencies: ${depList}\n` +
+                (depResultsText ? `\n${depResultsText}\n` : ""),
+            );
+          } else if (m.type === "handoff") {
+            const content = String(m.payload.content ?? "");
+            messageParts.push(
+              `### Message from ${m.from} (${m.timestamp})\n${content}`,
+            );
+          } else if (m.type === "task_result") {
+            const resultText = String(m.payload.result ?? "");
+            const fromPhase = String(m.payload.phase ?? m.from);
+            messageParts.push(
+              `### Completed: ${fromPhase} (${m.timestamp})\n${resultText}`,
+            );
+          }
+        }
+        if (messageParts.length > 0) {
+          messagesBlock = `\n## Messages\n\n${messageParts.join("\n\n")}\n`;
+        }
       }
     } catch {
       // Ignore mailbox read errors
     }
 
+    // Acknowledge messages that were included in the prompt
+    if (ackIds.length > 0) {
+      try {
+        ackTaskMessages(this.mailboxPaths, role, ackIds);
+      } catch {
+        // Best effort acknowledgment
+      }
+    }
+
+    // Get role-specific system prompt if configured
+    const roleConfig = this.config.roles?.find((r) => r.role === role);
+    const roleSystemPrompt = roleConfig?.systemPrompt;
+
     return [
-      `You are the ${role} agent in a team working on: ${goal}`,
-      `Your current phase is: ${name}`,
+      roleSystemPrompt
+        ? roleSystemPrompt
+        : `You are the ${role} agent on a software engineering team.`,
+      "",
+      `## Overall Goal`,
+      "",
+      goal,
+      "",
+      `## Your Current Phase: ${name}`,
+      "",
       contextBlock,
       messagesBlock,
-      ``,
       `## Communication Protocol`,
-      ``,
+      "",
       `You can send messages to other team members by including them in your output using this format:`,
-      ``,
+      "",
       `<mailbox_message to="role_name">`,
-      `Your message content here.`,
+      `Your message content here. Be specific about what you found and what they need to know.`,
       `</mailbox_message>`,
-      ``,
+      "",
       `You can address messages to: explorer, planner, coder, reviewer, tester, fixer, or broadcast.`,
       `Messages are delivered after your phase completes.`,
-      ``,
+      "",
       `Your final output (outside of mailbox_message tags) is your phase result.`,
       `Complete the ${name} phase and write your result.`,
     ]
