@@ -106,10 +106,14 @@ export class TeamSupervisor {
   // -------------------------------------------------------------------
 
   /**
-   * Get the next phase that is ready to execute (dependencies satisfied,
-   * not yet started or assigned).
+   * Get ALL phases that are ready to execute (dependencies satisfied,
+   * not yet started or assigned).  Returns in definition order.
+   *
+   * 业务说明：返回所有依赖已满足、尚未开始的阶段，而非仅第一个。
+   * 这使得独立阶段可以并行执行。
    */
-  getNextReadyPhase(): PhaseState | undefined {
+  getAllReadyPhases(): PhaseState[] {
+    const ready: PhaseState[] = [];
     for (const name of this.state.taskGraph.getPhaseNames()) {
       const phase = this.state.taskGraph.getPhase(name);
       if (!phase || phase.status !== "queued") continue;
@@ -122,65 +126,79 @@ export class TeamSupervisor {
       });
 
       if (depsSatisfied) {
-        return phase;
+        ready.push(phase);
       }
     }
-    return undefined;
+    return ready;
   }
 
   /**
-   * Start the next ready phase and return the role + prompt for the agent.
+   * Start ALL currently ready phases and return their execution descriptors.
+   * Returns an empty array when no phases are ready.
+   *
+   * 业务说明：一次性启动所有就绪阶段，支持并行执行。
+   * 调用者应并发启动所有返回的阶段。
    */
-  startNextPhase(): {
+  startReadyPhases(): Array<{
     phase: PhaseState;
     role: AgentRole;
     prompt: string;
-  } | null {
-    const phase = this.getNextReadyPhase();
-    if (!phase) return null;
+  }> {
+    const readyPhases = this.getAllReadyPhases();
+    const results: Array<{
+      phase: PhaseState;
+      role: AgentRole;
+      prompt: string;
+    }> = [];
 
-    const result = this.state.taskGraph.startPhase(phase.phase.name);
-    if (!result.ok) return null;
+    for (const phase of readyPhases) {
+      const result = this.state.taskGraph.startPhase(phase.phase.name);
+      if (!result.ok) continue;
 
-    // Gather dependency results to include in assignment
-    const deps = phase.phase.dependsOn ?? [];
-    const depResults: Record<string, string> = {};
-    for (const dep of deps) {
-      const depState = this.state.taskGraph.getPhase(dep);
-      if (depState?.result) {
-        depResults[dep] = depState.result;
+      // Gather dependency results to include in assignment
+      const deps = phase.phase.dependsOn ?? [];
+      const depResults: Record<string, string> = {};
+      for (const dep of deps) {
+        const depState = this.state.taskGraph.getPhase(dep);
+        if (depState?.result) {
+          depResults[dep] = depState.result;
+        }
       }
+
+      // Send task assignment message to the role's mailbox
+      const assignmentMessage: MailboxMessage = {
+        messageId: this.generateMessageId(),
+        runId: this.state.runId,
+        timestamp: new Date().toISOString(),
+        from: "supervisor",
+        to: phase.phase.role,
+        type: "task_assignment",
+        payload: {
+          phase: phase.phase.name,
+          goal: this.config.goal,
+          dependsOn: deps,
+          dependencyResults: depResults,
+        },
+      };
+      sendMessage(this.mailboxPaths, assignmentMessage);
+      updateDeliveryState(
+        this.mailboxPaths,
+        assignmentMessage.messageId,
+        "delivered",
+      );
+
+      const prompt = this.buildPhasePrompt(phase);
+      results.push({
+        phase,
+        role: phase.phase.role,
+        prompt,
+      });
     }
 
-    // Send task assignment message to the role's mailbox
-    const assignmentMessage: MailboxMessage = {
-      messageId: this.generateMessageId(),
-      runId: this.state.runId,
-      timestamp: new Date().toISOString(),
-      from: "supervisor",
-      to: phase.phase.role,
-      type: "task_assignment",
-      payload: {
-        phase: phase.phase.name,
-        goal: this.config.goal,
-        dependsOn: deps,
-        dependencyResults: depResults,
-      },
-    };
-    sendMessage(this.mailboxPaths, assignmentMessage);
-    updateDeliveryState(
-      this.mailboxPaths,
-      assignmentMessage.messageId,
-      "delivered",
-    );
-
-    const prompt = this.buildPhasePrompt(phase);
-    this.emitProgress();
-    return {
-      phase,
-      role: phase.phase.role,
-      prompt,
-    };
+    if (results.length > 0) {
+      this.emitProgress();
+    }
+    return results;
   }
 
   /**

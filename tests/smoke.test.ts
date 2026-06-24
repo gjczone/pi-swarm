@@ -238,14 +238,13 @@ describe("Supervisor integration", () => {
       goal: "Test goal",
     });
 
-    const next = supervisor.startNextPhase();
-    expect(next).not.toBeNull();
-    if (next) {
-      expect(next.phase.phase.name).toBe("explore");
-      expect(next.role).toBe("explorer");
-      expect(next.prompt).toContain("Test goal");
-      expect(next.prompt).toContain("explore");
-    }
+    const next = supervisor.startReadyPhases();
+    expect(next.length).toBeGreaterThan(0);
+    const first = next[0]!;
+    expect(first.phase.phase.name).toBe("explore");
+    expect(first.role).toBe("explorer");
+    expect(first.prompt).toContain("Test goal");
+    expect(first.prompt).toContain("explore");
   });
 
   it("synthesizes result XML", () => {
@@ -269,5 +268,65 @@ describe("Supervisor integration", () => {
     expect(xml).toContain('outcome="completed"');
     expect(xml).toContain("explore");
     expect(xml).toContain("</swarm_team_result>");
+  });
+
+  it("starts all independent phases at once", () => {
+    const supervisor = new TeamSupervisor({
+      cwd: process.cwd(),
+      swarmRoot: os.tmpdir(),
+      runId: "test-supervisor-004",
+      goal: "Test parallel",
+      phases: [
+        { name: "explore-a", role: "explorer" },
+        { name: "explore-b", role: "explorer" },
+        {
+          name: "plan",
+          role: "planner",
+          dependsOn: ["explore-a", "explore-b"],
+        },
+      ],
+    });
+
+    // First batch: both independent phases should be ready
+    const batch1 = supervisor.startReadyPhases();
+    expect(batch1.length).toBe(2);
+    expect(batch1[0]!.phase.phase.name).toBe("explore-a");
+    expect(batch1[1]!.phase.phase.name).toBe("explore-b");
+
+    // No more ready phases until batch1 completes
+    const afterFirst = supervisor.startReadyPhases();
+    expect(afterFirst.length).toBe(0);
+
+    // Complete both
+    supervisor.completePhase("explore-a", "Result A");
+    supervisor.completePhase("explore-b", "Result B");
+
+    // Second batch: plan should now be ready
+    const batch2 = supervisor.startReadyPhases();
+    expect(batch2.length).toBe(1);
+    expect(batch2[0]!.phase.phase.name).toBe("plan");
+  });
+
+  it("skips dependent phases when a dependency fails", () => {
+    const supervisor = new TeamSupervisor({
+      cwd: process.cwd(),
+      swarmRoot: os.tmpdir(),
+      runId: "test-supervisor-005",
+      goal: "Test failure cascade",
+      phases: [
+        { name: "explore", role: "explorer" },
+        { name: "plan", role: "planner", dependsOn: ["explore"] },
+        { name: "implement", role: "coder", dependsOn: ["plan"] },
+      ],
+    });
+
+    // Start and fail explore
+    const batch1 = supervisor.startReadyPhases();
+    expect(batch1.length).toBe(1);
+    supervisor.failPhase("explore", "Could not explore");
+
+    // plan and implement should be skipped, so no ready phases remain
+    const batch2 = supervisor.startReadyPhases();
+    expect(batch2.length).toBe(0);
   });
 });
