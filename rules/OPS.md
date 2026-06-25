@@ -101,6 +101,24 @@ Cross-reference changed source files against the checklist below:
 
 ## Phase 2: Version Bump & Build
 
+### 2.0 Pre-Release Formatting Check
+
+Before bumping the version, ensure code passes prettier:
+
+```bash
+npx prettier --check "src/**/*.ts" "tests/**/*.ts"
+```
+
+If any files fail, fix them first:
+
+```bash
+npx prettier --write "src/**/*.ts" "tests/**/*.ts"
+```
+
+Then commit the formatting fixes before proceeding.
+
+**Pass**: prettier reports zero warnings. All files pass.
+
 ### 2.1 Run Release Script
 
 ```bash
