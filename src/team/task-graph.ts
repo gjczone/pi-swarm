@@ -199,7 +199,13 @@ export class TaskGraph {
 
   /** Get aggregated token usage across all completed/failed phases. */
   getTotalUsage(): SubagentUsage {
-    const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+    const total = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+    };
     for (const name of this.order) {
       const state = this.phases.get(name)!;
       if (state.usage) {

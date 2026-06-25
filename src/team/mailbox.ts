@@ -132,7 +132,14 @@ export function sendMessage(
 
   if (message.to === "broadcast") {
     // Broadcast: deliver to all known role inboxes
-    const roles = ["explorer", "planner", "coder", "reviewer", "tester", "fixer"];
+    const roles = [
+      "explorer",
+      "planner",
+      "coder",
+      "reviewer",
+      "tester",
+      "fixer",
+    ];
     for (const role of roles) {
       try {
         const taskPaths = resolveTaskMailboxPaths(paths, role);
@@ -175,7 +182,10 @@ export function countOutboxMessages(paths: MailboxPaths): number {
   try {
     const raw = fs.readFileSync(paths.outbox, "utf-8");
     if (!raw.trim()) return 0;
-    return raw.trim().split("\n").filter((line) => line.trim()).length;
+    return raw
+      .trim()
+      .split("\n")
+      .filter((line) => line.trim()).length;
   } catch {
     return 0;
   }

@@ -18,7 +18,14 @@
 
 import { execFileSync, execSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, symlinkSync, copyFileSync, readdirSync, statSync } from "node:fs";
+import {
+  existsSync,
+  mkdirSync,
+  symlinkSync,
+  copyFileSync,
+  readdirSync,
+  statSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname, basename } from "node:path";
 
@@ -193,7 +200,11 @@ export function createWorktree(
       if (!existsSync(sourcePath) || existsSync(targetPath)) continue;
       try {
         const stat = statSync(sourcePath);
-        symlinkSync(sourcePath, targetPath, stat.isDirectory() ? "dir" : "file");
+        symlinkSync(
+          sourcePath,
+          targetPath,
+          stat.isDirectory() ? "dir" : "file",
+        );
       } catch {
         // Best effort per-entry symlink
       }
@@ -410,7 +421,10 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
       // Merge abort may fail if no merge was in progress
     }
 
-    if (stderr.includes("CONFLICT") || stderr.includes("Automatic merge failed")) {
+    if (
+      stderr.includes("CONFLICT") ||
+      stderr.includes("Automatic merge failed")
+    ) {
       return {
         success: false,
         branch: branchName,

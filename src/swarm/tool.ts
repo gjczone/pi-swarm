@@ -254,10 +254,14 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
               if (mergeResult.success) {
                 mergeResults.push(`Merged: ${branch}`);
               } else {
-                mergeResults.push(`Merge failed for ${branch}: ${mergeResult.error}`);
+                mergeResults.push(
+                  `Merge failed for ${branch}: ${mergeResult.error}`,
+                );
               }
             } catch (err) {
-              mergeResults.push(`Merge error for ${branch}: ${err instanceof Error ? err.message : String(err)}`);
+              mergeResults.push(
+                `Merge error for ${branch}: ${err instanceof Error ? err.message : String(err)}`,
+              );
             }
           }
         }

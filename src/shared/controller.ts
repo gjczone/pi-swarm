@@ -160,7 +160,13 @@ export class SubagentBatchController<T> {
       retryCount: 0,
       retryReadyAt: 0,
       started: false,
-      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+      usage: {
+        input: 0,
+        output: 0,
+        cacheRead: 0,
+        cacheWrite: 0,
+        totalTokens: 0,
+      },
     }));
     this.pending = [...this.states];
     this.results = Array.from<TaskState<T> | undefined>({
@@ -629,7 +635,13 @@ export class SubagentBatchController<T> {
     let completed = 0;
     let failed = 0;
     let active = 0;
-    const totalUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+    const totalUsage = {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+    };
     const members: BatchMemberStatus[] = [];
 
     const activeIndices = new Set(

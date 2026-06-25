@@ -47,7 +47,13 @@ function makeProgressState(
     active: 1,
     queued: 1,
     members,
-    totalUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    totalUsage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+    },
     startedAt: Date.now(),
     ...overrides,
   };
@@ -88,7 +94,13 @@ function makeDashboardState(
     ],
     mailboxCount: 0,
     startedAt: Date.now(),
-    totalUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    totalUsage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+    },
     ...overrides,
   };
 }

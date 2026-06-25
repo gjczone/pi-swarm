@@ -7,11 +7,24 @@
  */
 
 import { spawn, type ChildProcess } from "node:child_process";
-import { mkdirSync, createWriteStream, writeFileSync, type WriteStream, existsSync, readFileSync, statSync } from "node:fs";
+import {
+  mkdirSync,
+  createWriteStream,
+  writeFileSync,
+  type WriteStream,
+  existsSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { dirname, join } from "node:path";
 import { getPiInvocation, buildSubagentArgs } from "./pi-invoke.js";
 import { resolveAgentStateDir } from "../state/persistence.js";
-import { createWorktree, cleanupWorktree, isGitRepository, type WorktreeInfo } from "./worktree.js";
+import {
+  createWorktree,
+  cleanupWorktree,
+  isGitRepository,
+  type WorktreeInfo,
+} from "./worktree.js";
 import type {
   SpawnSubagentOptions,
   SubagentHandle,
@@ -253,7 +266,9 @@ async function runSubagentProcess(
       flags: "a",
       encoding: "utf-8",
     });
-    const worktreeInfo = worktree ? `Worktree: ${worktree.path}\nBranch: ${worktree.branch}` : "Worktree: disabled";
+    const worktreeInfo = worktree
+      ? `Worktree: ${worktree.path}\nBranch: ${worktree.branch}`
+      : "Worktree: disabled";
     const header = [
       "=".repeat(72),
       `Agent: ${agentId}`,
@@ -469,7 +484,11 @@ async function runSubagentProcess(
     let finalResult = result.text || "(no output)";
     let worktreeBranch: string | undefined;
     if (worktree) {
-      const cleanupResult = cleanupWorktree(repoCwd, worktree, opts.description);
+      const cleanupResult = cleanupWorktree(
+        repoCwd,
+        worktree,
+        opts.description,
+      );
       if (cleanupResult.hasChanges && cleanupResult.branch) {
         worktreeBranch = cleanupResult.branch;
         finalResult += `\n\n---\nChanges committed to branch \`${cleanupResult.branch}\`.`;
@@ -599,7 +618,8 @@ function parseEventStream(
       } catch {
         unparseableCount++;
         if (logStream) {
-          const preview = trimmed.length > 200 ? `${trimmed.slice(0, 200)}...` : trimmed;
+          const preview =
+            trimmed.length > 200 ? `${trimmed.slice(0, 200)}...` : trimmed;
           logStream.write(`[unparseable] ${preview}\n`);
         }
         if (unparseableCount >= 10 && unparseableCount % 10 === 0) {
@@ -618,7 +638,8 @@ function parseEventStream(
           usageAcc.cacheRead += Math.round(msg.usage.cacheRead || 0);
           usageAcc.cacheWrite += Math.round(msg.usage.cacheWrite || 0);
           usageAcc.totalTokens += Math.round(
-            msg.usage.totalTokens || (msg.usage.input || 0) + (msg.usage.output || 0),
+            msg.usage.totalTokens ||
+              (msg.usage.input || 0) + (msg.usage.output || 0),
           );
           emitUsage();
         }
@@ -643,7 +664,10 @@ function parseEventStream(
           if (finalText) finalText += "\n";
           finalText += messageText;
         }
-      } else if (event.type === "content_block_delta" && event.delta?.type === "text_delta") {
+      } else if (
+        event.type === "content_block_delta" &&
+        event.delta?.type === "text_delta"
+      ) {
         const deltaText = event.delta.text;
         if (deltaText) {
           finalText += deltaText;
@@ -655,14 +679,18 @@ function parseEventStream(
           usageAcc.cacheRead += Math.round(event.usage.cacheRead || 0);
           usageAcc.cacheWrite += Math.round(event.usage.cacheWrite || 0);
           usageAcc.totalTokens += Math.round(
-            event.usage.totalTokens || (event.usage.input || 0) + (event.usage.output || 0),
+            event.usage.totalTokens ||
+              (event.usage.input || 0) + (event.usage.output || 0),
           );
           emitUsage();
         }
         if (event.delta?.stopReason) {
           stopReason = event.delta.stopReason;
         }
-      } else if (event.type === "tool_result" && typeof event.output === "string") {
+      } else if (
+        event.type === "tool_result" &&
+        typeof event.output === "string"
+      ) {
         const toolOutput = event.output;
         if (toolOutput && toolOutput.trim()) {
           if (finalText) finalText += "\n";

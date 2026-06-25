@@ -321,7 +321,13 @@ function shortPhaseLabel(phase: MemberPhase): string {
 }
 
 function buildFooter(state: SwarmProgressState, width: number): string {
-  const usage = state.totalUsage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  const usage = state.totalUsage ?? {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+  };
   const counts = `${state.completed + state.failed}/${state.total} ag`;
   const tokens = `${Math.round(usage.input)}in/${Math.round(usage.output)}out`;
   const elapsed = formatElapsed(Date.now() - state.startedAt);

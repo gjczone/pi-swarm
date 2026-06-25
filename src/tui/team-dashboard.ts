@@ -284,18 +284,21 @@ function phaseStatusIcon(
 }
 
 function buildFooter(state: TeamDashboardState, width: number): string {
-  const usage = state.totalUsage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  const usage = state.totalUsage ?? {
+    input: 0,
+    output: 0,
+    cacheRead: 0,
+    cacheWrite: 0,
+    totalTokens: 0,
+  };
   const phaseCount = `${state.completedPhases + state.failedPhases}/${state.totalPhases}`;
   const tokens = `${Math.round(usage.input)}in/${Math.round(usage.output)}out`;
   const mailbox = state.mailboxCount > 0 ? ` ${state.mailboxCount}msg` : "";
   const elapsed = formatElapsed(Date.now() - state.startedAt);
 
-  const parts = [
-    `${phaseCount} ph`,
-    tokens,
-    mailbox.trim(),
-    elapsed,
-  ].filter(Boolean);
+  const parts = [`${phaseCount} ph`, tokens, mailbox.trim(), elapsed].filter(
+    Boolean,
+  );
 
   const full = parts.join(" | ");
   if (full.length <= width) return full;

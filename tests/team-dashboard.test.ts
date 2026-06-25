@@ -49,7 +49,13 @@ function makeSnapshot(
     ],
     mailboxCount: 3,
     startedAt: Date.now() - 120000,
-    totalUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    totalUsage: {
+      input: 0,
+      output: 0,
+      cacheRead: 0,
+      cacheWrite: 0,
+      totalTokens: 0,
+    },
     ...overrides,
   };
 }

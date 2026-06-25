@@ -494,12 +494,14 @@ export class TeamSupervisor {
         totalPhases: phases.length,
         completedPhases: completed,
         failedPhases: failed,
-        currentPhase: runningPhases.length > 0
-          ? runningPhases.map((p) => p.name).join(", ")
-          : runningPhase?.name,
-        currentRole: runningPhases.length > 0
-          ? runningPhases.map((p) => p.role).join(", ")
-          : runningPhase?.role,
+        currentPhase:
+          runningPhases.length > 0
+            ? runningPhases.map((p) => p.name).join(", ")
+            : runningPhase?.name,
+        currentRole:
+          runningPhases.length > 0
+            ? runningPhases.map((p) => p.role).join(", ")
+            : runningPhase?.role,
         phases,
         mailboxCount,
         startedAt: this.state.startedAt,
