@@ -68,7 +68,7 @@ Two of the five swarm reviews failed — retry those
 
 ### Cancel Mid-Run
 
-Press `Ctrl+C` during a swarm or team run. Completed agents are preserved. In-progress agents are cancelled gracefully. For teams, completed phases are saved and returned as partial results.
+Press `Ctrl+C` during a swarm or team run. Completed agents are preserved and results are final (no post-cancellation mutation). In-progress agents are cancelled gracefully and their partial work discarded. For teams, completed phases are saved and returned as partial results. Timeout errors are correctly surfaced instead of being lost in abort/exit races.
 
 ## Runtime Files
 

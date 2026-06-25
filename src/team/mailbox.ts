@@ -10,7 +10,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MailboxMessage } from "../shared/types.js";
-import { validateId } from "../state/persistence.js";
+import { validateId, writeAtomic } from "../state/persistence.js";
 
 // ---------------------------------------------------------------------------
 // Security helpers
@@ -201,7 +201,7 @@ export function updateDeliveryState(
 ): void {
   const state = getDeliveryState(paths);
   state[messageId] = status;
-  fs.writeFileSync(paths.delivery, JSON.stringify(state, null, 2), "utf-8");
+  writeAtomic(paths.delivery, JSON.stringify(state, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -236,5 +236,5 @@ function readJsonLines(filePath: string): MailboxMessage[] {
 
 function writeJsonLines(filePath: string, messages: MailboxMessage[]): void {
   const content = messages.map((m) => JSON.stringify(m)).join("\n");
-  fs.writeFileSync(filePath, content + (content ? "\n" : ""), "utf-8");
+  writeAtomic(filePath, content + (content ? "\n" : ""));
 }

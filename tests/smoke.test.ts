@@ -17,8 +17,19 @@ import {
   createManifest,
   readManifest,
   deleteRunState,
+  writeAtomic,
   type RunManifest,
 } from "../src/state/persistence.js";
+import {
+  resolveMailboxPaths,
+  resolveTaskMailboxPaths,
+  ensureMailbox,
+  sendMessage,
+  readTaskInbox,
+  ackTaskMessages,
+  updateDeliveryState,
+  getDeliveryState,
+} from "../src/team/mailbox.js";
 import { recoverRuns } from "../src/state/recovery.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -355,5 +366,109 @@ describe("Supervisor integration", () => {
     // plan and implement should be skipped, so no ready phases remain
     const batch2 = supervisor.startReadyPhases();
     expect(batch2.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Atomic write tests (#45)
+// ---------------------------------------------------------------------------
+
+describe("Atomic write", () => {
+  const tmpDir = path.join(os.tmpdir(), `pi-swarm-atomic-${Date.now()}`);
+
+  afterAll(() => {
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("writeAtomic leaves no temp files after write", () => {
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const testFile = path.join(tmpDir, "test-atomic.json");
+    const testContent = JSON.stringify({ key: "value", num: 42 }, null, 2);
+
+    writeAtomic(testFile, testContent);
+
+    // Verify content was written correctly
+    expect(fs.readFileSync(testFile, "utf-8")).toBe(testContent);
+
+    // Verify no .tmp files remain in the directory
+    const files = fs.readdirSync(tmpDir);
+    const tmpFiles = files.filter((f) => f.includes(".tmp."));
+    expect(tmpFiles).toHaveLength(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Mailbox tests (#45)
+// ---------------------------------------------------------------------------
+
+describe("Mailbox operations", () => {
+  const tmpDir = path.join(os.tmpdir(), `pi-swarm-mailbox-${Date.now()}`);
+
+  afterAll(() => {
+    if (fs.existsSync(tmpDir)) {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it("sends and reads task inbox messages atomically", () => {
+    const paths = resolveMailboxPaths(tmpDir, "test-mailbox-run");
+    ensureMailbox(paths);
+
+    sendMessage(paths, {
+      messageId: "msg-001",
+      from: "agent-a",
+      to: "agent-b",
+      type: "message",
+      content: "Hello",
+      timestamp: Date.now(),
+    });
+
+    // Messages to specific agents go to their task inbox
+    const messages = readTaskInbox(paths, "agent-b");
+    expect(messages).toHaveLength(1);
+    expect(messages[0]!.messageId).toBe("msg-001");
+    expect(messages[0]!.content).toBe("Hello");
+  });
+
+  it("acknowledges task messages without corruption", () => {
+    const paths = resolveMailboxPaths(tmpDir, "test-mailbox-ack");
+    ensureMailbox(paths);
+
+    sendMessage(paths, {
+      messageId: "msg-ack-1",
+      from: "a",
+      to: "b",
+      type: "message",
+      content: "First",
+      timestamp: Date.now(),
+    });
+    sendMessage(paths, {
+      messageId: "msg-ack-2",
+      from: "a",
+      to: "b",
+      type: "message",
+      content: "Second",
+      timestamp: Date.now(),
+    });
+
+    ackTaskMessages(paths, "b", ["msg-ack-1"]);
+
+    const remaining = readTaskInbox(paths, "b");
+    expect(remaining).toHaveLength(1);
+    expect(remaining[0]!.messageId).toBe("msg-ack-2");
+  });
+
+  it("updates delivery state atomically", () => {
+    const paths = resolveMailboxPaths(tmpDir, "test-mailbox-delivery");
+    ensureMailbox(paths);
+
+    updateDeliveryState(paths, "msg-1", "delivered");
+    updateDeliveryState(paths, "msg-2", "read");
+
+    const state = getDeliveryState(paths);
+    expect(state["msg-1"]).toBe("delivered");
+    expect(state["msg-2"]).toBe("read");
   });
 });

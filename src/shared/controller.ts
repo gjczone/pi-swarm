@@ -448,6 +448,8 @@ export class SubagentBatchController<T> {
     attempt.cleanup();
     this.active.delete(attempt);
 
+    if (this.finished) return;
+
     if (outcome.type === "rate_limited") {
       this.handleRateLimit(attempt, outcome);
       return;
@@ -462,6 +464,8 @@ export class SubagentBatchController<T> {
   private handleAttemptError(attempt: ActiveAttempt<T>, error: unknown): void {
     attempt.cleanup();
     this.active.delete(attempt);
+
+    if (this.finished) return;
 
     if (isProviderRateLimitError(error)) {
       this.handleRateLimit(attempt, {
@@ -603,7 +607,9 @@ export class SubagentBatchController<T> {
     let active = 0;
     const members: BatchMemberStatus[] = [];
 
-    const activeIndices = new Set(Array.from(this.active, a => a.state.index));
+    const activeIndices = new Set(
+      Array.from(this.active, (a) => a.state.index),
+    );
 
     for (const state of this.states) {
       const result = this.results[state.index];
@@ -660,6 +666,13 @@ export class SubagentBatchController<T> {
 
   private finishWithUserCancellation(): void {
     if (this.finished) return;
+
+    // Abort all active attempts first (mirrors fail())
+    for (const attempt of this.active) {
+      attempt.controller.abort(userCancellationReason());
+      attempt.cleanup();
+    }
+    this.active.clear();
 
     // Preserve existing results
     for (let i = 0; i < this.states.length; i += 1) {

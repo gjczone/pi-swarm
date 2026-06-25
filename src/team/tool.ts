@@ -468,7 +468,9 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
       const summary = summaryMatch ? summaryMatch[1]! : "";
 
       // Count phase results
-      const phaseMatches = text.match(/<phase name="(\w+)"[^>]*outcome="(\w+)"/g);
+      const phaseMatches = text.match(
+        /<phase name="(\w+)"[^>]*outcome="(\w+)"/g,
+      );
       let completedCount = 0;
       let failedCount = 0;
       if (phaseMatches) {

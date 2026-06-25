@@ -343,4 +343,85 @@ describe("SubagentBatchController", () => {
     expect(results).toHaveLength(1);
     expect(results[0]!.status).toBe("aborted");
   });
+
+  it("does not mutate results array after finish() resolves on cancel (#43)", async () => {
+    const controller2 = new AbortController();
+    let resolveLateTask: ((value: SubagentCompletion) => void) | undefined;
+    let rejectLateTask: ((reason: Error) => void) | undefined;
+
+    const launcher: SubagentBatchLauncher = {
+      async spawn(opts: SpawnSubagentOptions): Promise<SubagentHandle> {
+        const agentId = `mock-late`;
+        opts.onReady?.();
+
+        const completion: Promise<SubagentCompletion> = new Promise(
+          (resolve, reject) => {
+            resolveLateTask = resolve;
+            rejectLateTask = reject;
+            if (opts.signal) {
+              if (opts.signal.aborted) {
+                reject(new Error("User cancelled"));
+                return;
+              }
+              opts.signal.addEventListener(
+                "abort",
+                () => reject(new Error("User cancelled")),
+                { once: true },
+              );
+            }
+          },
+        );
+
+        return {
+          agentId,
+          profileName: opts.profileName,
+          resumed: false,
+          completion,
+        };
+      },
+      async resume(
+        agentId: string,
+        opts: RunSubagentOptions,
+      ): Promise<SubagentHandle> {
+        return this.spawn({
+          ...opts,
+          profileName: "resumed",
+        });
+      },
+      async retry(
+        agentId: string,
+        opts: RunSubagentOptions,
+      ): Promise<SubagentHandle> {
+        return this.resume(agentId, opts);
+      },
+    };
+
+    const task = makeTask(0, { signal: controller2.signal });
+    const controller = new SubagentBatchController(launcher, [task]);
+
+    // Start the run
+    const resultsPromise = controller.run();
+
+    // Wait for the task to start
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Abort — this should finish the batch and abort the active attempt
+    controller2.abort("User cancelled");
+
+    const results = await resultsPromise;
+
+    // Record the result after cancellation
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).toBe("aborted");
+    const statusAfterCancel = results[0]!.status;
+    const resultAfterCancel = results[0]!.result;
+
+    // Wait for the abort to propagate and the attempt to settle
+    await new Promise((r) => setTimeout(r, 20));
+
+    // Results array should not have been mutated after finish()
+    expect(results[0]!.status).toBe(statusAfterCancel);
+    expect(results[0]!.status).toBe("aborted");
+    expect(results[0]!.result).toBe(resultAfterCancel);
+  });
 });
