@@ -162,10 +162,29 @@ Goal: replace both the third-party `subagent` extension and `worktree`, becoming
 | `PLAN.md`              | Architecture design, module specs, API contracts. Read before coding.                                                                                                                           | Any code change, new module, API design                        |
 | `README.md`            | User-facing setup, install, and feature descriptions.                                                                                                                                           | User onboarding, release announcements                         |
 | `CHANGELOG.md`         | Release history and version tracking. Update when releasing.                                                                                                                                    | Before creating a release, before investigating regression     |
-| `LOCAL_CI.md`          | Local CI checklist. Run ALL checks BEFORE committing.                                                                                                                                           | Before every commit, before reporting task completion          |
-| `OPS.md`               | Release operations checklist. Run through ALL items when publishing.                                                                                                                            | Before every release                                           |
-| `LLM-REVIEW-GUIDE.md`  | Read before performing a code review on this project. Contains project-specific review rules, risk tiers, and sanity checks. NEVER submit review findings that violate the DO NOT REPORT rules. | Before any code review                                         |
+| `rules/LOCAL_CI.md`    | Local CI checklist. Run ALL checks BEFORE committing.                                                                                                                                           | Before every commit, before reporting task completion          |
+| `rules/OPS.md`         | Release operations checklist. Run through ALL items when publishing.                                                                                                                            | Before every release                                           |
+| `rules/LLM-REVIEW-GUIDE.md`  | Read before performing a code review on this project. Contains project-specific review rules, risk tiers, and sanity checks. NEVER submit review findings that violate the DO NOT REPORT rules. | Before any code review                                         |
 | `docs/architecture.md` | Detailed architecture design, data flows, design rationale.                                                                                                                                     | Understanding module interactions, onboarding new contributors |
+
+## When to Read Rules Files
+
+| File | Trigger |
+|------|---------|
+| `rules/CODING.md` | Before writing or modifying any source code |
+| `rules/TESTING.md` | Before writing tests or verifying test results |
+| `rules/DEBUGGING.md` | Before investigating any bug or test failure |
+| `rules/API-RULES.md` | Before implementing or calling any API |
+| `rules/DATA-STATE.md` | Before working with state persistence or data flows |
+| `rules/VERIFICATION.md` | Before reporting task completion |
+| `rules/LOCAL_CI.md` | Before every commit — run ALL checks |
+| `rules/OPS.md` | Before every release |
+| `rules/LLM-REVIEW-GUIDE.md` | Before performing a code review |
+| `rules/SECURITY.md` | Before handling auth, secrets, or user input |
+| `rules/ERROR-HANDLING.md` | Before writing try/catch or error propagation |
+| `rules/LOGGING.md` | Before adding console.log or structured logging |
+| `rules/DEPENDENCIES.md` | Before adding or updating dependencies |
+| `rules/ARCHITECTURE.md` | Before modifying module structure or layer boundaries |
 
 ## Commands
 
@@ -196,7 +215,8 @@ src/
 │   ├── spawner.ts        # Sub-agent process spawner (pi --print)
 │   ├── controller.ts     # Concurrency controller (ramp-up + rate-limit + abort)
 │   ├── render.ts         # Result rendering (<agent_swarm_result> XML)
-│   └── pi-invoke.ts      # pi CLI invocation helper
+│   ├── pi-invoke.ts      # pi CLI invocation helper
+│   └── worktree.ts       # Worktree management (git worktree isolation)
 ├── swarm/
 │   ├── tool.ts           # AgentSwarm tool registration (pi.registerTool)
 │   ├── command.ts        # /swarm slash command handler
@@ -256,12 +276,14 @@ src/
 - **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → add `getPhaseExecutionConfig()` to `supervisor.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask` → add `small_model`/`modelTier`/`model`/`tools` to `team/tool.ts` schema
 - **Enhancing result format**: Update `supervisor.ts` `synthesizeResult()` → add `buildSynthesis()`, `truncateForOutput()`, `extractFirstMeaningfulLine()`, `extractExcerpt()` → replace `escapeXml()` with `escapeAttr()`/`escapeBody()`
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update PLAN.md and docs/architecture.md
+- **Adding worktree support**: Create `shared/worktree.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
 - **Changing the team workflow**: Modify `team/supervisor.ts` or `team/task-graph.ts` → update PLAN.md
 
 ## First Places to Inspect
 
 - `PLAN.md` — full architecture design and module specs
 - `docs/architecture.md` — detailed design rationale, data flows, comparisons
+- `src/shared/worktree.ts` — worktree management (git worktree isolation for sub-agents)
 - `src/shared/controller.ts` — concurrency controller (most complex module, ported from kimi-code SubagentBatch)
 - `src/swarm/tool.ts` — AgentSwarm tool definition (with output.log persistence and run manifests)
 - `src/team/supervisor.ts` — Team supervisor (goal decomposition, phase orchestration, context passing, model tier routing, result synthesis)
