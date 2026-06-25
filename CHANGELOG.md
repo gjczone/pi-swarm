@@ -2,6 +2,23 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.3.5] - 2026-06-24
+
+### Fixed
+
+- **Controller result mutation after cancellation (#43)**: `SubagentBatchController` could mutate the results array after `finish()` resolved when the user cancelled, because active attempts continued to deliver outcomes. Fixed by adding `if (this.finished) return` guards in `handleAttemptOutcome` and `handleAttemptError`, and by aborting all active attempts in `finishWithUserCancellation()` before marking the batch finished. Results are now immutable once the controller settles.
+- **Spawner abort/exit race condition (#44)**: `spawnSubagent` could lose timeout errors or deliver duplicate results when abort and process exit raced. Fixed by introducing `resolveOnce`/`rejectOnce` helpers with a `done` flag, tracking `abortReason` to distinguish timeout from user cancellation, and ensuring listeners and timeouts are cleaned up before settling the promise.
+- **Mailbox non-atomic writes (#45)**: `writeJsonLines` (used by inbox/outbox/ack operations) and `updateDeliveryState` used direct `fs.writeFileSync` which could truncate files mid-write on crash, producing corrupted JSONL or partial JSON. Fixed by reusing the existing `writeAtomic` utility (temp-file + rename) from `state/persistence.ts`, which is now exported for shared use. All mailbox mutations are now crash-safe.
+
+### Added
+
+- 5 new tests covering atomic write cleanup, mailbox send/ack, delivery state persistence, and controller result immutability after cancellation.
+- `writeAtomic` exported from `src/state/persistence.ts` for use by other modules requiring crash-safe writes.
+
+### Documentation
+
+- Test count updated to 102 tests across 8 test files in AGENTS.md, LOCAL_CI.md, OPS.md, LLM-REVIEW-GUIDE.md.
+
 ## [0.3.4] - 2026-06-24
 
 ### Fixed

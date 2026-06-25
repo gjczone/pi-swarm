@@ -66,10 +66,18 @@ export function recoverRuns(cwd: string): RecoveryResult {
   for (const runId of runIds) {
     const manifest = readManifest(swarmRoot, runId);
     if (!manifest) {
-      const manifestPath = path.join(swarmRoot, "state", "runs", runId, "manifest.json");
+      const manifestPath = path.join(
+        swarmRoot,
+        "state",
+        "runs",
+        runId,
+        "manifest.json",
+      );
       if (fs.existsSync(manifestPath)) {
         // Manifest exists but is unreadable/corrupt — preserve for debugging
-        console.error(`[pi-swarm] Run ${runId}: manifest exists but is unreadable, preserving run directory`);
+        console.error(
+          `[pi-swarm] Run ${runId}: manifest exists but is unreadable, preserving run directory`,
+        );
       } else {
         // Orphaned directory — safe to clean up
         try {

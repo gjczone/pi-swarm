@@ -361,7 +361,7 @@ export function deleteRunState(swarmRoot: string, runId: string): void {
  * Write a file atomically using a temp file + rename.
  * On POSIX rename is atomic; on Windows it replaces the target.
  */
-function writeAtomic(filePath: string, content: string): void {
+export function writeAtomic(filePath: string, content: string): void {
   const tmpPath = filePath + ".tmp." + randomId();
   try {
     fs.writeFileSync(tmpPath, content, "utf-8");

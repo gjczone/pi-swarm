@@ -201,8 +201,11 @@ async function runSubagentProcess(
 
   let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
+  let streamResolve: ((result: ParsedResult) => void) | undefined;
   let streamReject: ((err: Error) => void) | undefined;
   let settled = false;
+  let done = false;
+  let abortReason: Error | undefined;
 
   const cleanup = () => {
     settled = true;
@@ -227,6 +230,36 @@ async function runSubagentProcess(
     }
   };
 
+  const resolveOnce = (parsed: ParsedResult) => {
+    if (done) return;
+    done = true;
+    settled = true;
+    const footer = [
+      `Completed: ${new Date().toISOString()}`,
+      `Stop reason: ${parsed.stopReason ?? "unknown"}`,
+      `Tokens: in=${parsed.usage.input}, out=${parsed.usage.output}, total=${parsed.usage.totalTokens}`,
+      "",
+      "RESULT:",
+      parsed.text || "(no output)",
+    ].join("\n");
+    closeLog(footer);
+    cleanup();
+    streamResolve?.(parsed);
+  };
+
+  const rejectOnce = (err: Error, footerPrefix = "Failed") => {
+    if (done) return;
+    done = true;
+    settled = true;
+    const footer = [
+      `${footerPrefix}: ${new Date().toISOString()}`,
+      `Error: ${err.message}`,
+    ].join("\n");
+    closeLog(footer);
+    cleanup();
+    streamReject?.(err);
+  };
+
   const scheduleSigkill = () => {
     if (sigkillTimer) clearTimeout(sigkillTimer);
     sigkillTimer = setTimeout(() => {
@@ -235,17 +268,13 @@ async function runSubagentProcess(
   };
 
   const killProc = (reason?: unknown) => {
-    if (settled) return;
+    if (settled || done) return;
     settled = true;
+    abortReason =
+      reason instanceof Error ? reason : new Error("Subagent aborted");
     if (!proc.killed) {
       proc.kill("SIGTERM");
       scheduleSigkill();
-    }
-    const err =
-      reason instanceof Error ? reason : new Error("Subagent aborted");
-    if (streamReject) {
-      cleanup();
-      streamReject(err);
     }
   };
 
@@ -261,46 +290,49 @@ async function runSubagentProcess(
 
   if (opts.timeout && opts.timeout > 0) {
     timeoutHandle = setTimeout(() => {
-      if (settled) return;
+      if (settled || done) return;
       settled = true;
+      abortReason = new Error("Subagent timed out");
       if (!proc.killed) {
         proc.kill("SIGTERM");
         scheduleSigkill();
-      }
-      if (streamReject) {
-        cleanup();
-        streamReject(new Error("Subagent timed out"));
       }
     }, opts.timeout);
   }
 
   try {
     const result = await new Promise<ParsedResult>((resolve, reject) => {
+      streamResolve = resolve;
       streamReject = reject;
       parseEventStream(proc, agentId, logStream).then(
         (parsed) => {
-          if (settled) return;
-          cleanup();
-          const footer = [
-            `Completed: ${new Date().toISOString()}`,
-            `Stop reason: ${parsed.stopReason ?? "unknown"}`,
-            `Tokens: in=${parsed.usage.input}, out=${parsed.usage.output}, total=${parsed.usage.totalTokens}`,
-            "",
-            "RESULT:",
-            parsed.text || "(no output)",
-          ].join("\n");
-          closeLog(footer);
-          resolve(parsed);
+          if (done) return;
+          if (settled) {
+            // Abort or timeout was requested, but process exited cleanly.
+            // Prefer the completed result if it has no errors.
+            if (parsed && !parsed.errorMessage) {
+              resolveOnce(parsed);
+              return;
+            }
+            // Process exited with an error after abort — use saved abort reason
+            rejectOnce(abortReason ?? new Error("Subagent aborted"), "Aborted");
+            return;
+          }
+          resolveOnce(parsed);
         },
         (err) => {
-          if (settled) return;
-          cleanup();
-          const footer = [
-            `Failed: ${new Date().toISOString()}`,
-            `Error: ${err instanceof Error ? err.message : String(err)}`,
-          ].join("\n");
-          closeLog(footer);
-          reject(err);
+          if (done) return;
+          if (settled) {
+            // Abort was requested and process errored — use saved abort reason if available
+            rejectOnce(
+              abortReason ??
+                (err instanceof Error ? err : new Error(String(err))),
+              "Aborted",
+            );
+            return;
+          }
+          const error = err instanceof Error ? err : new Error(String(err));
+          rejectOnce(error);
         },
       );
     });
@@ -310,13 +342,15 @@ async function runSubagentProcess(
       usage: result.usage,
     };
   } catch (err) {
-    cleanup();
-    if (logStream) {
-      const footer = [
-        `Aborted: ${new Date().toISOString()}`,
-        `Error: ${err instanceof Error ? err.message : String(err)}`,
-      ].join("\n");
-      closeLog(footer);
+    if (!done) {
+      cleanup();
+      if (logStream) {
+        const footer = [
+          `Aborted: ${new Date().toISOString()}`,
+          `Error: ${err instanceof Error ? err.message : String(err)}`,
+        ].join("\n");
+        closeLog(footer);
+      }
     }
     throw err;
   }
