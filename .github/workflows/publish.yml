@@ -35,6 +35,9 @@ jobs:
       - name: Type check
         run: npm run typecheck
 
+      - name: Format check
+        run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
+
       - name: Run tests
         run: npm test
 
