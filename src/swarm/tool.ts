@@ -35,6 +35,7 @@ import {
   updateManifest,
   readManifest,
   registerAgentInManifest,
+  validateId,
 } from "../state/persistence.js";
 import {
   AgentSwarmProgressComponent,
@@ -357,10 +358,14 @@ function createAgentSwarmSpecs(args: {
   prompt_template?: string;
 }): SwarmSpec[] {
   const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(
-    ([agentId, prompt]) => ({
-      agentId: agentId.trim(),
-      prompt: prompt.trim(),
-    }),
+    ([agentId, prompt]) => {
+      const trimmedId = agentId.trim();
+      validateId(trimmedId, "agentId");
+      return {
+        agentId: trimmedId,
+        prompt: prompt.trim(),
+      };
+    },
   );
   const items = (args.items ?? []).map((item) => item.trim());
   const itemCount = items.length;

@@ -10,6 +10,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { mkdirSync, createWriteStream, type WriteStream } from "node:fs";
 import { dirname, join } from "node:path";
 import { getPiInvocation, buildSubagentArgs } from "./pi-invoke.js";
+import { resolveAgentStateDir } from "../state/persistence.js";
 import type {
   SpawnSubagentOptions,
   SubagentHandle,
@@ -42,14 +43,7 @@ export async function spawnSubagent(
   // Resolve output log path if swarm root and run ID are provided
   let resolvedOpts = opts;
   if (opts.swarmRoot && opts.runId && !opts.outputLogPath) {
-    const agentDir = join(
-      opts.swarmRoot,
-      "state",
-      "runs",
-      opts.runId,
-      "agents",
-      agentId,
-    );
+    const agentDir = resolveAgentStateDir(opts.swarmRoot, opts.runId, agentId);
     resolvedOpts = {
       ...opts,
       outputLogPath: join(agentDir, "output.log"),
@@ -79,14 +73,7 @@ export async function resumeSubagent(
 
   let resolvedOpts = opts;
   if (opts.swarmRoot && opts.runId && !opts.outputLogPath) {
-    const agentDir = join(
-      opts.swarmRoot,
-      "state",
-      "runs",
-      opts.runId,
-      "agents",
-      agentId,
-    );
+    const agentDir = resolveAgentStateDir(opts.swarmRoot, opts.runId, agentId);
     resolvedOpts = {
       ...opts,
       outputLogPath: join(agentDir, "output.log"),
@@ -153,6 +140,12 @@ interface ParsedResult {
   errorMessage?: string;
 }
 
+interface ProcessKillState {
+  exited: boolean;
+  sigkillTimer: ReturnType<typeof setTimeout> | undefined;
+  scheduleSigkill(): void;
+}
+
 async function runSubagentProcess(
   agentId: string,
   opts: SpawnSubagentOptions,
@@ -199,7 +192,6 @@ async function runSubagentProcess(
     logStream.write(header);
   }
 
-  let sigkillTimer: ReturnType<typeof setTimeout> | undefined;
   let timeoutHandle: ReturnType<typeof setTimeout> | undefined;
   let streamResolve: ((result: ParsedResult) => void) | undefined;
   let streamReject: ((err: Error) => void) | undefined;
@@ -207,12 +199,28 @@ async function runSubagentProcess(
   let done = false;
   let abortReason: Error | undefined;
 
+  const killState: ProcessKillState = {
+    exited: false,
+    sigkillTimer: undefined,
+    scheduleSigkill() {
+      if (this.sigkillTimer) clearTimeout(this.sigkillTimer);
+      this.sigkillTimer = setTimeout(() => {
+        this.sigkillTimer = undefined;
+        if (!this.exited) proc.kill("SIGKILL");
+      }, 5000);
+    },
+  };
+
+  proc.on("close", () => {
+    killState.exited = true;
+    if (killState.sigkillTimer) {
+      clearTimeout(killState.sigkillTimer);
+      killState.sigkillTimer = undefined;
+    }
+  });
+
   const cleanup = () => {
     settled = true;
-    if (sigkillTimer) {
-      clearTimeout(sigkillTimer);
-      sigkillTimer = undefined;
-    }
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
       timeoutHandle = undefined;
@@ -260,21 +268,14 @@ async function runSubagentProcess(
     streamReject?.(err);
   };
 
-  const scheduleSigkill = () => {
-    if (sigkillTimer) clearTimeout(sigkillTimer);
-    sigkillTimer = setTimeout(() => {
-      if (!proc.killed) proc.kill("SIGKILL");
-    }, 5000);
-  };
-
   const killProc = (reason?: unknown) => {
     if (settled || done) return;
     settled = true;
     abortReason =
       reason instanceof Error ? reason : new Error("Subagent aborted");
-    if (!proc.killed) {
+    if (!killState.exited) {
       proc.kill("SIGTERM");
-      scheduleSigkill();
+      killState.scheduleSigkill();
     }
   };
 
@@ -293,9 +294,9 @@ async function runSubagentProcess(
       if (settled || done) return;
       settled = true;
       abortReason = new Error("Subagent timed out");
-      if (!proc.killed) {
+      if (!killState.exited) {
         proc.kill("SIGTERM");
-        scheduleSigkill();
+        killState.scheduleSigkill();
       }
     }, opts.timeout);
   }
@@ -304,7 +305,7 @@ async function runSubagentProcess(
     const result = await new Promise<ParsedResult>((resolve, reject) => {
       streamResolve = resolve;
       streamReject = reject;
-      parseEventStream(proc, agentId, logStream).then(
+      parseEventStream(proc, agentId, logStream, killState).then(
         (parsed) => {
           if (done) return;
           if (settled) {
@@ -363,7 +364,8 @@ async function runSubagentProcess(
 function parseEventStream(
   proc: ChildProcess,
   agentId: string,
-  logStream?: WriteStream,
+  logStream: WriteStream | undefined,
+  killState: ProcessKillState,
 ): Promise<ParsedResult> {
   return new Promise<ParsedResult>((resolve, reject) => {
     const usageAcc = {
@@ -389,6 +391,13 @@ function parseEventStream(
       proc.stdout?.on("error", () => {});
       proc.stderr?.on("error", () => {});
       proc.on("error", () => {});
+      proc.on("close", () => {
+        killState.exited = true;
+        if (killState.sigkillTimer) {
+          clearTimeout(killState.sigkillTimer);
+          killState.sigkillTimer = undefined;
+        }
+      });
       if (err) {
         reject(err);
       } else if (result) {
@@ -481,11 +490,9 @@ function parseEventStream(
               `Subagent output exceeded buffer limit (${MAX_LINE_BUFFER_SIZE / 1024 / 1024}MB)`,
             ),
           );
-          if (!proc.killed) {
+          if (!killState.exited) {
             proc.kill("SIGTERM");
-            setTimeout(() => {
-              if (!proc.killed) proc.kill("SIGKILL");
-            }, 5000);
+            killState.scheduleSigkill();
           }
           return;
         }

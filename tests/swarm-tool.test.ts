@@ -7,6 +7,21 @@
 
 import { describe, it, expect } from "vitest";
 
+const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
+
+function validateId(id: string, kind: string): void {
+  if (typeof id !== "string" || id.length === 0 || id.length > 128) {
+    throw new Error(
+      `Invalid ${kind}: must be a non-empty string up to 128 characters`,
+    );
+  }
+  if (!SAFE_ID_PATTERN.test(id)) {
+    throw new Error(
+      `Invalid ${kind}: "${id}" contains unsafe characters (only a-z, A-Z, 0-9, _, - allowed)`,
+    );
+  }
+}
+
 // Replicate the createAgentSwarmSpecs logic inline for testing.
 // (In production this lives in swarm/tool.ts; we test the pure function.)
 
@@ -36,10 +51,14 @@ function createAgentSwarmSpecs(args: {
   prompt_template?: string;
 }): SwarmSpec[] {
   const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(
-    ([agentId, prompt]) => ({
-      agentId: agentId.trim(),
-      prompt: prompt.trim(),
-    }),
+    ([agentId, prompt]) => {
+      const trimmedId = agentId.trim();
+      validateId(trimmedId, "agentId");
+      return {
+        agentId: trimmedId,
+        prompt: prompt.trim(),
+      };
+    },
   );
   const items = (args.items ?? []).map((item) => item.trim());
   const itemCount = items.length;
@@ -238,5 +257,21 @@ describe("createAgentSwarmSpecs", () => {
 
     expect(specs[0]!.index).toBe(1); // resume
     expect(specs[1]!.index).toBe(2); // spawn
+  });
+
+  it("rejects path traversal in resume_agent_ids keys", () => {
+    expect(() =>
+      createAgentSwarmSpecs({
+        resume_agent_ids: { "../../evil": "continue" },
+      }),
+    ).toThrow(/unsafe characters|Invalid agentId/);
+  });
+
+  it("rejects path separators in resume_agent_ids keys", () => {
+    expect(() =>
+      createAgentSwarmSpecs({
+        resume_agent_ids: { "agent/../../escape": "continue" },
+      }),
+    ).toThrow(/unsafe characters|Invalid agentId/);
   });
 });
