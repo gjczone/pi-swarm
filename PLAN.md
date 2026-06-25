@@ -454,6 +454,21 @@ line (activated / deactivated / ended) in the transcript.
 
 - [x] README.md with kimi-code + pi-crew credits
 
+### Phase 6: Worktree Isolation & Real-time Mailbox
+
+- [x] Git worktree module (`shared/worktree.ts`) — create, cleanup, merge, prune
+- [x] Spawner worktree integration — auto-create worktree for git repos, symlink project context
+- [x] Real-time mailbox communication — outbox polling at ~1.25Hz, prompt injection with mailbox instructions
+- [x] Mailbox worktree symlinking — mailbox directory accessible from within worktrees
+- [x] Token usage tracking — per-agent usage accumulation, throttled onUsage callbacks, totalUsage in snapshots
+- [x] Controller result immutability — `if (this.finished) return` guards in outcome/error handlers
+- [x] Spawner abort/exit race fix — resolveOnce/rejectOnce helpers, abortReason tracking
+- [x] Mailbox atomic writes — all JSONL/JSON mutations use writeAtomic (temp-file + rename)
+- [x] Path traversal prevention — validateId + resolveAgentStateDir for all agent ID inputs
+- [x] Zombie process SIGKILL fix — exited flag on close event, no premature timer cancellation
+- [x] Recovery corrupt manifest preservation — preserve unreadable manifests for debugging
+- [x] Permission mode removal — swarm activates directly without permission prompts
+
 ---
 
 ## 9. Design Decisions (Confirmed)

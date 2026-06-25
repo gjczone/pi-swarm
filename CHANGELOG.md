@@ -2,6 +2,39 @@
 
 All notable changes to pi-swarm will be documented in this file.
 
+## [0.4.1] - 2026-06-25
+
+### Added
+
+- **Git worktree isolation (#49)**: Each subagent now runs in a temporary git worktree by default, providing filesystem isolation so parallel agents cannot interfere with each other's changes. On completion, changes are committed to a named branch (`pi-agent-{agentId}`) and the worktree is cleaned up. `mergeBranch()` handles sequential merging after batch completion. Non-git repos silently fall back to cwd. Project context files (AGENTS.md, .pi config, rules/) and node_modules are symlinked into the worktree.
+- **Real-time mailbox communication (#50)**: Team agents can now send and receive messages during execution (not just between phases). Each agent's prompt is injected with mailbox read/write instructions. The spawner polls the agent's outbox file at ~1.25Hz and delivers messages to recipients' inboxes via the `onMessage` callback. Mailbox directories are symlinked into worktrees for cross-boundary access.
+- **Token usage tracking (#51)**: The controller now accumulates per-agent token usage (`input`, `output`, `cacheRead`, `cacheWrite`, `totalTokens`) and includes `totalUsage` and `startedAt` in every `BatchProgressSnapshot`. Usage is emitted at 5Hz via throttled `onUsage` callbacks for real-time TUI display. `message_delta` and `content_block_delta` events are now parsed for incremental usage and text accumulation.
+- **Corrupt manifest preservation (#52)**: Recovery now preserves run directories with unreadable/corrupt manifests instead of deleting them, logging a warning for debugging. Only truly orphaned directories (no manifest file) are cleaned up.
+- 107 tests across 8 test files (unchanged from 0.3.5).
+
+### Changed
+
+- **Permission mode removal**: Removed `getPermissionMode()`/`setPermissionMode()` stubs from the swarm command host. Swarm mode no longer prompts for permission mode switching — it activates directly. The permission prompt TUI component remains for future use.
+- **Recovery smarter about corrupt state**: `recoverRuns()` now distinguishes between "manifest exists but is unreadable" (preserve for debugging) and "no manifest at all" (orphaned, safe to clean up).
+- **Controller active-state lookup optimized**: `emitProgress()` now uses a `Set` for active index lookup instead of `Array.some()`, improving performance with large agent counts.
+- **Controller rate-limit scheduling fixed**: `scheduleNextRateLimitWakeup()` now correctly computes `nextAllowedAt` as `Math.max(nextRateLimitLaunchAt, nextPendingReadyAt)` before taking the minimum with capacity recovery time.
+
+### Fixed
+
+- **Controller result mutation after cancellation (#43)**: `SubagentBatchController` could mutate the results array after `finish()` resolved when the user cancelled, because active attempts continued to deliver outcomes. Fixed by adding `if (this.finished) return` guards and aborting all active attempts in `finishWithUserCancellation()`.
+- **Spawner abort/exit race condition (#44)**: `spawnSubagent` could lose timeout errors or deliver duplicate results when abort and process exit raced. Fixed by introducing `resolveOnce`/`rejectOnce` helpers with a `done` flag and tracking `abortReason`.
+- **Mailbox non-atomic writes (#45)**: `writeJsonLines` and `updateDeliveryState` used direct `fs.writeFileSync`. Fixed by reusing `writeAtomic` (temp-file + rename) from `state/persistence.ts`, now exported for shared use.
+- **Path traversal in resumeSubagent (#41)**: Agent ID was not validated when resolving the agent state directory. Fixed by using `resolveAgentStateDir` and `validateId` for all agent ID inputs.
+- **Zombie process leak (#42)**: Child processes ignoring SIGTERM were not force-killed because the SIGKILL timer was cancelled prematurely. Fixed by introducing an `exited` flag set on process `close` event and replacing `proc.killed` checks.
+- **Recovery corrupt manifest crash (#46)**: Recovery deleted run directories with corrupt manifests, losing debugging data. Fixed by preserving unreadable manifests and only cleaning up truly orphaned directories.
+- **Permission mode stub errors (#47)**: `getPermissionMode()`/`setPermissionMode()` stubs could cause integration issues with host implementations. Fixed by removing the stubs entirely — swarm mode activates without permission prompts.
+
+### Documentation
+
+- Reorganized companion files into `rules/` directory (15 rule files).
+- Updated AGENTS.md to reference `rules/` paths and added rules file reading table.
+- Added `src/shared/worktree.ts` to architecture tree and Change Map.
+
 ## [0.3.5] - 2026-06-25
 
 ### Fixed

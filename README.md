@@ -10,6 +10,10 @@ Think of it as **kimi-code's AgentSwarm + Claude Code's agent teams** — inside
 
 **Team** — collaborative agents. Like Claude Code's agent teams or pi-crew: role-based agents (explorer, planner, coder, reviewer, tester) working in sequence. Each phase agent receives context from previous phases via a shared mailbox. Every agent runs as an independent child process. Optional per-role model tier routing: use a cheaper/faster model for exploration while keeping reasoning-heavy roles on the default model.
 
+**Worktree Isolation** — each subagent runs in a temporary git worktree by default, so parallel agents cannot interfere with each other's file changes. On completion, changes are committed to a named branch for safe merging. Non-git repos fall back to regular directory mode.
+
+**Real-time Mailbox** — team agents can send and receive messages during execution, not just between phases. Messages are delivered in near-real-time via file polling.
+
 All agents are created on-the-fly. No `agents/*.md` files. The main agent decides what to spawn based on the task.
 
 ## Install
@@ -86,7 +90,12 @@ State is stored under `.pi/swarm/state/`. The extension auto-creates `.pi/` if i
     inbox.jsonl
     outbox.jsonl
     delivery.json
+    tasks/{roleName}/
+      inbox.jsonl        # Per-role real-time inbox
+      outbox.jsonl       # Per-role real-time outbox
 ```
+
+Worktree branches (`pi-agent-{agentId}`) are created in the local git repo when agents make changes. Merge them with `git merge pi-agent-{agentId}` or let the tool handle it automatically.
 
 Runs auto-clean: completed runs deleted after 7 days, stale runs (30min no heartbeat) marked abandoned.
 

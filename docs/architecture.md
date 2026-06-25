@@ -35,9 +35,10 @@ src/
 ├── shared/               # Shared infrastructure (no pi or tui imports)
 │   ├── types.ts          # Pure data type definitions
 │   ├── pi-invoke.ts      # pi CLI invocation resolution
-│   ├── spawner.ts        # Child process management (spawn, event parsing)
+│   ├── spawner.ts        # Child process management (spawn, event parsing, worktree, mailbox)
 │   ├── controller.ts     # SubagentBatch concurrency controller
-│   └── render.ts         # XML output formatter
+│   ├── render.ts         # XML output formatter
+│   └── worktree.ts       # Git worktree isolation (create, cleanup, merge, prune)
 ├── swarm/                # Swarm mode (imports from shared/)
 │   ├── tool.ts           # AgentSwarm tool (pi.registerTool)
 │   ├── command.ts        # /swarm slash command
@@ -45,7 +46,7 @@ src/
 ├── team/                 # Team mode (imports from shared/)
 │   ├── tool.ts           # SwarmTeam tool (pi.registerTool)
 │   ├── command.ts        # /swarm-team slash command
-│   ├── mailbox.ts        # JSONL inbox/outbox/delivery
+│   ├── mailbox.ts        # JSONL inbox/outbox/delivery (atomic writes)
 │   ├── task-graph.ts     # Directed acyclic phase graph with dependencies
 │   └── supervisor.ts     # Team supervisor: decomposition, assignment, synthesis
 ├── tui/                  # TUI components (imports from shared/ + pi-tui)
@@ -54,8 +55,8 @@ src/
 │   ├── permission-prompt.ts  # Manual-mode permission dialog
 │   └── team-dashboard.ts # SwarmTeam live phase progress dashboard
 └── state/                # Persistence layer (imports from shared/)
-    ├── persistence.ts    # Atomic file writes, manifest/task/event I/O
-    └── recovery.ts       # Crash detection, stale run cleanup, resume support
+    ├── persistence.ts    # Atomic file writes, manifest/task/event I/O, writeAtomic export
+    └── recovery.ts       # Crash detection, stale run cleanup, corrupt manifest preservation
 ```
 
 **Dependency direction**: `tui/` + `state/` → `swarm/` + `team/` → `shared/` → `index.ts`
@@ -103,7 +104,7 @@ For team mode, additional types include:
 - `TeamPhase` — named phase with role assignment, optional dependencies, model tier, model override, and tool whitelist
 - `MailboxMessage` — structured JSON message with `messageId`, `from`, `to`, `type`, `payload`
 - `ModelTier` — `"default"` or `"small"` for cost-optimized routing
-- `SMALL_MODEL_ROLES` — set of roles that auto-route to the small model (currently `explorer`)
+- `SMALL_MODEL_ROLES` — set of roles that auto-route to the small model (`explorer`, `tester`)
 - `BaseQueuedSubagentTask` — includes optional `model`, `tools`, `cwd` fields for threading through the spawn chain
 
 ### 3.2 Pi CLI Invocation (`shared/pi-invoke.ts`)
@@ -135,23 +136,33 @@ Manages the full lifecycle of a child pi process.
 
 1. Build CLI arguments via `buildSubagentArgs()`
 2. Resolve invocation via `getPiInvocation()`
-3. `spawn()` the child with `stdio: ["ignore", "pipe", "pipe"]`
-4. Parse JSON Lines events from stdout (message_end, tool_result_end)
-5. Accumulate token usage from assistant message events
-6. Extract final text content from the last assistant message
-7. Handle abort signal: SIGTERM → wait 5s → SIGKILL
-8. Handle timeout: optional per-task deadline
+3. If git repo and `useWorktree !== false`: create a temporary worktree via `createWorktree()`, symlink project context files and mailbox directory
+4. If mailbox enabled: resolve per-role inbox/outbox paths, inject mailbox communication instructions into the prompt
+5. `spawn()` the child with `stdio: ["ignore", "pipe", "pipe"]` in the worktree (or repo) directory
+6. Parse JSON Lines events from stdout (message_end, message_delta, content_block_delta, tool_result)
+7. Accumulate token usage from assistant message events, emit via throttled `onUsage` callback (5Hz)
+8. Poll agent outbox file at ~1.25Hz for real-time mailbox messages, deliver via `onMessage` callback
+9. Extract final text content from assistant messages, content deltas, and tool outputs
+10. Handle abort signal: SIGTERM → wait 5s → SIGKILL (via `ProcessKillState` with `exited` flag)
+11. Handle timeout: optional per-task deadline
+12. On completion: cleanup worktree (commit changes to named branch if any), return result with optional `worktreeBranch`
 
-**Event parsing**: The `--print` mode produces one JSON object per line. `parseEventStream()` buffers stdout data, splits on newlines, and processes complete lines. Partial lines are held in the buffer. The `message_end` event with `role: "assistant"` carries the final result text and usage statistics. Content is extracted from both `tool_result` events (tool outputs) and `message_end` events (assistant text). Both string-form and array-form `msg.content` are handled.
+**Worktree isolation**: Each subagent runs in a temporary git worktree (under `/tmp/`) created from HEAD in detached mode. Project context files (AGENTS.md, .pi config, rules/) are symlinked in. node_modules is symlinked to avoid reinstalling dependencies. On completion, if changes exist, they are committed to a `pi-agent-{agentId}` branch. Non-git repos silently fall back to cwd.
+
+**Real-time mailbox**: When `mailboxPath` is provided, per-role inbox/outbox files are created under `mailbox/tasks/{roleName}/`. The agent's prompt is injected with instructions on how to read/write these files. The spawner polls the outbox at 800ms intervals and delivers messages via the `onMessage` callback. In worktree mode, the mailbox directory is symlinked into the worktree at `.pi/swarm/mailbox-link/`.
+
+**Event parsing**: The `--print` mode produces one JSON object per line. `parseEventStream()` buffers stdout data, splits on newlines, and processes complete lines. Partial lines are held in the buffer. Content is extracted from `message_end` events (assistant text), `content_block_delta` events (incremental text), `message_delta` events (final usage), and `tool_result` events (tool outputs). Both string-form and array-form `msg.content` are handled. Token usage is accumulated with `Math.round()` to avoid floating-point drift.
 
 **Why `spawn` not `exec`**: `spawn` returns a `ChildProcess` with streaming stdout/stderr. This allows real-time progress tracking and avoids buffering the entire output in memory.
 
-**Error handling**: Three error paths:
+**Error handling**: Four error paths:
 
 - Non-zero exit code → reject with exit code and error message
 - Process error event (e.g., ENOENT) → reject with the error
-- Abort signal → kill the process, reject with abort reason
+- Abort signal → kill the process (SIGTERM + SIGKILL fallback), reject with saved `abortReason`
 - Timeout → kill the process, reject with timeout error
+
+The `resolveOnce`/`rejectOnce` helpers ensure the promise settles exactly once, even when abort and process exit race. The `ProcessKillState` tracks whether the process has actually exited (via `close` event) to avoid sending signals to already-dead processes.
 
 ### 3.4 Concurrency Controller (`shared/controller.ts`)
 
@@ -299,7 +310,7 @@ Supports four forms:
 - `/swarm` — toggle
 - `/swarm <task>` — one-shot: enable + send task
 
-**Permission integration**: When in `manual` permission mode and the user tries to start a swarm, the command prompts via `ctx.ui.confirm()` to switch to `auto` mode. If the user declines, the swarm is not started. This matches kimi-code's swarm command behavior.
+**Permission integration**: Swarm mode activates directly without prompting for permission mode switching. The `SwarmCommandHost` interface no longer requires `getPermissionMode()` or `setPermissionMode()`. The TUI permission prompt component remains available for future use.
 
 ---
 
@@ -688,23 +699,26 @@ SwarmTeam.execute()
 | **Default 5-phase team workflow**                     | Based on research of CrewAI's hierarchical model and common software development workflows. The explore → plan → implement → review → test pipeline mirrors real engineering processes              |
 | **Atomic writes for state**                           | Crash safety. A partial write on crash should never corrupt the existing state                                                                                                                      |
 | **30-minute staleness threshold**                     | Long enough for a legitimate run, short enough to detect actual crashes. Pi's default subagent timeout is also 30 minutes                                                                           |
+| **Worktree isolation by default**                     | Parallel agents must not interfere with each other's file changes. Git worktrees provide clean filesystem isolation with zero config. Non-git repos fall back to cwd                                |
+| **Real-time mailbox polling**                         | Agents need to communicate during execution, not just between phases. File polling at 800ms intervals balances responsiveness with IO overhead                                                       |
 | **100% English codebase**                             | Language rule for all repository artifacts. Only user-facing reports (like this one) use Chinese                                                                                                    |
 
 ---
 
 ## 10. Comparison with Reference Projects
 
-| Aspect             | kimi-code                        | pi-crew                                    | pi-swarm                                                |
-| ------------------ | -------------------------------- | ------------------------------------------ | ------------------------------------------------------- |
-| Subagent execution | In-process session API           | Out-of-process spawn                       | Out-of-process spawn                                    |
-| Concurrency model  | Two-phase SubagentBatch          | Task queue with configurable cap           | Two-phase SubagentBatch (ported from kimi-code)         |
-| Swarm mode         | AgentSwarm tool + /swarm         | N/A (team only)                            | AgentSwarm + SwarmTeam dual mode                        |
-| Team mode          | N/A                              | Task graph + supervisor + mailbox          | Task graph + supervisor + mailbox (inspired by pi-crew) |
-| State persistence  | In-memory                        | Full state machine (JSONL + atomic writes) | Manifest + tasks + events (atomic writes)               |
-| TUI                | Braille progress + swarm markers | Dashboard + widget + powerbar              | Braille progress + markers + permission dialog          |
-| Mailbox            | N/A                              | JSONL inbox/outbox/delivery                | JSONL inbox/outbox/delivery                             |
-| Crash recovery     | N/A                              | Heartbeat + deadletter                     | Staleness detection + auto-abandon                      |
-| Runtime deps       | Many (internal packages)         | Zero (for orchestration)                   | Zero (for orchestration)                                |
+| Aspect             | kimi-code                        | pi-crew                                    | pi-swarm                                                       |
+| ------------------ | -------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
+| Subagent execution | In-process session API           | Out-of-process spawn                       | Out-of-process spawn + worktree isolation                      |
+| Concurrency model  | Two-phase SubagentBatch          | Task queue with configurable cap           | Two-phase SubagentBatch (ported from kimi-code)                |
+| Swarm mode         | AgentSwarm tool + /swarm         | N/A (team only)                            | AgentSwarm + SwarmTeam dual mode                               |
+| Team mode          | N/A                              | Task graph + supervisor + mailbox          | Task graph + supervisor + mailbox (inspired by pi-crew)        |
+| State persistence  | In-memory                        | Full state machine (JSONL + atomic writes) | Manifest + tasks + events (atomic writes)                      |
+| TUI                | Braille progress + swarm markers | Dashboard + widget + powerbar              | Braille progress + markers + permission dialog                 |
+| Mailbox            | N/A                              | JSONL inbox/outbox/delivery                | JSONL inbox/outbox + real-time polling + worktree symlinks     |
+| Crash recovery     | N/A                              | Heartbeat + deadletter                     | Staleness detection + auto-abandon + corrupt manifest preserve |
+| Worktree isolation | N/A                              | Per-agent worktrees                        | Per-agent worktrees + project context symlinks + merge support |
+| Runtime deps       | Many (internal packages)         | Zero (for orchestration)                   | Zero (for orchestration)                                       |
 
 **pi-swarm's unique position**: Combines kimi-code's proven concurrency model with pi-crew's mailbox-driven team collaboration, while maintaining zero runtime dependencies and 100% process isolation.
 
@@ -714,8 +728,7 @@ SwarmTeam.execute()
 
 1. **Parallel team sub-phases**: Within a single team phase, spawn multiple agents working on different files simultaneously, then aggregate results
 2. **Heartbeat-based liveness**: Replace the 30-minute staleness threshold with active heartbeat updates from running agents
-3. **Worktree isolation**: Each team phase agent could run in a git worktree for filesystem isolation (like pi-crew's worktree manager)
-4. **Agent capability inventory**: Auto-detect what tools/skills each role agent has available
-5. **Model fallback chain**: If the primary model for a role is rate-limited, fall back to a cheaper model
-6. **Run export/import**: Bundle a complete run (state + artifacts + events) for cross-machine sharing or debugging
-7. **Dashboard TUI**: A `/swarm-status` command showing all active and recent runs
+3. **Agent capability inventory**: Auto-detect what tools/skills each role agent has available
+4. **Model fallback chain**: If the primary model for a role is rate-limited, fall back to a cheaper model
+5. **Run export/import**: Bundle a complete run (state + artifacts + events) for cross-machine sharing or debugging
+6. **Dashboard TUI**: A `/swarm-status` command showing all active and recent runs
