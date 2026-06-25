@@ -6,7 +6,7 @@
  * advances phases as agents complete their tasks.
  */
 
-import type { AgentRole, TeamPhase } from "../shared/types.js";
+import type { AgentRole, TeamPhase, SubagentUsage } from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
 // Default phases
@@ -40,6 +40,7 @@ export interface PhaseState {
   error?: string;
   startedAt?: number;
   completedAt?: number;
+  usage?: SubagentUsage;
 }
 
 // ---------------------------------------------------------------------------
@@ -160,12 +161,15 @@ export class TaskGraph {
   }
 
   /** Mark a phase as completed with a result. */
-  completePhase(name: string, result: string): void {
+  completePhase(name: string, result: string, usage?: SubagentUsage): void {
     const state = this.phases.get(name);
     if (!state) return;
     state.status = "completed";
     state.result = result;
     state.completedAt = Date.now();
+    if (usage) {
+      state.usage = { ...usage };
+    }
   }
 
   /** Mark a phase as failed with an error. */
@@ -193,6 +197,22 @@ export class TaskGraph {
     }
   }
 
+  /** Get aggregated token usage across all completed/failed phases. */
+  getTotalUsage(): SubagentUsage {
+    const total = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+    for (const name of this.order) {
+      const state = this.phases.get(name)!;
+      if (state.usage) {
+        total.input += state.usage.input;
+        total.output += state.usage.output;
+        total.cacheRead += state.usage.cacheRead;
+        total.cacheWrite += state.usage.cacheWrite;
+        total.totalTokens += state.usage.totalTokens;
+      }
+    }
+    return total;
+  }
+
   // -------------------------------------------------------------------
   // Serialization
   // -------------------------------------------------------------------
@@ -210,6 +230,7 @@ export class TaskGraph {
         error: state.error,
         startedAt: state.startedAt,
         completedAt: state.completedAt,
+        usage: state.usage,
       };
     }
     return { phases };
@@ -234,6 +255,7 @@ export class TaskGraph {
           state.error = stateData.error as string | undefined;
           state.startedAt = stateData.startedAt as number | undefined;
           state.completedAt = stateData.completedAt as number | undefined;
+          state.usage = stateData.usage as SubagentUsage | undefined;
         }
       }
     }

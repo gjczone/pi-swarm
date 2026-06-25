@@ -2,42 +2,40 @@
  * tui/team-dashboard — SwarmTeam live phase progress dashboard.
  *
  * Renders a real-time dashboard above the input area when a SwarmTeam
- * run is in progress.  Shows phase statuses with braille animation for
- * the active phase, mailbox message count, and elapsed time.
- *
- * Follows the same wiring pattern as AgentSwarmProgressComponent:
- * supervisor emits snapshots -> tool converts -> pushes to widget.
+ * run is in progress.  Shows phase statuses with compact braille spinner
+ * for active phases, mailbox message count, token usage, and elapsed time.
  */
 
 import type { Component } from "@earendil-works/pi-tui";
-import type { TeamProgressSnapshot, TeamPhaseStatus } from "../shared/types.js";
+import type {
+  TeamProgressSnapshot,
+  TeamPhaseStatus,
+  SubagentUsage,
+} from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
-// Constants (shared braille with progress.ts for visual consistency)
+// Constants
 // ---------------------------------------------------------------------------
 
-const BRAILLE_BAR_MAX_WIDTH = 8;
 const FRAME_INTERVAL_MS = 80;
 const MAX_PHASES = 20;
+const ICON_COL_WIDTH = 3;
 
-const BRAILLE_LEVELS = [
-  "\u28C0",
-  "\u28C4",
-  "\u28E4",
-  "\u28E6",
-  "\u28F6",
+const BRAILLE_SPINNER = [
+  "\u28BF",
+  "\u28FB",
+  "\u28FD",
+  "\u28FE",
   "\u28F7",
-  "\u28FF",
+  "\u28EF",
+  "\u28DF",
+  "\u287F",
 ] as const;
-
-const BRAILLE_EMPTY = BRAILLE_LEVELS[0];
-const BRAILLE_FULL = BRAILLE_LEVELS[6];
 
 // ---------------------------------------------------------------------------
 // State types
 // ---------------------------------------------------------------------------
 
-/** Dashboard state for the team progress widget. */
 export interface TeamDashboardState {
   title: string;
   goal: string;
@@ -49,6 +47,7 @@ export interface TeamDashboardState {
   currentRoles?: string[];
   phases: TeamPhaseStatusWithMeta[];
   mailboxCount: number;
+  totalUsage: SubagentUsage;
   startedAt: number;
 }
 
@@ -57,7 +56,6 @@ interface TeamPhaseStatusWithMeta {
   role: string;
   status: "queued" | "running" | "completed" | "failed" | "skipped";
   error?: string;
-  /** Timestamp when this phase entered its current status. */
   phaseStartedAt: number;
 }
 
@@ -65,15 +63,10 @@ interface TeamPhaseStatusWithMeta {
 // Snapshot conversion
 // ---------------------------------------------------------------------------
 
-/**
- * Convert a TeamProgressSnapshot from the supervisor into the
- * TeamDashboardState expected by TeamDashboardComponent.
- */
 export function snapshotToDashboardState(
   snapshot: TeamProgressSnapshot,
 ): TeamDashboardState {
   const now = Date.now();
-  // Collect all currently running phase names for multi-running display
   const runningPhases = snapshot.phases
     .filter((p) => p.status === "running")
     .map((p) => p.name);
@@ -105,6 +98,7 @@ export function snapshotToDashboardState(
       phaseStartedAt: p.status === "running" ? now : 0,
     })),
     mailboxCount: snapshot.mailboxCount,
+    totalUsage: snapshot.totalUsage,
     startedAt: snapshot.startedAt,
   };
 }
@@ -119,25 +113,12 @@ export class TeamDashboardComponent implements Component {
   private renderedWidth: number | undefined;
   private cachedLines: string[] | undefined;
   private onRequestRender: (() => void) | undefined;
+  private frameIndex = 0;
 
-  /**
-   * @param onRequestRender  Optional callback to request a TUI re-render.
-   *   When provided, called on every animation tick so the braille bars
-   *   animate.  Without it the component still renders correctly but the
-   *   animation won't be visible to the user.
-   *
-   *   业务说明：TUI 框架不会自动轮询组件；需要通过 requestRender() 主动
-   *   触发重绘才能使 braille 进度条动起来。此回调由 setWidget 工厂函数
-   *   在捕获 tui 引用后传入。
-   */
   constructor(onRequestRender?: () => void) {
     this.onRequestRender = onRequestRender;
     this.startAnimation();
   }
-
-  // -------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------
 
   update(state: TeamDashboardState): void {
     this.state_ = state;
@@ -165,13 +146,8 @@ export class TeamDashboardComponent implements Component {
       clearInterval(this.animationFrame);
       this.animationFrame = undefined;
     }
-    // 断开与 TUI 框架的连接，防止内存泄漏
     this.onRequestRender = undefined;
   }
-
-  // -------------------------------------------------------------------
-  // Component interface
-  // -------------------------------------------------------------------
 
   invalidate(): void {
     this.renderedWidth = undefined;
@@ -179,7 +155,7 @@ export class TeamDashboardComponent implements Component {
   }
 
   render(width: number): string[] {
-    const safeWidth = Math.max(10, width);
+    const safeWidth = Math.max(20, width);
     if (this.cachedLines && this.renderedWidth === safeWidth) {
       return this.cachedLines;
     }
@@ -191,34 +167,40 @@ export class TeamDashboardComponent implements Component {
 
     const state = this.state_;
     const lines: string[] = [];
+    const contentWidth = safeWidth - 4;
 
-    // Header
-    const header = buildHeader(state, safeWidth);
-    lines.push(header);
+    // Header: just title, truncated to fit
+    const header = truncateText(state.title, contentWidth);
+    lines.push(`  ${header}`);
 
     // Overall progress bar
-    const bar = buildProgressBar(state, safeWidth);
-    lines.push(bar);
+    const barWidth = Math.max(1, contentWidth);
+    const total = state.totalPhases || 1;
+    const doneRatio = (state.completedPhases + state.failedPhases) / total;
+    const doneChars = Math.round(doneRatio * barWidth);
+    const done = "\u2501".repeat(doneChars);
+    const remaining = "\u2501".repeat(barWidth - doneChars);
+    lines.push(`  ${done}${remaining}`);
 
     // Phase rows
     const maxPhases = Math.min(state.phases.length, MAX_PHASES);
     for (let i = 0; i < maxPhases; i += 1) {
       const phase = state.phases[i];
       if (!phase) continue;
-      const row = renderPhaseRow(phase, safeWidth - 4);
+      const row = renderPhaseRow(phase, contentWidth, this.frameIndex);
       lines.push(`  ${row}`);
     }
 
     // Separator
-    const sep = "\u2500".repeat(Math.max(0, safeWidth - 4));
+    const sep = "\u2500".repeat(contentWidth);
     lines.push(`  ${sep}`);
 
-    // Footer
-    const footerLine = buildFooter(state, safeWidth - 2);
+    // Footer with all info
+    const footerLine = buildFooter(state, contentWidth);
     lines.push(`  ${footerLine}`);
 
     // Bottom border
-    const bottom = bottomBorder(safeWidth);
+    const bottom = `\u2514${"\u2500".repeat(contentWidth)}\u2518`;
     lines.push(bottom);
 
     this.cachedLines = lines;
@@ -226,14 +208,10 @@ export class TeamDashboardComponent implements Component {
     return this.cachedLines;
   }
 
-  // -------------------------------------------------------------------
-  // Animation
-  // -------------------------------------------------------------------
-
   private startAnimation(): void {
     this.animationFrame = setInterval(() => {
+      this.frameIndex = (this.frameIndex + 1) % BRAILLE_SPINNER.length;
       this.invalidate();
-      // 通知 TUI 框架重绘，使 braille 动画可见
       this.onRequestRender?.();
     }, FRAME_INTERVAL_MS);
   }
@@ -243,115 +221,93 @@ export class TeamDashboardComponent implements Component {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-function buildHeader(state: TeamDashboardState, width: number): string {
-  const titlePart = truncateText(state.title, Math.max(10, width - 35));
-  const titleLine = `Team: ${titlePart || "..."}`;
-  const status = state.status;
-  const phaseInfo = state.currentPhase
-    ? `Phase: ${state.completedPhases + state.failedPhases + 1}/${state.totalPhases} (${state.currentPhase})`
-    : `Phases: ${state.completedPhases + state.failedPhases}/${state.totalPhases}`;
-  const full = `${titleLine}  |  Status: ${status}  |  ${phaseInfo}`;
-  if (full.length <= width) return full;
-  // Truncate from the end — preserve title and status
-  return full.slice(0, width);
-}
+function renderPhaseRow(
+  phase: TeamPhaseStatusWithMeta,
+  width: number,
+  frameIndex: number,
+): string {
+  const icon = phaseStatusIcon(phase, frameIndex).padEnd(ICON_COL_WIDTH, " ");
+  const displayName = shortenPhaseName(phase.name, phase.role);
+  const nameWidth = Math.max(6, Math.min(16, Math.floor(width * 0.35)));
+  const name = truncateText(displayName, nameWidth).padEnd(nameWidth, " ");
 
-function buildProgressBar(state: TeamDashboardState, width: number): string {
-  const barWidth = Math.max(1, width - 4);
-  const total = state.totalPhases || 1;
-  const doneRatio = (state.completedPhases + state.failedPhases) / total;
-  const doneChars = Math.round(doneRatio * barWidth);
-  const remainingChars = barWidth - doneChars;
-  const done = "\u2501".repeat(doneChars);
-  const remaining = "\u2501".repeat(remainingChars);
-  return `  ${done}${remaining}`;
-}
+  const fixed = `${icon} ${name}`;
+  const remaining = Math.max(0, width - visibleLen(fixed) - 1);
 
-function renderPhaseRow(phase: TeamPhaseStatusWithMeta, width: number): string {
-  const statusIcon = phaseStatusIcon(phase);
-  const maxNameLen = Math.max(4, Math.min(14, Math.floor(width / 3)));
-  const phaseName = truncateText(phase.name, maxNameLen);
-  const statusLabel = phase.status;
-  const roleLabel = `(${phase.role})`;
-
-  // Layout: <icon> <phaseName> <status> <role>
-  const fixed = `${statusIcon} ${phaseName} ${statusLabel} ${roleLabel}`;
-
-  // If the fixed part alone exceeds width, truncate by component priority
-  if (visibleLen(fixed) >= width) {
-    const bare = `${statusIcon} ${phaseName}`;
-    if (visibleLen(bare) >= width) return bare.slice(0, Math.max(0, width));
-    const withStatus = `${bare} ${statusLabel}`;
-    if (visibleLen(withStatus) >= width)
-      return withStatus.slice(0, Math.max(0, width));
-    return fixed.slice(0, Math.max(0, width));
+  if (phase.status === "running") {
+    const roleLabel = `${phase.role}`;
+    return `${fixed} ${truncateText(roleLabel, remaining)}`;
   }
 
   if (phase.status === "failed" && phase.error) {
-    const errorPart = ` — ${phase.error}`;
-    const avail = Math.max(0, width - visibleLen(fixed));
-    if (avail > 0) {
-      const full = `${fixed}${errorPart.slice(0, avail)}`;
-      return full.slice(0, Math.max(0, width));
-    }
-    return fixed.slice(0, Math.max(0, width));
+    const errorPart = phase.error;
+    return `${fixed} ${truncateText(errorPart, remaining)}`;
   }
 
-  return fixed;
+  if (phase.status === "completed") {
+    return `${fixed} ok`;
+  }
+
+  if (phase.status === "skipped") {
+    return `${fixed} skip`;
+  }
+
+  return `${fixed} ...`;
 }
 
-function phaseStatusIcon(phase: TeamPhaseStatusWithMeta): string {
+function shortenPhaseName(name: string, role: string): string {
+  if (name.length <= 12) return name;
+  if (name.startsWith(role)) return name.slice(0, Math.max(role.length, 12));
+  const parts = name.split("-");
+  if (parts.length > 1) {
+    return parts.slice(0, 2).join("-");
+  }
+  return name.slice(0, 12);
+}
+
+function phaseStatusIcon(
+  phase: TeamPhaseStatusWithMeta,
+  frameIndex: number,
+): string {
   switch (phase.status) {
     case "completed":
-      return "\u2713"; // checkmark
+      return "\u2713";
     case "running":
-      return renderBrailleBar(phase);
+      return BRAILLE_SPINNER[frameIndex % BRAILLE_SPINNER.length]!;
     case "failed":
-      return "\u2717"; // x mark
+      return "\u2717";
     case "skipped":
-      return "\u2298"; // slashed circle
+      return "\u2298";
     case "queued":
-      return "\u25CB"; // circle
+      return "\u25CB";
   }
-}
-
-function renderBrailleBar(phase: TeamPhaseStatusWithMeta): string {
-  const elapsed = Date.now() - phase.phaseStartedAt;
-  const cycleMs = 800;
-  const progress = (elapsed % cycleMs) / cycleMs;
-
-  const maxWidth = BRAILLE_BAR_MAX_WIDTH;
-  const totalDots = maxWidth * 6;
-  const filledDots = Math.floor(progress * totalDots);
-
-  let result = "";
-  for (let i = 0; i < maxWidth; i += 1) {
-    const cellStart = i * 6;
-    const dotsInCell = Math.max(0, Math.min(6, filledDots - cellStart));
-    result += dotsInCell === 0 ? BRAILLE_EMPTY : BRAILLE_LEVELS[dotsInCell]!;
-  }
-  return result;
 }
 
 function buildFooter(state: TeamDashboardState, width: number): string {
-  const mailbox = `Mailbox: ${state.mailboxCount > 0 ? String(state.mailboxCount) : "0"} msgs`;
+  const usage = state.totalUsage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  const phaseCount = `${state.completedPhases + state.failedPhases}/${state.totalPhases}`;
+  const tokens = `${Math.round(usage.input)}in/${Math.round(usage.output)}out`;
+  const mailbox = state.mailboxCount > 0 ? ` ${state.mailboxCount}msg` : "";
   const elapsed = formatElapsed(Date.now() - state.startedAt);
-  const full = `${mailbox}  |  Elapsed: ${elapsed}`;
+
+  const parts = [
+    `${phaseCount} ph`,
+    tokens,
+    mailbox.trim(),
+    elapsed,
+  ].filter(Boolean);
+
+  const full = parts.join(" | ");
   if (full.length <= width) return full;
-  // Edge case: narrow terminal — prioritize elapsed time
-  return `Elapsed: ${elapsed}`.slice(0, Math.max(0, width));
+  return truncateText(full, width);
 }
 
 function formatElapsed(ms: number): string {
   const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
   const m = Math.floor(totalSec / 60);
   const s = totalSec % 60;
-  return `${m}m ${s}s`;
-}
-
-function bottomBorder(width: number): string {
-  const safeWidth = Math.max(2, width);
-  return `\u2514${"\u2500".repeat(safeWidth - 2)}\u2518`;
+  return `${m}m${s}s`;
 }
 
 // ---------------------------------------------------------------------------
@@ -364,5 +320,6 @@ function visibleLen(text: string): number {
 
 function truncateText(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
-  return text.slice(0, Math.max(0, maxLen - 1)) + "\u2026";
+  if (maxLen <= 1) return text.slice(0, 1);
+  return text.slice(0, maxLen - 1) + "\u2026";
 }

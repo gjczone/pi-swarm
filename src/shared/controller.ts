@@ -22,6 +22,8 @@ import type {
   SubagentCompletion,
   BatchProgressSnapshot,
   BatchMemberStatus,
+  SubagentUsage,
+  MailboxMessage,
 } from "./types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -51,6 +53,7 @@ interface TaskState<T> {
   retryCount: number;
   retryReadyAt: number;
   started: boolean;
+  usage: SubagentUsage;
 }
 
 interface ActiveAttempt<T> {
@@ -140,6 +143,7 @@ export class SubagentBatchController<T> {
   private reject: ((error: unknown) => void) | undefined;
   private finished = false;
   private started = false;
+  private startedAt = 0;
   private startedSuccessCount = 0;
   private readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
 
@@ -156,6 +160,7 @@ export class SubagentBatchController<T> {
       retryCount: 0,
       retryReadyAt: 0,
       started: false,
+      usage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
     }));
     this.pending = [...this.states];
     this.results = Array.from<TaskState<T> | undefined>({
@@ -185,6 +190,7 @@ export class SubagentBatchController<T> {
       throw new Error("SubagentBatchController.run() can only be called once.");
     }
     this.started = true;
+    this.startedAt = Date.now();
 
     return new Promise((resolve, reject) => {
       this.resolve = resolve;
@@ -377,6 +383,11 @@ export class SubagentBatchController<T> {
       onReady: () => {
         this.markAttemptReady(attempt);
       },
+      onUsage: (usage) => {
+        attempt.state.usage = { ...usage };
+        this.emitProgress();
+      },
+      onMessage: task.onMessage,
       suppressRateLimitFailureEvent: true,
       timeout: task.timeout,
       swarmRoot: task.swarmRoot,
@@ -385,6 +396,9 @@ export class SubagentBatchController<T> {
       model: task.model,
       tools: task.tools,
       cwd: task.cwd,
+      useWorktree: task.useWorktree,
+      mailboxPath: task.mailboxPath,
+      roleName: task.roleName,
     };
 
     let handle: SubagentHandle;
@@ -405,6 +419,10 @@ export class SubagentBatchController<T> {
           model: task.model,
           tools: task.tools,
           cwd: task.cwd,
+          useWorktree: task.useWorktree,
+          mailboxPath: task.mailboxPath,
+          roleName: task.roleName,
+          onMessage: task.onMessage,
           ...runOptions,
         };
         handle = await this.launcher.spawn(spawnOptions);
@@ -417,11 +435,16 @@ export class SubagentBatchController<T> {
 
     try {
       const completion: SubagentCompletion = await handle.completion;
+      if (completion.usage) {
+        attempt.state.usage = { ...completion.usage };
+      }
       return {
         task,
         agentId: handle.agentId,
         status: "completed",
         result: completion.result,
+        usage: attempt.state.usage,
+        worktreeBranch: completion.worktreeBranch,
       };
     } catch (error) {
       if (isProviderRateLimitError(error)) {
@@ -542,6 +565,7 @@ export class SubagentBatchController<T> {
       status,
       state: attempt.state.started ? "started" : "not_started",
       error: errorMessage,
+      usage: { ...attempt.state.usage },
     };
   }
 
@@ -605,6 +629,7 @@ export class SubagentBatchController<T> {
     let completed = 0;
     let failed = 0;
     let active = 0;
+    const totalUsage = { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
     const members: BatchMemberStatus[] = [];
 
     const activeIndices = new Set(
@@ -617,6 +642,16 @@ export class SubagentBatchController<T> {
 
       let phase: BatchMemberStatus["phase"] = "queued";
       let error: string | undefined;
+
+      // Accumulate usage from live state or completed result
+      const memberUsage = result?.usage ?? state.usage;
+      if (memberUsage) {
+        totalUsage.input += memberUsage.input;
+        totalUsage.output += memberUsage.output;
+        totalUsage.cacheRead += memberUsage.cacheRead;
+        totalUsage.cacheWrite += memberUsage.cacheWrite;
+        totalUsage.totalTokens += memberUsage.totalTokens;
+      }
 
       if (result) {
         if (result.status === "completed") {
@@ -639,6 +674,7 @@ export class SubagentBatchController<T> {
         phase,
         item: state.task.swarmItem,
         error,
+        usage: memberUsage,
       });
     }
 
@@ -651,6 +687,8 @@ export class SubagentBatchController<T> {
       active,
       queued,
       members,
+      totalUsage,
+      startedAt: this.startedAt,
     });
   }
 

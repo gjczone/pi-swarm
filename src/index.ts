@@ -22,6 +22,7 @@ import {
   SwarmModeMarkerComponent,
   type SwarmModeMarkerState,
 } from "./tui/swarm-markers.js";
+import { pruneWorktrees } from "./shared/worktree.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -168,6 +169,13 @@ export default function (pi: ExtensionAPI): void {
 
     // Ensure .pi/swarm/state/ is gitignored
     ensureGitignore(process.cwd());
+
+    // Best-effort cleanup of orphaned worktrees from previous crashes
+    try {
+      pruneWorktrees(process.cwd());
+    } catch {
+      // Non-git repos or worktree prune failures are non-fatal
+    }
 
     // Run recovery: detect stale/abandoned runs, clean up expired ones
     try {

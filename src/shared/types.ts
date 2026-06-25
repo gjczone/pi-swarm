@@ -41,6 +41,10 @@ export interface SubagentResult<T = unknown> {
   readonly result?: string;
   /** Error message (for failed/aborted tasks). */
   readonly error?: string;
+  /** Token usage for this subagent. */
+  readonly usage?: SubagentUsage;
+  /** Git worktree branch name (if worktree was used and changes committed). */
+  readonly worktreeBranch?: string;
 }
 
 // ---------------------------------------------------------------------------
@@ -137,6 +141,9 @@ export interface RunSubagentOptions {
   readonly runInBackground: boolean;
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
+  readonly onUsage?: (usage: SubagentUsage) => void;
+  /** Callback for real-time messages sent by the agent via mailbox file writes. */
+  readonly onMessage?: (message: MailboxMessage) => void;
   readonly suppressRateLimitFailureEvent?: boolean;
   readonly timeout?: number;
   readonly swarmRoot?: string;
@@ -145,6 +152,11 @@ export interface RunSubagentOptions {
   readonly model?: string;
   readonly tools?: string[];
   readonly cwd?: string;
+  readonly useWorktree?: boolean;
+  /** Path to the shared mailbox root for real-time inter-agent communication. */
+  readonly mailboxPath?: string;
+  /** Role name for team agents (used to resolve mailbox paths). */
+  readonly roleName?: string;
 }
 
 /** Model tier for cost-optimized routing. */
@@ -169,6 +181,7 @@ export interface SpawnSubagentOptions extends RunSubagentOptions {
 export interface SubagentCompletion {
   readonly result: string;
   readonly usage?: SubagentUsage;
+  readonly worktreeBranch?: string;
 }
 
 /** Handle to a running subagent. */
@@ -228,6 +241,16 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly runId?: string;
   /** Path to write per-agent output log (optional). */
   readonly outputLogPath?: string;
+  /** Whether to use git worktree isolation (default: true for git repos). */
+  readonly useWorktree?: boolean;
+  /** Callback for real-time token usage updates (optional). */
+  readonly onUsage?: (usage: SubagentUsage) => void;
+  /** Callback for real-time messages via mailbox file writes (optional). */
+  readonly onMessage?: (message: MailboxMessage) => void;
+  /** Path to the shared mailbox root for real-time inter-agent communication (optional). */
+  readonly mailboxPath?: string;
+  /** Role name for team agents (optional, used for mailbox routing). */
+  readonly roleName?: string;
 }
 
 /** A task that spawns a NEW subagent. */
@@ -285,6 +308,7 @@ export interface TeamProgressSnapshot {
   readonly phases: ReadonlyArray<TeamPhaseStatus>;
   readonly mailboxCount: number;
   readonly startedAt: number;
+  readonly totalUsage: SubagentUsage;
 }
 
 /** Per-phase status in a team progress snapshot. */
@@ -293,6 +317,7 @@ export interface TeamPhaseStatus {
   readonly role: AgentRole;
   readonly status: "queued" | "running" | "completed" | "failed" | "skipped";
   readonly error?: string;
+  readonly usage?: SubagentUsage;
 }
 
 /** Callback for team progress updates. */
@@ -306,6 +331,8 @@ export interface BatchProgressSnapshot {
   readonly active: number;
   readonly queued: number;
   readonly members: ReadonlyArray<BatchMemberStatus>;
+  readonly totalUsage: SubagentUsage;
+  readonly startedAt: number;
 }
 
 /** Per-member status in a progress snapshot. */
@@ -314,6 +341,7 @@ export interface BatchMemberStatus {
   readonly phase: "queued" | "working" | "completed" | "failed" | "suspended";
   readonly item?: string;
   readonly error?: string;
+  readonly usage?: SubagentUsage;
 }
 
 // ---------------------------------------------------------------------------

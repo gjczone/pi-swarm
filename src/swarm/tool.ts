@@ -37,6 +37,7 @@ import {
   registerAgentInManifest,
   validateId,
 } from "../state/persistence.js";
+import { mergeBranch, isGitRepository } from "../shared/worktree.js";
 import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
@@ -54,13 +55,20 @@ const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const MAX_AGENT_SWARM_SUBAGENTS = 128;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
-const AGENT_SWARM_DESCRIPTION = `Launch multiple subagents from one prompt template, existing agent resumes, or both.
+const AGENT_SWARM_DESCRIPTION = `Launch multiple parallel subagents from one prompt template, existing agent resumes, or both.
 
-Use AgentSwarm when many subagents should run the same kind of task over different inputs. The placeholder is exactly \`{{item}}\`. For example, with \`prompt_template\` set to \`Review {{item}} for likely regressions.\` and \`items\` set to \`["src/a.ts", "src/b.ts"]\`, AgentSwarm launches two new subagents with those two concrete prompts.
+**IMPORTANT: This is the DEFAULT tool for delegating work to subagents. Use AgentSwarm for nearly all parallel tasks unless the user explicitly asks for a "team" or "swarm-team" with role-based collaboration.**
 
-Use \`resume_agent_ids\` to continue subagents that already exist from earlier work, such as ones that failed or timed out: map each agent id to the prompt for that resumed subagent (usually \`continue\` if no extra information is needed). You may combine \`resume_agent_ids\` with \`items\` in the same call to resume existing subagents and launch new ones. Do not duplicate resumed work in \`items\`.
+Use AgentSwarm when:
+- Many subagents should run the same kind of task over different inputs (embarrassingly parallel)
+- You need to delegate 1-128 independent items
+- You want to resume failed/timed-out subagents from earlier work
 
-AgentSwarm also works for single subagents (1 item).  Use it for any task you want to delegate to a fresh subagent with an isolated context — from 1 to 128 items.  Launches are queued automatically.  Single-agent calls still require \`prompt_template\` with \`{{item}}\` and at least one item.
+The placeholder is exactly \`{{item}}\`. For example, with \`prompt_template\` set to \`Fix issues in {{item}}\` and \`items\` set to \`["file1.ts", "file2.ts"]\`, AgentSwarm launches two new subagents in parallel.
+
+Use \`resume_agent_ids\` to continue subagents that already exist: map each agent id to the resume prompt. You may combine \`resume_agent_ids\` with \`items\` in the same call.
+
+AgentSwarm also works for single subagents (1 item). Use it for any task you want to delegate to a fresh subagent with an isolated context.
 
 If \`AgentSwarm\` is called, that call must be the only tool call in the response.`;
 
@@ -177,6 +185,7 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
             timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
             swarmRoot,
             runId,
+            useWorktree: true,
           };
 
           if (spec.kind === "resume") {
@@ -195,6 +204,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
 
         // Run with controller
         const maxConcurrency = resolveSwarmMaxConcurrency(process.cwd());
+        const repoCwd = process.cwd();
+        const inGitRepo = isGitRepository(repoCwd);
         const controller = new SubagentBatchController<SwarmSpec>(
           {
             spawn: spawnSubagent,
@@ -213,6 +224,14 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         );
         const results = await controller.run();
 
+        // Collect worktree branches for auto-merge
+        const allBranches: string[] = [];
+        for (const r of results) {
+          if (r.worktreeBranch) {
+            allBranches.push(r.worktreeBranch);
+          }
+        }
+
         // Register all agents in manifest and mark run completed
         for (const r of results) {
           if (r.agentId) {
@@ -226,12 +245,32 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           updateManifest(swarmRoot, manifest);
         }
 
+        // Auto-merge worktree branches back to original branch (in Git repos)
+        const mergeResults: string[] = [];
+        if (inGitRepo && allBranches.length > 0) {
+          for (const branch of allBranches) {
+            try {
+              const mergeResult = mergeBranch(repoCwd, branch);
+              if (mergeResult.success) {
+                mergeResults.push(`Merged: ${branch}`);
+              } else {
+                mergeResults.push(`Merge failed for ${branch}: ${mergeResult.error}`);
+              }
+            } catch (err) {
+              mergeResults.push(`Merge error for ${branch}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        }
+
         // Trigger completion animation before tearing down
         progress?.component.complete();
 
         // Render output
         const swarmResults = toSwarmRunResults(results);
-        const output = renderSwarmResults(swarmResults);
+        let output = renderSwarmResults(swarmResults);
+        if (mergeResults.length > 0) {
+          output += `\n\n<auto_merge>\n${mergeResults.join("\n")}\n</auto_merge>`;
+        }
 
         return {
           content: [{ type: "text", text: output }],
