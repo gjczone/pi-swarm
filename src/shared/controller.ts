@@ -603,11 +603,11 @@ export class SubagentBatchController<T> {
     let active = 0;
     const members: BatchMemberStatus[] = [];
 
+    const activeIndices = new Set(Array.from(this.active, a => a.state.index));
+
     for (const state of this.states) {
       const result = this.results[state.index];
-      const isActiveState = Array.from(this.active).some(
-        (a) => a.state.index === state.index,
-      );
+      const isActiveState = activeIndices.has(state.index);
 
       let phase: BatchMemberStatus["phase"] = "queued";
       let error: string | undefined;
@@ -732,9 +732,12 @@ export class SubagentBatchController<T> {
   }
 
   private scheduleNextRateLimitWakeup(now: number): void {
-    const next = Math.min(
+    const nextAllowedAt = Math.max(
       this.nextRateLimitLaunchAt,
       this.nextPendingReadyAt(),
+    );
+    const next = Math.min(
+      nextAllowedAt,
       this.nextRateLimitCapacityRecoveryAt(),
     );
     if (next > now) {

@@ -40,17 +40,6 @@ export function registerTeamCommand(
 
       // Activate swarm mode if not already active
       if (!host.swarmActive) {
-        if (host.getPermissionMode() === "manual") {
-          const confirmed = await ctx.ui?.confirm(
-            "Swarm Team",
-            "Starting a swarm team task. Switch to auto permission mode?",
-          );
-          if (!confirmed) {
-            host.showStatus("Swarm team task cancelled.");
-            return;
-          }
-          await host.setPermissionMode("auto");
-        }
         host.setSwarmActive(true, "task");
       }
 

@@ -186,6 +186,33 @@ describe("Persistence smoke", () => {
     expect(result.abandoned).toEqual([]);
     expect(result.cleanedUp.length).toBeGreaterThanOrEqual(0);
   });
+
+  it("recovery deletes orphaned directories without manifest", () => {
+    const orphanRunId = "test-orphan-run";
+    const swarmRoot = resolveSwarmRoot(tmpDir);
+    const runDir = path.join(swarmRoot, "state", "runs", orphanRunId);
+    const agentsDir = path.join(runDir, "agents");
+    fs.mkdirSync(agentsDir, { recursive: true });
+    fs.writeFileSync(path.join(agentsDir, "dummy.log"), "dummy agent log");
+
+    const result = recoverRuns(tmpDir);
+    expect(result.cleanedUp).toContain(orphanRunId);
+    expect(fs.existsSync(runDir)).toBe(false);
+  });
+
+  it("recovery preserves directories with corrupt manifest", () => {
+    const corruptRunId = "test-corrupt-run";
+    const swarmRoot = resolveSwarmRoot(tmpDir);
+    const runDir = path.join(swarmRoot, "state", "runs", corruptRunId);
+    const manifestPath = path.join(runDir, "manifest.json");
+    fs.mkdirSync(runDir, { recursive: true });
+    fs.writeFileSync(manifestPath, "{ this is not valid json");
+
+    const result = recoverRuns(tmpDir);
+    expect(result.cleanedUp).not.toContain(corruptRunId);
+    expect(fs.existsSync(runDir)).toBe(true);
+    expect(fs.existsSync(manifestPath)).toBe(true);
+  });
 });
 
 // ---------------------------------------------------------------------------
