@@ -468,13 +468,13 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
       const summary = summaryMatch ? summaryMatch[1]! : "";
 
       // Count phase results
-      const phaseMatches = text.match(/<phase name="(\w+)" status="(\w+)"/g);
+      const phaseMatches = text.match(/<phase name="(\w+)"[^>]*outcome="(\w+)"/g);
       let completedCount = 0;
       let failedCount = 0;
       if (phaseMatches) {
         for (const m of phaseMatches) {
-          if (m.includes('status="completed"')) completedCount += 1;
-          else if (m.includes('status="failed"')) failedCount += 1;
+          if (m.includes('outcome="completed"')) completedCount += 1;
+          else if (m.includes('outcome="failed"')) failedCount += 1;
         }
       }
 

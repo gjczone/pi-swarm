@@ -36,10 +36,6 @@ export interface SwarmCommandHost {
   showError(message: string): void;
   /** Check if a model is configured. */
   hasModel(): boolean;
-  /** Get the current permission mode. */
-  getPermissionMode(): string;
-  /** Set the permission mode. */
-  setPermissionMode(mode: string): Promise<void>;
 }
 
 export function registerSwarmCommand(
@@ -97,24 +93,8 @@ async function applySwarmMode(
   }
 
   if (enabled) {
-    // If in manual permission mode, ask for confirmation
-    if (host.getPermissionMode() === "manual") {
-      const confirmed = await ctx.ui?.confirm(
-        "Swarm Mode",
-        "Swarm mode works best with auto or yolo permission. " +
-          "Switch to auto permission mode and enable swarm?",
-      );
-      if (!confirmed) {
-        host.showStatus("Swarm mode not enabled.");
-        return;
-      }
-      await host.setPermissionMode("auto");
-    }
-
     host.setSwarmActive(true, "manual");
-    host.showStatus(
-      "Swarm mode enabled. AgentSwarm tool is now auto-approved.",
-    );
+    host.showStatus("Swarm mode enabled.");
 
     // Insert swarm mode marker (via pi.sendMessage for TUI rendering)
     host.pi.sendMessage?.({
@@ -141,17 +121,6 @@ async function startSwarmTask(
 ): Promise<void> {
   // Enable swarm mode if not already active
   if (!host.swarmActive) {
-    if (host.getPermissionMode() === "manual") {
-      const confirmed = await ctx.ui?.confirm(
-        "Swarm Task",
-        "Starting a swarm task. Switch to auto permission mode?",
-      );
-      if (!confirmed) {
-        host.showStatus("Swarm task cancelled.");
-        return;
-      }
-      await host.setPermissionMode("auto");
-    }
     host.setSwarmActive(true, "task");
   }
 

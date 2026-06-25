@@ -320,10 +320,12 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         : theme.fg("success", "V");
 
       // Extract summary stats from the XML output
-      const completedMatch = /completed="(\d+)"/.exec(text);
-      const failedMatch = /failed="(\d+)"/.exec(text);
-      const completed = completedMatch ? completedMatch[1]! : "?";
-      const failed = failedMatch ? failedMatch[1]! : "?";
+      const summaryMatch = /<summary>(.*?)<\/summary>/.exec(text);
+      const summaryText = summaryMatch ? summaryMatch[1]! : "";
+      const completedMatch = /completed: (\d+)/.exec(summaryText);
+      const failedMatch = /failed: (\d+)/.exec(summaryText);
+      const completed = completedMatch ? completedMatch[1]! : "0";
+      const failed = failedMatch ? failedMatch[1]! : "0";
 
       const container = new Container();
       container.addChild(

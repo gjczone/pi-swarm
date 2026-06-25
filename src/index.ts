@@ -159,12 +159,6 @@ export default function (pi: ExtensionAPI): void {
         return true;
       }
     },
-    getPermissionMode(): string {
-      return "auto";
-    },
-    async setPermissionMode(_mode: string): Promise<void> {
-      // Permission mode integration TBD
-    },
   };
 
   // ---- Lifecycle hooks ----

@@ -501,7 +501,7 @@ export class TeamSupervisor {
       if (status === "completed") {
         if (result.trim()) {
           const truncated = this.truncateForOutput(result);
-          lines.push(truncated);
+          lines.push(escapeBody(truncated));
         } else {
           lines.push(
             "(agent returned no text output; see per-agent output.log for full session transcript)",
@@ -518,7 +518,7 @@ export class TeamSupervisor {
 
     // Supervisor synthesis — a consolidated summary across all phases
     lines.push("<supervisor_synthesis>");
-    lines.push(this.buildSynthesis(allPhases));
+    lines.push(escapeBody(this.buildSynthesis(allPhases)));
     lines.push("</supervisor_synthesis>");
 
     lines.push("</swarm_team_result>");
@@ -798,10 +798,13 @@ function escapeAttr(value: string): string {
 }
 
 /**
- * Minimal escaping for XML element body content.
- * Only escapes & and ]]> to prevent XML parsing errors while
- * preserving markdown formatting (headers, lists, bold, etc.).
+ * Escape a string for use in XML element body content.
+ * Escapes XML structural characters to prevent malformed XML.
  */
 function escapeBody(value: string): string {
-  return value.replaceAll("&", "&amp;").replaceAll("]]>", "]]&gt;");
+  return value
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll("]]>", "]]&gt;");
 }

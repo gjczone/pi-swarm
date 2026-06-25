@@ -352,6 +352,9 @@ function parseEventStream(
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
       proc.removeAllListeners();
+      proc.stdout?.on("error", () => {});
+      proc.stderr?.on("error", () => {});
+      proc.on("error", () => {});
       if (err) {
         reject(err);
       } else if (result) {
