@@ -2,8 +2,8 @@
  * tui/progress — AgentSwarm live progress panel.
  *
  * Renders a real-time progress display above the input area when
- * an AgentSwarm batch is running.  Each subagent gets a braille
- * progress bar with status labels.
+ * an AgentSwarm batch is running. Each subagent gets a compact braille
+ * spinner with status and item description.
  *
  * Ported from MoonshotAI/kimi-code's AgentSwarmProgressComponent.
  */
@@ -12,57 +12,50 @@ import type { Component } from "@earendil-works/pi-tui";
 import type {
   BatchProgressSnapshot,
   BatchMemberStatus,
+  SubagentUsage,
 } from "../shared/types.js";
 
 // ---------------------------------------------------------------------------
-// Constants (from kimi-code)
+// Constants
 // ---------------------------------------------------------------------------
 
-/** Preferred width for the item text column. */
-const TEXT_CELL_PREFERRED_WIDTH = 30;
+/** Max item description length to display. */
+const MAX_ITEM_LABEL_LEN = 40;
 
-/** Gap between columns. */
-const CELL_GAP = "  ";
-
-/** Braille bar max width in characters. */
-const BRAILLE_BAR_MAX_WIDTH = 8;
-
-/** Minimum braille bar width. */
-const TEXT_BRAILLE_BAR_MIN_WIDTH = 6;
+/** Compact braille spinner frames for running agents. */
+const BRAILLE_SPINNER = [
+  "\u28BF",
+  "\u28FB",
+  "\u28FD",
+  "\u28FE",
+  "\u28F7",
+  "\u28EF",
+  "\u28DF",
+  "\u287F",
+] as const;
 
 /** Animation frame interval in ms. */
 const FRAME_INTERVAL_MS = 80;
 
-/** How long the completion-fill animation lasts in ms. */
-const COMPLETE_FILL_MS = 360;
-
-/** Braille characters representing fill levels 0-6 dots. */
+/** Braille characters representing fill levels 0-6 dots for completed bar. */
 const BRAILLE_LEVELS = [
-  "\u28C0", // 0 dots (empty)
-  "\u28C4", // 1 dot
-  "\u28E4", // 2 dots
-  "\u28E6", // 3 dots
-  "\u28F6", // 4 dots
-  "\u28F7", // 5 dots
-  "\u28FF", // 6 dots (full)
+  "\u28C0",
+  "\u28C4",
+  "\u28E4",
+  "\u28E6",
+  "\u28F6",
+  "\u28F7",
+  "\u28FF",
 ] as const;
 
 const BRAILLE_EMPTY = BRAILLE_LEVELS[0];
 const BRAILLE_FULL = BRAILLE_LEVELS[6];
-
-/** Status labels for each phase. */
-const ORCHESTRATING_LABEL = "Orchestrating...";
-const WORKING_LABEL = "Working...";
-const COMPLETED_LABEL = "Completed.";
-const FAILED_LABEL = "Failed.";
-const ABORTED_LABEL = "Aborted.";
-const QUEUED_LABEL = "Queued...";
+const COMPLETED_BAR_WIDTH = 4;
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
-/** Phase of a single member (subagent) in the progress display. */
 export type MemberPhase =
   | "pending"
   | "queued"
@@ -73,54 +66,31 @@ export type MemberPhase =
   | "cancelled"
   | "suspended";
 
-/** Status of a single member. */
 export interface MemberStatus {
-  /** 1-based index. */
   readonly index: number;
-  /** Current phase. */
   phase: MemberPhase;
-  /** Label for the item being processed. */
   item?: string;
-  /** Result text (for completed/failed). */
   result?: string;
-  /** Error message (for failed). */
   error?: string;
-  /** When the member transitioned to its current phase (ms timestamp). */
   phaseStartedAt?: number;
 }
 
-/** Overall swarm status pushed from the tool execution. */
 export interface SwarmProgressState {
-  /** Title for the progress panel. */
   title?: string;
-  /** Overall status label. */
-  status?: string;
-  /** Total number of subagents. */
   total: number;
-  /** Completed count. */
   completed: number;
-  /** Failed count. */
   failed: number;
-  /** Currently active count. */
   active: number;
-  /** Queued count. */
   queued: number;
-  /** Per-member status. */
   members: MemberStatus[];
+  totalUsage: SubagentUsage;
+  startedAt: number;
 }
 
 // ---------------------------------------------------------------------------
-// Snapshot conversion (controller snapshot -> component state)
+// Snapshot conversion
 // ---------------------------------------------------------------------------
 
-/**
- * Convert a BatchProgressSnapshot from the concurrency controller into
- * the SwarmProgressState expected by AgentSwarmProgressComponent.
- *
- * Maps the controller's coarse member phases onto the component's
- * richer MemberPhase set, attaching a phaseStartedAt timestamp so the
- * braille animation can run for working/suspended members.
- */
 export function snapshotToProgressState(
   snapshot: BatchProgressSnapshot,
   title?: string,
@@ -144,6 +114,8 @@ export function snapshotToProgressState(
     active: snapshot.active,
     queued: snapshot.queued,
     members,
+    totalUsage: snapshot.totalUsage,
+    startedAt: snapshot.startedAt ?? now,
   };
 }
 
@@ -173,40 +145,23 @@ function isAnimatedPhase(phase: BatchMemberStatus["phase"]): boolean {
 export class AgentSwarmProgressComponent implements Component {
   private state_: SwarmProgressState | null = null;
   private animationFrame: ReturnType<typeof setInterval> | undefined;
-  private startTime = Date.now();
   private renderedWidth: number | undefined;
   private cachedLines: string[] | undefined;
   private onRequestRender: (() => void) | undefined;
+  private frameIndex = 0;
 
-  /**
-   * @param onRequestRender  Optional callback to request a TUI re-render.
-   *   When provided, called on every animation tick so the braille bars
-   *   animate.  Without it the component still renders correctly but the
-   *   animation won't be visible to the user.
-   *
-   *   业务说明：TUI 框架不会自动轮询组件；需要通过 requestRender() 主动
-   *   触发重绘才能使 braille 进度条动起来。此回调由 setWidget 工厂函数
-   *   在捕获 tui 引用后传入。
-   */
   constructor(onRequestRender?: () => void) {
     this.onRequestRender = onRequestRender;
     this.startAnimation();
   }
 
-  // -------------------------------------------------------------------
-  // Public API
-  // -------------------------------------------------------------------
-
-  /** Update the progress state from the tool execution. */
   update(state: SwarmProgressState): void {
     this.state_ = state;
     this.invalidate();
   }
 
-  /** Mark the swarm as completed (triggers completion animation). */
   complete(): void {
     if (this.state_) {
-      // Mark all non-terminal members as completed
       for (const m of this.state_.members) {
         if (
           m.phase !== "completed" &&
@@ -220,24 +175,17 @@ export class AgentSwarmProgressComponent implements Component {
       this.state_.active = 0;
       this.state_.queued = 0;
       this.state_.completed = this.state_.total - this.state_.failed;
-      this.state_.status = COMPLETED_LABEL;
     }
     this.invalidate();
   }
 
-  /** Stop the animation loop. */
   dispose(): void {
     if (this.animationFrame !== undefined) {
       clearInterval(this.animationFrame);
       this.animationFrame = undefined;
     }
-    // 断开与 TUI 框架的连接，防止内存泄漏
     this.onRequestRender = undefined;
   }
-
-  // -------------------------------------------------------------------
-  // Component interface
-  // -------------------------------------------------------------------
 
   invalidate(): void {
     this.renderedWidth = undefined;
@@ -245,7 +193,7 @@ export class AgentSwarmProgressComponent implements Component {
   }
 
   render(width: number): string[] {
-    const safeWidth = Math.max(10, width);
+    const safeWidth = Math.max(20, width);
     if (this.cachedLines && this.renderedWidth === safeWidth) {
       return this.cachedLines;
     }
@@ -256,47 +204,52 @@ export class AgentSwarmProgressComponent implements Component {
     }
 
     const state = this.state_;
+    const contentWidth = safeWidth - 4;
     const lines: string[] = [];
 
-    // Title bar
+    // Header: title
     const title = state.title ?? "Agent Swarm";
-    lines.push(borderTop(title, safeWidth));
+    lines.push(`  ${truncateText(title, contentWidth)}`);
 
-    // Overall status
-    const statusLabel = state.status ?? resolveOverallStatus(state);
-    const statusBar = buildStatusBar(state, safeWidth);
-    lines.push(`  ${statusLabel}`);
-    lines.push(`  ${statusBar}`);
+    // Overall progress bar
+    const barWidth = Math.max(1, contentWidth);
+    const total = state.total || 1;
+    const doneRatio = (state.completed + state.failed) / total;
+    const doneChars = Math.round(doneRatio * barWidth);
+    const done = "\u2501".repeat(doneChars);
+    const remaining = "\u2501".repeat(barWidth - doneChars);
+    lines.push(`  ${done}${remaining}`);
 
     // Member rows
-    const maxMembers = Math.min(state.members.length, 20); // Cap for performance
+    const maxMembers = Math.min(state.members.length, 20);
     for (let i = 0; i < maxMembers; i += 1) {
       const member = state.members[i];
       if (!member) continue;
-      const row = renderMemberRow(member, safeWidth - 4);
+      const row = renderMemberRow(member, contentWidth, this.frameIndex);
       lines.push(`  ${row}`);
     }
 
-    // Summary
-    const summary = buildSummary(state, safeWidth - 4);
-    lines.push(`  ${summary}`);
+    // Separator
+    const sep = "\u2500".repeat(contentWidth);
+    lines.push(`  ${sep}`);
+
+    // Footer: counts + tokens + elapsed
+    const footer = buildFooter(state, contentWidth);
+    lines.push(`  ${footer}`);
 
     // Bottom border
-    lines.push(borderBottom(safeWidth));
+    const bottom = `\u2514${"\u2500".repeat(contentWidth)}\u2518`;
+    lines.push(bottom);
 
     this.cachedLines = lines;
     this.renderedWidth = safeWidth;
     return this.cachedLines;
   }
 
-  // -------------------------------------------------------------------
-  // Animation
-  // -------------------------------------------------------------------
-
   private startAnimation(): void {
     this.animationFrame = setInterval(() => {
+      this.frameIndex = (this.frameIndex + 1) % BRAILLE_SPINNER.length;
       this.invalidate();
-      // 通知 TUI 框架重绘，使 braille 动画可见
       this.onRequestRender?.();
     }, FRAME_INTERVAL_MS);
   }
@@ -306,57 +259,22 @@ export class AgentSwarmProgressComponent implements Component {
 // Rendering helpers
 // ---------------------------------------------------------------------------
 
-function borderTop(title: string, width: number): string {
-  const inner = ` ${title} `;
-  // Reserve 2 chars for corner symbols (┌ and ┐), 1 for the leading dash
-  const minLen = inner.length + 3;
-  if (minLen > width) {
-    const maxInner = Math.max(0, width - 2);
-    const truncated = inner.slice(0, maxInner);
-    return `\u250C${truncated}\u2510`;
-  }
-  const dashes = width - inner.length - 3;
-  return `\u250C${inner}\u2500${"\u2500".repeat(Math.max(0, dashes))}\u2510`;
-}
+function renderMemberRow(
+  member: MemberStatus,
+  width: number,
+  frameIndex: number,
+): string {
+  const indexLabel = `#${String(member.index).padStart(2, "0")}`;
+  const icon = memberIcon(member, frameIndex);
+  const statusLabel = shortPhaseLabel(member.phase);
+  const itemLabel = member.item ?? "";
 
-function borderBottom(width: number): string {
-  return `\u2514${"\u2500".repeat(Math.max(0, width - 2))}\u2518`;
-}
-
-function resolveOverallStatus(state: SwarmProgressState): string {
-  if (state.queued === 0 && state.active === 0) {
-    if (state.failed > 0) return FAILED_LABEL;
-    return COMPLETED_LABEL;
-  }
-  if (state.active > 0) return WORKING_LABEL;
-  return ORCHESTRATING_LABEL;
-}
-
-function buildStatusBar(state: SwarmProgressState, width: number): string {
-  const barWidth = Math.max(1, width - 4);
-  const total = state.total || 1;
-  const doneRatio = (state.completed + state.failed) / total;
-  const doneChars = Math.round(doneRatio * barWidth);
-  const remainingChars = barWidth - doneChars;
-
-  const done = "\u2501".repeat(doneChars);
-  const remaining = "\u2501".repeat(remainingChars);
-  return done + remaining;
-}
-
-function renderMemberRow(member: MemberStatus, width: number): string {
-  const indexLabel = `#${String(member.index)}`;
-  const brailleBar = renderBrailleBar(member, BRAILLE_BAR_MAX_WIDTH);
-  const statusLabel = memberPhaseLabel(member.phase);
-  const itemLabel = (member.item ?? "").slice(0, TEXT_CELL_PREFERRED_WIDTH);
-
-  // Layout: #N [braille] Status  item
-  const fixed = `${indexLabel} ${brailleBar} ${statusLabel}`;
+  // Layout: #NN [icon] status  item
+  const fixed = `${indexLabel} ${icon} ${statusLabel}`;
   const fixedLen = visibleLen(fixed);
 
-  // If the fixed part alone exceeds width, truncate it
   if (fixedLen >= width) {
-    return fixed.slice(0, width);
+    return truncateText(fixed, width);
   }
 
   const itemSpace = Math.max(0, width - fixedLen - 2);
@@ -365,85 +283,76 @@ function renderMemberRow(member: MemberStatus, width: number): string {
   return `${fixed}  ${truncatedItem}`;
 }
 
-function renderBrailleBar(member: MemberStatus, maxWidth: number): string {
-  const phase = member.phase;
-  const elapsed = member.phaseStartedAt
-    ? Date.now() - member.phaseStartedAt
-    : 0;
-
-  switch (phase) {
+function memberIcon(member: MemberStatus, frameIndex: number): string {
+  switch (member.phase) {
     case "completed":
-      return BRAILLE_FULL.repeat(maxWidth);
+      return BRAILLE_FULL.repeat(2);
     case "failed":
     case "cancelled":
+      return "\u2717 ";
     case "pending":
     case "queued":
-      return BRAILLE_EMPTY.repeat(maxWidth);
+      return "\u25CB ";
     case "prompting":
     case "working":
     case "suspended":
-      return animatedBrailleBar(maxWidth, elapsed);
+      return BRAILLE_SPINNER[frameIndex % BRAILLE_SPINNER.length]! + " ";
   }
 }
 
-function animatedBrailleBar(maxWidth: number, elapsedMs: number): string {
-  const cycleMs = 800; // One full animation cycle
-  const progress = (elapsedMs % cycleMs) / cycleMs; // 0..1
-
-  // Fill from left to right
-  const totalDots = maxWidth * 6; // 6 dots per braille char
-  const filledDots = Math.floor(progress * totalDots);
-
-  let result = "";
-  for (let i = 0; i < maxWidth; i += 1) {
-    const cellStart = i * 6;
-    const dotsInCell = Math.max(0, Math.min(6, filledDots - cellStart));
-    result += dotsInCell === 0 ? BRAILLE_EMPTY : BRAILLE_LEVELS[dotsInCell]!;
-  }
-  return result;
-}
-
-function memberPhaseLabel(phase: MemberPhase): string {
+function shortPhaseLabel(phase: MemberPhase): string {
   switch (phase) {
     case "pending":
     case "queued":
-      return QUEUED_LABEL;
+      return "wait";
     case "prompting":
-      return "Prompting...";
+      return "init";
     case "working":
-      return WORKING_LABEL;
+      return "work";
     case "completed":
-      return COMPLETED_LABEL;
+      return "done";
     case "failed":
-      return FAILED_LABEL;
+      return "fail";
     case "cancelled":
-      return ABORTED_LABEL;
+      return "abort";
     case "suspended":
-      return "Rate limited...";
+      return "retry";
   }
 }
 
-function buildSummary(state: SwarmProgressState, width: number): string {
-  const parts: string[] = [];
-  if (state.completed > 0) parts.push(`completed: ${state.completed}`);
-  if (state.failed > 0) parts.push(`failed: ${state.failed}`);
-  if (state.active > 0) parts.push(`active: ${state.active}`);
-  if (state.queued > 0) parts.push(`queued: ${state.queued}`);
-  const full = parts.join(", ");
+function buildFooter(state: SwarmProgressState, width: number): string {
+  const usage = state.totalUsage ?? { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 };
+  const counts = `${state.completed + state.failed}/${state.total} ag`;
+  const tokens = `${Math.round(usage.input)}in/${Math.round(usage.output)}out`;
+  const elapsed = formatElapsed(Date.now() - state.startedAt);
+
+  const parts: string[] = [counts, tokens, elapsed];
+  if (state.failed > 0) parts.splice(1, 0, `${state.failed}fail`);
+  if (state.active > 0) parts.splice(1, 0, `${state.active}act`);
+
+  const full = parts.join(" | ");
   if (full.length <= width) return full;
-  return full.slice(0, width);
+  return truncateText(full, width);
+}
+
+function formatElapsed(ms: number): string {
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const m = Math.floor(totalSec / 60);
+  const s = totalSec % 60;
+  return `${m}m${s}s`;
 }
 
 // ---------------------------------------------------------------------------
-// Text utilities (no external dependency — avoids import issues)
+// Text utilities
 // ---------------------------------------------------------------------------
 
 function visibleLen(text: string): number {
-  // Simple implementation: count characters, stripping ANSI escapes
   return text.replace(/\x1b\[[0-9;]*m/g, "").length;
 }
 
 function truncateText(text: string, maxLen: number): string {
   if (text.length <= maxLen) return text;
+  if (maxLen <= 1) return text.slice(0, 1);
   return text.slice(0, Math.max(0, maxLen - 1)) + "\u2026";
 }

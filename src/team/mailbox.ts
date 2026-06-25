@@ -116,6 +116,7 @@ export function ensureMailbox(paths: MailboxPaths): void {
 
 /**
  * Send a message to the team outbox and the recipient's per-task inbox.
+ * For broadcast messages, also deliver to all known role inboxes.
  */
 export function sendMessage(
   paths: MailboxPaths,
@@ -126,9 +127,23 @@ export function sendMessage(
 
   // Append to team outbox
   appendJsonLine(paths.outbox, message);
+  // Also append to team inbox for general reading
+  appendJsonLine(paths.inbox, message);
 
-  // If addressed to a specific agent, also put in their task inbox
-  if (message.to && message.to !== "broadcast") {
+  if (message.to === "broadcast") {
+    // Broadcast: deliver to all known role inboxes
+    const roles = ["explorer", "planner", "coder", "reviewer", "tester", "fixer"];
+    for (const role of roles) {
+      try {
+        const taskPaths = resolveTaskMailboxPaths(paths, role);
+        fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
+        appendJsonLine(taskPaths.inbox, message);
+      } catch {
+        // Best effort delivery per role
+      }
+    }
+  } else {
+    // Direct message: deliver to specific role inbox
     const taskPaths = resolveTaskMailboxPaths(paths, message.to);
     fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
     appendJsonLine(taskPaths.inbox, message);
@@ -151,6 +166,19 @@ export function readTaskInbox(
 ): MailboxMessage[] {
   const taskPaths = resolveTaskMailboxPaths(paths, taskId);
   return readJsonLines(taskPaths.inbox);
+}
+
+/**
+ * Count total messages in the team outbox.
+ */
+export function countOutboxMessages(paths: MailboxPaths): number {
+  try {
+    const raw = fs.readFileSync(paths.outbox, "utf-8");
+    if (!raw.trim()) return 0;
+    return raw.trim().split("\n").filter((line) => line.trim()).length;
+  } catch {
+    return 0;
+  }
 }
 
 /**

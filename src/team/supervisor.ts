@@ -14,6 +14,7 @@ import type {
   TeamProgressCallback,
   TeamProgressSnapshot,
   ModelTier,
+  SubagentUsage,
 } from "../shared/types.js";
 import { SMALL_MODEL_ROLES } from "../shared/types.js";
 import {
@@ -28,8 +29,17 @@ import {
   readTaskInbox,
   ackTaskMessages,
   updateDeliveryState,
+  countOutboxMessages,
   type MailboxPaths,
 } from "./mailbox.js";
+
+/**
+ * Get the mailbox root path for a given run.
+ * Exposed so tool.ts can pass it to the controller for real-time mailbox access.
+ */
+export function getMailboxRoot(swarmRoot: string, runId: string): string {
+  return resolveMailboxPaths(swarmRoot, runId).root;
+}
 
 // ---------------------------------------------------------------------------
 // Supervisor config
@@ -229,6 +239,7 @@ export class TeamSupervisor {
   completePhase(
     name: string,
     rawOutput: string,
+    usage?: SubagentUsage,
   ): {
     result: string;
     deliveredMessages: number;
@@ -239,7 +250,7 @@ export class TeamSupervisor {
     }
 
     const { result, messages } = this.parseAgentMessages(rawOutput);
-    this.state.taskGraph.completePhase(name, result);
+    this.state.taskGraph.completePhase(name, result, usage);
 
     // Deliver parsed handoff messages
     let deliveredCount = 0;
@@ -322,6 +333,55 @@ export class TeamSupervisor {
   assignAgent(phaseName: string, agentId: string): void {
     this.state.agentIds.set(phaseName, agentId);
     this.state.taskGraph.assignAgent(phaseName, agentId);
+  }
+
+  /**
+   * Update token usage for a running phase (for real-time progress display).
+   *
+   * 业务说明：实时更新运行中阶段的 token 使用量，供 TUI 仪表盘显示。
+   * 由 controller 的 onUsage 回调在每次 usage 更新时调用。
+   */
+  updatePhaseUsage(phaseName: string, usage: SubagentUsage): void {
+    const phase = this.state.taskGraph.getPhase(phaseName);
+    if (phase && phase.status === "running") {
+      phase.usage = { ...usage };
+      this.emitProgress();
+    }
+  }
+
+  /**
+   * Handle a real-time message sent by an agent during execution (not just at completion).
+   * Delivers the message to the recipient's inbox immediately, enabling true live communication.
+   *
+   * 业务说明：处理 agent 运行期间实时发送的消息（而不是仅在完成时）。
+   * 消息立即投递到接收方的 inbox 文件，正在运行的 agent 可以读取到。
+   * 这实现了真正的实时 agent 间通信，无需等待阶段完成。
+   */
+  handleRealtimeMessage(fromRole: string, message: MailboxMessage): void {
+    try {
+      // Override from field to use the actual sender role
+      const deliveryMessage: MailboxMessage = {
+        ...message,
+        from: fromRole,
+      };
+      sendMessage(this.mailboxPaths, deliveryMessage);
+      updateDeliveryState(
+        this.mailboxPaths,
+        deliveryMessage.messageId,
+        message.to === "broadcast" ? "broadcast" : "delivered",
+      );
+      // Update TUI to reflect new message count
+      this.emitProgress();
+    } catch {
+      // Best effort real-time delivery; failures are non-fatal
+    }
+  }
+
+  /**
+   * Get the mailbox root path for passing to spawner/controller.
+   */
+  getMailboxPath(): string {
+    return this.mailboxPaths.root;
   }
 
   /**
@@ -409,21 +469,23 @@ export class TeamSupervisor {
         role: p.phase.role,
         status: p.status as TeamProgressSnapshot["phases"][number]["status"],
         error: p.error,
+        usage: p.usage,
       }));
       const completed = phases.filter((p) => p.status === "completed").length;
       const failed = phases.filter((p) => p.status === "failed").length;
 
-      // Find current running phase
-      const runningPhase = phases.find((p) => p.status === "running");
+      // Find current running phase(s)
+      const runningPhases = phases.filter((p) => p.status === "running");
+      const runningPhase = runningPhases[0];
 
-      // Best-effort mailbox count
       let mailboxCount = 0;
       try {
-        const inbox = readTaskInbox(this.mailboxPaths, "supervisor");
-        mailboxCount = inbox.length;
+        mailboxCount = countOutboxMessages(this.mailboxPaths);
       } catch {
         // Ignore mailbox read errors
       }
+
+      const totalUsage = this.state.taskGraph.getTotalUsage();
 
       const snapshot: TeamProgressSnapshot = {
         title: this.config.goal,
@@ -432,11 +494,16 @@ export class TeamSupervisor {
         totalPhases: phases.length,
         completedPhases: completed,
         failedPhases: failed,
-        currentPhase: runningPhase?.name,
-        currentRole: runningPhase?.role,
+        currentPhase: runningPhases.length > 0
+          ? runningPhases.map((p) => p.name).join(", ")
+          : runningPhase?.name,
+        currentRole: runningPhases.length > 0
+          ? runningPhases.map((p) => p.role).join(", ")
+          : runningPhase?.role,
         phases,
         mailboxCount,
         startedAt: this.state.startedAt,
+        totalUsage,
       };
 
       this.onProgress(snapshot);
@@ -461,7 +528,7 @@ export class TeamSupervisor {
    * Synthesize the final team result from all completed phases.
    * Max characters of phase output to include inline; rest is truncated.
    */
-  private static readonly MAX_PHASE_OUTPUT_CHARS = 12000;
+  private static readonly MAX_PHASE_OUTPUT_CHARS = 50000;
 
   synthesizeResult(): string {
     const allPhases = this.state.taskGraph.getAllPhases();
@@ -750,14 +817,16 @@ export class TeamSupervisor {
       messagesBlock,
       `## Communication Protocol`,
       "",
-      `You can send messages to other team members by including them in your output using this format:`,
+      `You have TWO ways to communicate with other team members:`,
       "",
-      `<mailbox_message to="role_name">`,
-      `Your message content here. Be specific about what you found and what they need to know.`,
-      `</mailbox_message>`,
+      `1. **In your final output** (delivered after you complete):`,
+      `   Wrap messages in: <mailbox_message to="role_name">content</mailbox_message>`,
       "",
-      `You can address messages to: explorer, planner, coder, reviewer, tester, fixer, or broadcast.`,
-      `Messages are delivered after your phase completes.`,
+      `2. **Real-time during your work** (delivered immediately):`,
+      `   Append a JSON line to your outbox file (see "Real-time Mailbox Communication" section below).`,
+      `   Check your inbox file periodically for new messages from teammates.`,
+      "",
+      `You can address messages to: explorer, planner, coder, reviewer, tester, fixer, or broadcast (all agents).`,
       "",
       `Your final output (outside of mailbox_message tags) is your phase result.`,
       `Complete the ${name} phase and write your result.`,

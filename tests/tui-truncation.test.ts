@@ -47,6 +47,8 @@ function makeProgressState(
     active: 1,
     queued: 1,
     members,
+    totalUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
+    startedAt: Date.now(),
     ...overrides,
   };
 }
@@ -63,7 +65,7 @@ function makeDashboardState(
     completedPhases: 1,
     failedPhases: 0,
     currentPhase: "implement",
-    currentRole: "implementer",
+    currentRoles: ["coder"],
     phases: [
       {
         name: "explore",
@@ -73,7 +75,7 @@ function makeDashboardState(
       },
       {
         name: "implement",
-        role: "implementer",
+        role: "coder",
         status: "running",
         phaseStartedAt: Date.now(),
       },
@@ -86,6 +88,7 @@ function makeDashboardState(
     ],
     mailboxCount: 0,
     startedAt: Date.now(),
+    totalUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
     ...overrides,
   };
 }

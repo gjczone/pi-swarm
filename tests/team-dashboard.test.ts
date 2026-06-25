@@ -49,6 +49,7 @@ function makeSnapshot(
     ],
     mailboxCount: 3,
     startedAt: Date.now() - 120000,
+    totalUsage: { input: 0, output: 0, cacheRead: 0, cacheWrite: 0, totalTokens: 0 },
     ...overrides,
   };
 }
@@ -66,7 +67,6 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     expect(lines.length).toBeGreaterThan(0);
-    // Header should contain title or status
     const header = lines[0]!;
     expect(header).toContain("Test Team");
   });
@@ -78,7 +78,6 @@ describe("TeamDashboardComponent", () => {
     component.update(state);
 
     const lines = component.render(60);
-    // Phases should appear: explore, plan, implement, review, test
     const joined = lines.join("\n");
     expect(joined).toContain("explore");
     expect(joined).toContain("plan");
@@ -95,8 +94,8 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toMatch(/explore.*completed/s);
-    expect(joined).toMatch(/plan.*completed/s);
+    expect(joined).toMatch(/explore.*ok/s);
+    expect(joined).toMatch(/plan.*ok/s);
   });
 
   it("shows queued marker for pending phases", () => {
@@ -107,8 +106,8 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toMatch(/review.*queued/s);
-    expect(joined).toMatch(/test.*queued/s);
+    expect(joined).toMatch(/review.*\.\.\./s);
+    expect(joined).toMatch(/test.*\.\.\./s);
   });
 
   it("shows failed marker for failed phases", () => {
@@ -127,7 +126,7 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toMatch(/explore.*failed/s);
+    expect(joined).toContain("bad error");
   });
 
   it("shows skipped marker for skipped phases", () => {
@@ -146,7 +145,7 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toMatch(/explore.*skipped/s);
+    expect(joined).toMatch(/explore.*skip/s);
   });
 
   it("shows mailbox count in footer", () => {
@@ -157,7 +156,7 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toContain("5");
+    expect(joined).toContain("5msg");
   });
 
   it("shows elapsed time in footer", () => {
@@ -168,7 +167,6 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    // Should contain elapsed time units (m or s)
     expect(joined).toMatch(/\d+m/);
   });
 
@@ -193,7 +191,6 @@ describe("TeamDashboardComponent", () => {
     component.update(state);
 
     const lines = component.render(60);
-    // Should render at most 20 phases
     const phaseNameLines = lines.filter((l) => l.includes("phase"));
     expect(phaseNameLines.length).toBeLessThanOrEqual(20);
   });
@@ -207,8 +204,7 @@ describe("TeamDashboardComponent", () => {
     component.complete();
     const lines = component.render(60);
     const joined = lines.join("\n");
-    // Status should change to completed
-    expect(joined).toContain("completed");
+    expect(joined).toContain("5/5 ph");
   });
 
   it("dispose stops animation", () => {
@@ -217,11 +213,10 @@ describe("TeamDashboardComponent", () => {
     const component = new TeamDashboardComponent();
     component.update(state);
 
-    // Should not throw
     component.dispose();
   });
 
-  it("renders multiple running phases with individual braille bars", () => {
+  it("renders multiple running phases with individual braille spinners", () => {
     const snapshot = makeSnapshot({
       completedPhases: 0,
       failedPhases: 0,
@@ -243,9 +238,7 @@ describe("TeamDashboardComponent", () => {
     expect(joined).toContain("explore-a");
     expect(joined).toContain("explore-b");
     expect(joined).toContain("plan");
-    // Should show both as running
-    expect(joined).toMatch(/explore-a.*running/);
-    expect(joined).toMatch(/explore-b.*running/);
+    expect(joined).toContain("explorer");
   });
 
   it("handles narrow terminal without overflow", () => {
@@ -254,10 +247,8 @@ describe("TeamDashboardComponent", () => {
     const component = new TeamDashboardComponent();
     component.update(state);
 
-    // Render at very narrow width — should not crash or produce empty output
     const lines = component.render(25);
     expect(lines.length).toBeGreaterThan(0);
-    // Every line must fit within width
     for (const line of lines) {
       expect(line.length).toBeLessThanOrEqual(25);
     }
@@ -272,7 +263,6 @@ describe("TeamDashboardComponent", () => {
     const firstLines = component.render(60);
     const firstCount = firstLines.length;
 
-    // Update with same number of phases but different status
     const updatedSnapshot = makeSnapshot({
       completedPhases: 3,
       currentPhase: "review",
@@ -287,7 +277,6 @@ describe("TeamDashboardComponent", () => {
     component.update(snapshotToDashboardState(updatedSnapshot));
     const secondLines = component.render(60);
 
-    // Line count should remain stable
     expect(secondLines.length).toBe(firstCount);
   });
 });

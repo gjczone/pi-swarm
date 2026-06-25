@@ -24,6 +24,7 @@ import {
   retrySubagent,
 } from "../shared/spawner.js";
 import type { QueuedSubagentTask, SubagentResult } from "../shared/types.js";
+import { mergeBranch, isGitRepository } from "../shared/worktree.js";
 import {
   resolveSwarmRoot,
   createManifest,
@@ -50,9 +51,16 @@ const TEAM_DASHBOARD_WIDGET_KEY = "pi-swarm-team-dashboard";
 
 const AGENT_TEAM_DESCRIPTION = `Launch a collaborative team of role-based agents to complete a complex multi-phase task.
 
-SwarmTeam is best for tasks that require multiple steps across different roles:
+**IMPORTANT: ONLY use SwarmTeam when the user EXPLICITLY asks for a "team", "swarm-team", or role-based collaboration with communication between agents. For nearly all parallel tasks, use AgentSwarm instead.**
+
+SwarmTeam is best for COMPLEX tasks that REQUIRE multiple specialized roles collaborating sequentially:
 explorer (codebase understanding) → planner (design) → coder (implementation)
  → reviewer (quality check) → tester (verification).
+
+Do NOT use SwarmTeam for:
+- Simple parallel tasks (use AgentSwarm)
+- Single subagent tasks (use AgentSwarm with 1 item)
+- Tasks where agents don't need to communicate results to each other
 
 Each agent communicates via a shared mailbox. The supervisor decomposes the goal
 into phases, assigns each phase to a role agent, and synthesizes the final result.
@@ -213,7 +221,10 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         // 业务说明：同时启动所有依赖已满足的阶段。独立阶段并行执行，
         // 有依赖的阶段在依赖完成后自动成为下一批。
         const allResults: SubagentResult<unknown>[] = [];
+        const allBranches: string[] = [];
         const maxConcurrency = p.max_agents ?? 4;
+        const repoCwd = process.cwd();
+        const inGitRepo = isGitRepository(repoCwd);
 
         let currentPhases = supervisor.startReadyPhases();
 
@@ -230,13 +241,15 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               const execConfig = supervisor!.getPhaseExecutionConfig(
                 cp.phase.phase.name,
               );
+              const phaseName = cp.phase.phase.name;
+              const mailboxPath = supervisor!.getMailboxPath();
               return {
                 kind: "spawn" as const,
-                data: { phase: cp.phase.phase.name, role: cp.role },
+                data: { phase: phaseName, role: cp.role },
                 profileName: cp.role,
                 parentToolCallId: toolCallId,
                 prompt: cp.prompt,
-                description: `${p.description} — ${cp.phase.phase.name} (${cp.role})`,
+                description: `${p.description} — ${phaseName} (${cp.role})`,
                 swarmIndex: idx + 1,
                 runInBackground: false,
                 signal,
@@ -244,8 +257,17 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
                 model: execConfig.model,
                 tools: execConfig.tools,
                 cwd: execConfig.cwd,
+                useWorktree: true,
                 swarmRoot,
                 runId,
+                mailboxPath,
+                roleName: cp.role,
+                onUsage: (usage) => {
+                  supervisor?.updatePhaseUsage(phaseName, usage);
+                },
+                onMessage: (message) => {
+                  supervisor?.handleRealtimeMessage(cp.role, message);
+                },
               };
             },
           );
@@ -318,9 +340,13 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
               supervisor.completePhase(
                 cp.phase.phase.name,
                 result.result ?? "",
+                result.usage,
               );
               if (result.agentId) {
                 registerAgentInManifest(swarmRoot, runId, result.agentId);
+              }
+              if (result.worktreeBranch) {
+                allBranches.push(result.worktreeBranch);
               }
             } else if (result) {
               supervisor.failPhase(
@@ -343,6 +369,25 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         // Finalize and render
         supervisor.finalize();
 
+        // Auto-merge worktree branches back to original branch (in Git repos)
+        // 业务说明：所有阶段完成后，按顺序合并子 agent 创建的分支。
+        // 冲突时停止合并，保留分支供用户手动解决。
+        const mergeResults: string[] = [];
+        if (inGitRepo && allBranches.length > 0) {
+          for (const branch of allBranches) {
+            try {
+              const mergeResult = mergeBranch(repoCwd, branch);
+              if (mergeResult.success) {
+                mergeResults.push(`Merged: ${branch}`);
+              } else {
+                mergeResults.push(`Merge failed for ${branch}: ${mergeResult.error}`);
+              }
+            } catch (err) {
+              mergeResults.push(`Merge error for ${branch}: ${err instanceof Error ? err.message : String(err)}`);
+            }
+          }
+        }
+
         // Mark run as completed
         if (runCreated) {
           const manifest = readManifest(swarmRoot, runId);
@@ -354,7 +399,10 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         }
 
         dashboard?.component.complete();
-        const output = supervisor.synthesizeResult();
+        let output = supervisor.synthesizeResult();
+        if (mergeResults.length > 0) {
+          output += `\n\n<auto_merge>\n${mergeResults.join("\n")}\n</auto_merge>`;
+        }
 
         return {
           content: [{ type: "text", text: output }],
