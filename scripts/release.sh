@@ -58,6 +58,22 @@ NEW_VERSION=$(npm version "$BUMP_TYPE" --no-git-tag-version)
 NEW_VERSION="${NEW_VERSION#v}" # Remove 'v' prefix
 log "New version: $NEW_VERSION"
 
+# Step 2.5: Check for tag collision
+if git rev-parse "v$NEW_VERSION" >/dev/null 2>&1; then
+    warn "Tag v$NEW_VERSION already exists!"
+    # Find the next available patch version
+    IFS='.' read -r MAJOR MINOR PATCH <<< "$NEW_VERSION"
+    NEXT_PATCH="$MAJOR.$MINOR.$((PATCH + 1))"
+    while git rev-parse "v$NEXT_PATCH" >/dev/null 2>&1; do
+        PATCH=$((PATCH + 1))
+        NEXT_PATCH="$MAJOR.$MINOR.$((PATCH + 1))"
+    done
+    log "Auto-incrementing to v$NEXT_PATCH"
+    NEW_VERSION="$NEXT_PATCH"
+    npm version "$NEW_VERSION" --no-git-tag-version >/dev/null
+    log "Version set to: $NEW_VERSION"
+fi
+
 # Step 3: Sync version to all surfaces
 log "Step 3: Syncing version to all surfaces..."
 # package.json already bumped by npm version above
