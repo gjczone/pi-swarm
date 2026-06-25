@@ -146,7 +146,7 @@ Plus manual steps from LOCAL_CI.md:
 - Dist module count: `test $(find dist -name "*.js" | wc -l) -ge 20`
 - Pi integration smoke test (symlink or npm install)
 
-**Pass**: typecheck -> 102 tests -> build -> dist verified. All green, 0 failures. Prettier: zero warnings. Dist: 20+ .js modules.
+**Pass**: typecheck -> 107 tests -> build -> dist verified. All green, 0 failures. Prettier: zero warnings. Dist: 20+ .js modules.
 
 ---
 

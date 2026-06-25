@@ -18,6 +18,8 @@ import {
   readManifest,
   deleteRunState,
   writeAtomic,
+  validateId,
+  resolveAgentStateDir,
   type RunManifest,
 } from "../src/state/persistence.js";
 import {
@@ -366,6 +368,46 @@ describe("Supervisor integration", () => {
     // plan and implement should be skipped, so no ready phases remain
     const batch2 = supervisor.startReadyPhases();
     expect(batch2.length).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// ID validation and path traversal tests (#41)
+// ---------------------------------------------------------------------------
+
+describe("ID validation", () => {
+  it("validateId accepts safe agent IDs", () => {
+    expect(() => validateId("agent-123_abc", "agentId")).not.toThrow();
+    expect(() => validateId("swarm-abc123", "agentId")).not.toThrow();
+  });
+
+  it("validateId rejects path traversal characters", () => {
+    expect(() => validateId("../../evil", "agentId")).toThrow(
+      /unsafe characters/,
+    );
+    expect(() => validateId("../escape", "agentId")).toThrow(
+      /unsafe characters/,
+    );
+    expect(() => validateId("agent/../../evil", "agentId")).toThrow(
+      /unsafe characters/,
+    );
+    expect(() => validateId("agent\\..\\evil", "agentId")).toThrow(
+      /unsafe characters/,
+    );
+  });
+
+  it("resolveAgentStateDir rejects path traversal in agentId", () => {
+    const tmpDir = path.join(os.tmpdir(), `pi-swarm-validate-${Date.now()}`);
+    fs.mkdirSync(tmpDir, { recursive: true });
+    const swarmRoot = resolveSwarmRoot(tmpDir);
+    const runId = "test-run-validate";
+
+    expect(() =>
+      resolveAgentStateDir(swarmRoot, runId, "../../evil"),
+    ).toThrow();
+    expect(() => resolveAgentStateDir(swarmRoot, runId, "../escape")).toThrow();
+
+    fs.rmSync(tmpDir, { recursive: true, force: true });
   });
 });
 
