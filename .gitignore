@@ -35,3 +35,4 @@ npm-debug.log*
 
 # TypeScript incremental
 *.tsbuildinfo
+.zcode

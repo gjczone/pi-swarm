@@ -14,7 +14,6 @@
 
 **Opportunistic fixes — fix on sight, report in completion report:**
 When encountering a pre-existing issue that is unrelated to the current task, fix it immediately — without asking — if and only if ALL of the following are true:
-
 1. No refactoring involved (moving, renaming, restructuring code).
 2. No new dependencies required.
 3. The fix is self-contained and low-risk (a typo, a missing null check, an unused import, an empty catch block, an obvious off-by-one, a broken log message).
@@ -92,29 +91,23 @@ Trigger only when the task or milestone is fully completed:
 老板您好，已完成 [一句话总结]。
 
 **做了什么**
-
 - [业务层面]：[通俗说明变更内容和原因]
 
 **结果**
-
 - [什么变了]：[用户视角描述变更效果]
 - [影响范围]：[受影响的页面 / 功能 / 模块]
 
 **已确认**
-
 - [验证项 1]：[验证方式和结果]
 - [验证项 2]：[验证方式和结果]
 
 **顺手修了这些** _(非本次任务引入的遗留问题，已在本次一并修复)_
-
 - [文件 / 位置]：[问题描述，做了什么]
 
 **需要你决策**
-
 - [需人工判断的事项]：[为什么需要你决定]
 
 **待跟进** _(发现但未修复——改动太大或风险过高)_
-
 - #N：[简述] → [为何未在本次修复]
 ```
 
@@ -135,9 +128,9 @@ Trigger only when the task or milestone is fully completed:
 
 ### 5.3 API Calls
 
-- Before writing any code that calls your project's own backend (regardless of language or library), read `./api.d.ts` first. Endpoint path, HTTP method, request shape, and response shape must match exactly.
-- External library APIs → query `context7` MCP. Your project's own API → read `./api.d.ts`. **NEVER** guess either.
-- If `api.d.ts` does not exist or the needed endpoint is missing: update `api.d.ts` first, then implement both backend and frontend together. **NEVER** write client code against an undocumented endpoint.
+- Before writing any code that calls your project's own backend (regardless of language or library), read `rules/api.d.ts` first. Endpoint path, HTTP method, request shape, and response shape must match exactly.
+- External library APIs → query `context7` MCP. Your project's own API → read `rules/api.d.ts`. **NEVER** guess either.
+- If `rules/api.d.ts` does not exist or the needed endpoint is missing: update `rules/api.d.ts` first, then implement both backend and frontend together. **NEVER** write client code against an undocumented endpoint.
 
 ---
 
@@ -146,7 +139,6 @@ Trigger only when the task or milestone is fully completed:
 - **Python**: ALL operations MUST go through `uv`. **NEVER** invoke `python`, `pip`, `venv`, or `virtualenv` directly.
 - **JavaScript / TypeScript**: Use the package manager already present in the project (`npm`, `yarn`, or `pnpm` — determined by the lockfile). **NEVER** mix package managers in the same project.
 - When the project's toolchain is not covered above, check the project-level for toolchain rules before using any default.
-
 <general-project-rules>
 
 # pi-swarm
@@ -155,226 +147,165 @@ Agent Swarm & Team extension for pi-coding-agent. Single to 128 subagents: paral
 
 Goal: replace both the third-party `subagent` extension and `worktree`, becoming the unified sub-agent orchestration solution for the pi ecosystem.
 
+## shazam Tools — USE THEM
+
+You have access to pi-shazam — 9 code analysis tools. You WILL use every one of them. They are NOT optional.
+
+**`shazam_overview` is ALREADY in your context.** It was auto-injected before you started reading. READ it. The project structure, top files, and hotspots are right there above this section. If you can see the overview output in your context — Do NOT call `shazam_overview`. If you do NOT see it — call it immediately. It is the single most important tool. You cannot work blind.
+
+Here are the other 8 tools. You MUST call them. Memorize them. Use them or fail.
+
+| Tool | What it does | You MUST call it when |
+|------|-------------|----------------------|
+| `shazam_lookup` | Symbol/file details — hover info, type hierarchy, callers, callees | You need to understand any symbol or file |
+| `shazam_impact` | Blast radius — every file, symbol, and test affected by your change | BEFORE editing shared or exported modules. Do NOT guess what you'll break. |
+| `shazam_verify` | Post-edit gate — LSP diagnostics, graph analysis, PASS/WARN/FAIL | AFTER every write. Run it. Read the verdict. If it says FAIL or WARN, fix it NOW. |
+| `shazam_changes` | Git change summary with symbol-level detail and risk level | You edited things and need to know what actually changed |
+| `shazam_format` | Auto-fix formatting — supports multiple formatters | `shazam_verify` reports format errors |
+| `shazam_find_tests` | Discover test files, test functions, where new tests belong | Adding tests or modifying code that has tests |
+| `shazam_rename_symbol` | Cross-file symbol rename with atomic writes and safety gate | Renaming ANY symbol. Do NOT manually find-and-replace. |
+| `shazam_safe_delete` | Check for zero incoming references before deletion | Removing any exported symbol. Do NOT delete blind. |
+
+If a tool errors or is unavailable, try once more, then work around it. But you MUST try it first. These tools are the difference between a working change and a broken build.
+
 ## When to Read Companion Files
 
-| File                   | Directive                                                                                                                                                                                       | Trigger                                                        |
-| ---------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------- |
-| `PLAN.md`              | Architecture design, module specs, API contracts. Read before coding.                                                                                                                           | Any code change, new module, API design                        |
-| `README.md`            | User-facing setup, install, and feature descriptions.                                                                                                                                           | User onboarding, release announcements                         |
-| `CHANGELOG.md`         | Release history and version tracking. Update when releasing.                                                                                                                                    | Before creating a release, before investigating regression     |
-| `rules/LOCAL_CI.md`    | Local CI checklist. Run ALL checks BEFORE committing.                                                                                                                                           | Before every commit, before reporting task completion          |
-| `rules/OPS.md`         | Release operations checklist. Run through ALL items when publishing.                                                                                                                            | Before every release                                           |
-| `rules/LLM-REVIEW-GUIDE.md`  | Read before performing a code review on this project. Contains project-specific review rules, risk tiers, and sanity checks. NEVER submit review findings that violate the DO NOT REPORT rules. | Before any code review                                         |
-| `docs/architecture.md` | Detailed architecture design, data flows, design rationale.                                                                                                                                     | Understanding module interactions, onboarding new contributors |
+| File | Trigger |
+|------|---------|
+| `PLAN.md` | Any code change, new module, API design — architecture design, module specs, API contracts |
+| `README.md` | User onboarding, release announcements |
+| `CHANGELOG.md` | Before creating a release, before investigating regression |
+| `docs/architecture.md` | Understanding module interactions, data flows, design rationale |
 
 ## When to Read Rules Files
 
 | File | Trigger |
 |------|---------|
 | `rules/CODING.md` | Before writing or modifying any source code |
-| `rules/TESTING.md` | Before writing tests or verifying test results |
-| `rules/DEBUGGING.md` | Before investigating any bug or test failure |
-| `rules/API-RULES.md` | Before implementing or calling any API |
-| `rules/DATA-STATE.md` | Before working with state persistence or data flows |
-| `rules/VERIFICATION.md` | Before reporting task completion |
-| `rules/LOCAL_CI.md` | Before every commit — run ALL checks |
-| `rules/OPS.md` | Before every release |
-| `rules/LLM-REVIEW-GUIDE.md` | Before performing a code review |
-| `rules/SECURITY.md` | Before handling auth, secrets, or user input |
-| `rules/ERROR-HANDLING.md` | Before writing try/catch or error propagation |
-| `rules/LOGGING.md` | Before adding console.log or structured logging |
-| `rules/DEPENDENCIES.md` | Before adding or updating dependencies |
+| `rules/REVIEW-RULES.md` | Before performing a code review — NEVER submit findings that violate the DO NOT REPORT rules |
 | `rules/ARCHITECTURE.md` | Before modifying module structure or layer boundaries |
+
+## Project Snapshot
+
+- **Language**: TypeScript 6.x, `NodeNext` module resolution, compiled to `dist/`
+- **Runtime**: Node.js >= 18, npm package manager
+- **Type**: pi-coding-agent extension, auto-discovered via `pi.extensions: ["./dist"]` in `package.json`
+- **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema); peer: `@earendil-works/pi-coding-agent`
+- **Test framework**: vitest — 107+ tests, 8 test files, 0 failures
+- **Key risk areas**: concurrency controller (rate-limit capacity model), sub-agent process lifecycle (spawn/kill/abort), worktree isolation edge cases, mailbox atomic writes
 
 ## Commands
 
-| Command             | Purpose                                 |
-| ------------------- | --------------------------------------- |
-| `npm install`       | Install dependencies                    |
-| `npm run build`     | Compile TS → `dist/`                    |
-| `npm run typecheck` | `tsc --noEmit` — type validation        |
-| `npm run dev`       | `tsc --watch` — incremental compilation |
-| `npm test`          | Run all tests via vitest                |
-| `npm run ci`        | typecheck + test + build + dist verify  |
+| Command | Purpose |
+|---------|---------|
+| `npm install` | Install dependencies |
+| `npm run build` | Compile TS → `dist/` |
+| `npm run typecheck` | `tsc --noEmit` — type validation |
+| `npm run dev` | `tsc --watch` — incremental compilation |
+| `npm test` | Run all tests via vitest |
+| `npm run ci` | typecheck + test + build + dist verify |
+| `bash scripts/ci.sh` | Full CI: typecheck, test, build, lint, verify |
+| `bash scripts/release.sh` | Release checklist — run ALL items before publishing |
 
-## Development Environment
-
-- Node.js >= 18, npm as package manager
-- TypeScript 6.x with `NodeNext` module resolution
-- Extension auto-discovered via `pi.extensions: ["./dist"]` in `package.json`
-- Types imported from `@earendil-works/pi-coding-agent` (runtime) and `@earendil-works/pi-tui` (TUI components)
-- Test the extension by symlinking `dist/` into `~/.pi/agent/extensions/pi-swarm` or installing via `pi install npm:@gjczone/pi-swarm@latest`
+Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent/extensions/pi-swarm`.
 
 ## Architecture
 
-```
-src/
-├── index.ts              # Entry: default export, registers tools + commands + hooks
-├── shared/
-│   ├── types.ts          # Shared type definitions
-│   ├── spawner.ts        # Sub-agent process spawner (pi --print)
-│   ├── controller.ts     # Concurrency controller (ramp-up + rate-limit + abort)
-│   ├── render.ts         # Result rendering (<agent_swarm_result> XML)
-│   ├── pi-invoke.ts      # pi CLI invocation helper
-│   └── worktree.ts       # Worktree management (git worktree isolation)
-├── swarm/
-│   ├── tool.ts           # AgentSwarm tool registration (pi.registerTool)
-│   ├── command.ts        # /swarm slash command handler
-│   └── mode.ts           # SwarmMode state machine (enter/exit/reminders)
-├── team/
-│   ├── tool.ts           # SwarmTeam tool registration (pi.registerTool)
-│   ├── command.ts        # /swarm-team slash command handler
-│   ├── mailbox.ts        # JSONL mailbox system (inbox/outbox/delivery)
-│   ├── task-graph.ts     # Phase dependency graph (DAG)
-│   └── supervisor.ts     # Team supervisor (decomposition + assignment + synthesis)
-├── tui/
-│   ├── progress.ts        # AgentSwarmProgressComponent (live braille progress bars)
-│   ├── swarm-markers.ts   # SwarmModeMarkerComponent (activated/deactivated/ended)
-│   ├── permission-prompt.ts  # Permission prompt dialog for manual mode
-│   └── team-dashboard.ts  # SwarmTeam live phase progress dashboard
-└── state/
-    ├── persistence.ts    # Durable state (manifest, tasks, events, atomic writes)
-    └── recovery.ts       # Crash recovery (stale run detection, cleanup)
-```
+**Layer dependency**: `tui/` + `state/` → `swarm/` + `team/` → `shared/` → `index.ts`
 
-### Layer Dependency
-
-`tui/` + `state/` → `swarm/` + `team/` → `shared/` → `index.ts`
-
-`shared/` is the core with zero pi or tui imports. `swarm/` and `team/` compose shared primitives. `tui/` implements Component from pi-tui. `state/` is pure Node.js filesystem. `index.ts` wires everything.
+- `shared/` — no pi or tui imports. Pure logic, types, process management.
+- `swarm/` and `team/` — compose shared primitives, register pi tools/commands. Must not import from each other.
+- `tui/` — implements `Component` from `@earendil-works/pi-tui`.
+- `state/` — pure Node.js filesystem, no pi imports.
+- `index.ts` — wires everything via `pi.registerTool`, `pi.registerCommand`, `pi.on`.
 
 ## Key Design Decisions
 
-| Decision             | Choice                                                                               |
-| -------------------- | ------------------------------------------------------------------------------------ |
-| Sub-agent execution  | Spawn `pi --print` child processes (JSON Lines event stream)                         |
-| Concurrency strategy | Two-phase: ramp-up (5 + 1/700ms) → rate-limit (capacity model)                       |
-| Rate-limit handling  | Auto suspend + retry with exponential backoff (3s/6s/12s/…)                          |
-| Context isolation    | Each sub-agent runs in a fresh pi process, no parent context                         |
-| Model selection      | Optional; passed via settings. Defaults to parent agent's model                      |
-| Tool whitelist       | All tools available to sub-agents by default                                         |
-| Persistence          | Durable file-based state; resume if not completed; disband when done                 |
-| TUI progress         | Braille progress bars with 80ms frame animation, onProgress callback from controller |
-| Swarm output format  | `<agent_swarm_result>` XML (compatible with kimi-code)                               |
-| Team communication   | JSONL mailbox (inbox.jsonl / outbox.jsonl)                                           |
-| Team workflow        | Sequential phases with dependency graph (DAG)                                        |
-| Dual mode            | `/swarm` (parallel) + `/swarm-team` (collaborative)                                  |
+| Decision | Choice |
+|----------|--------|
+| Sub-agent execution | Spawn `pi --print` child processes (JSON Lines event stream) |
+| Concurrency strategy | Two-phase: ramp-up (5 + 1/700ms) → rate-limit (capacity model) |
+| Rate-limit handling | Auto suspend + retry with exponential backoff (3s/6s/12s/…) |
+| Context isolation | Each sub-agent runs in a fresh pi process, no parent context sharing |
+| Persistence | Durable file-based state under `.pi/swarm/state/`; resume if not completed |
+| TUI progress | Braille progress bars with 80ms frame animation, onProgress callback |
+| Swarm output format | `<agent_swarm_result>` XML (compatible with kimi-code) |
+| Team communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes |
+| Team workflow | Sequential phases with dependency graph (DAG) |
+| Dual mode | `/swarm` (parallel, item-template) + `/swarm-team` (collaborative, role-based) |
+
+## Data & State Flows
+
+| State location | Purpose | Lifecycle |
+|---------------|---------|-----------|
+| `.pi/swarm/state/runs/<runId>/manifest.json` | Run metadata, agent list, start/end times | Created at run start, updated on completion |
+| `.pi/swarm/state/runs/<runId>/tasks.json` | Task queue with status per agent | Created at run start, updated per task completion |
+| `.pi/swarm/state/runs/<runId>/events.jsonl` | Append-only event log | Written throughout run, read for crash recovery |
+| `.pi/swarm/state/runs/<runId>/agents/<agentId>/status.json` | Per-agent status (running/completed/failed) | Created at agent spawn, updated on exit |
+| `.pi/swarm/state/runs/<runId>/agents/<agentId>/output.log` | Per-agent full stdout/stderr | Written during agent execution |
+| `.pi/swarm/state/runs/<runId>/mailbox/` | Team mailbox (inbox.jsonl, outbox.jsonl, delivery.json) | Created for team runs, polled at ~1.25Hz |
+
+Crash recovery: `state/recovery.ts` detects stale runs (30min no heartbeat) on session start and marks them abandoned. Completed runs auto-deleted after 7 days. All JSON/JSONL mutations use `writeAtomic` (temp-file + rename) to prevent partial writes.
+
+## Debugging Guide
+
+| Symptom | Likely cause | Check |
+|---------|-------------|-------|
+| Sub-agent spawns but produces no output | `pi --print` path resolution wrong | Inspect `pi-invoke.ts` resolution logic, verify pi CLI is on PATH |
+| Rate-limit errors cascade | Capacity model depleted | Check `controller.ts` rate-limit phase logic, verify backoff timing |
+| Run appears "stuck" | Dead agent process or starvation | Inspect `events.jsonl` for last event, check per-agent `status.json` |
+| Mailbox messages not delivered | Polling interval or symlink issue in worktree | Check mailbox directory exists, verify outbox polling at 800ms |
+| Build succeeds but extension not discovered | `dist/` not in `pi.extensions` array | Verify `package.json` has `"pi": { "extensions": ["./dist"] }` |
+
+Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swarm/state/runs/<runId>/agents/<agentId>/output.log` (per-agent output). Always `npm run build` before runtime debugging.
 
 ## Change Map
 
 - **Adding a new shared utility**: Create `shared/<name>.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
-- **Adding a new type**: Add to `shared/types.ts`; if it's a value (e.g., `SMALL_MODEL_ROLES`), use `import` (not `import type`) in consumers
-- **Adding a new tool**: Create `swarm/<name>.ts` or `team/<name>.ts` with `register*` function → import and call in `index.ts`
+- **Adding a new type**: Add to `shared/types.ts`; value exports use `import` (not `import type`) in consumers
+- **Adding a new tool**: Create `swarm/<name>.ts` or `team/<name>.ts` with `register*(pi: ExtensionAPI)` → import and call in `index.ts`
 - **Adding a new command**: Create handler in `swarm/command.ts` or `team/command.ts` → register with `pi.registerCommand` in `index.ts`
-- **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`. If the component uses `setInterval` for animation, accept a `requestRender` callback and call it on each animation tick so the TUI framework knows to redraw.
-- **Adding a team dashboard**: Create `tui/team-dashboard.ts` implementing `Component` from `@earendil-works/pi-tui`; add `TeamProgressSnapshot`, `TeamPhaseStatus`, `TeamProgressCallback` to `shared/types.ts`
-- **Adding tool call/result rendering**: Implement `renderCall` and `renderResult` on the tool definition using `Container`/`Text`/`Spacer` from `@earendil-works/pi-tui` for rich display in the conversation transcript.
-- **Wiring a TUI widget**: Use `setWidget(key, (tui, theme) => component, opts)` — capture the `tui` reference and pass it to your component so animation timers can call `tui.requestRender()`.
-- **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed
-- **Adding per-agent output.log**: Configure `agentDir` in `resolveAgentStateDir` → write to `output.log` in `spawnSubagent` with header/raw output/footer
-- **Adding supervisor context passing**: Update `mailbox.ts` (new message types, `ackTaskMessages`) → update `supervisor.ts` (`buildPhasePrompt`, `startNextPhase` dependency results)
-- **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → add `getPhaseExecutionConfig()` to `supervisor.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask` → add `small_model`/`modelTier`/`model`/`tools` to `team/tool.ts` schema
-- **Enhancing result format**: Update `supervisor.ts` `synthesizeResult()` → add `buildSynthesis()`, `truncateForOutput()`, `extractFirstMeaningfulLine()`, `extractExcerpt()` → replace `escapeXml()` with `escapeAttr()`/`escapeBody()`
-- **Changing concurrency strategy**: Modify `shared/controller.ts` → update PLAN.md and docs/architecture.md
-- **Adding worktree support**: Create `shared/worktree.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
-- **Changing the team workflow**: Modify `team/supervisor.ts` or `team/task-graph.ts` → update PLAN.md
+- **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`. Animation timers must accept a `requestRender` callback and call it on each tick.
+- **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed. Always use `writeAtomic` for JSON/JSONL writes.
+- **Adding per-agent output.log**: Configure `agentDir` in `resolveAgentStateDir` → write in `spawnSubagent` with header/raw output/footer
+- **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → add `getPhaseExecutionConfig()` to `supervisor.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask` → update `team/tool.ts` schema
+- **Changing concurrency strategy**: Modify `shared/controller.ts` → update `PLAN.md` and `docs/architecture.md`
 
 ## First Places to Inspect
 
-- `PLAN.md` — full architecture design and module specs
-- `docs/architecture.md` — detailed design rationale, data flows, comparisons
-- `src/shared/worktree.ts` — worktree management (git worktree isolation for sub-agents)
 - `src/shared/controller.ts` — concurrency controller (most complex module, ported from kimi-code SubagentBatch)
-- `src/swarm/tool.ts` — AgentSwarm tool definition (with output.log persistence and run manifests)
-- `src/team/supervisor.ts` — Team supervisor (goal decomposition, phase orchestration, context passing, model tier routing, result synthesis)
-- `src/team/mailbox.ts` — JSONL mailbox system with message acknowledgment (inspired by pi-crew)
+- `src/shared/spawner.ts` — sub-agent lifecycle: spawn, event parsing, worktree, mailbox polling
+- `src/shared/worktree.ts` — git worktree isolation (create, symlink, commit, cleanup)
+- `src/swarm/tool.ts` — AgentSwarm tool definition (output.log persistence, run manifests)
+- `src/team/supervisor.ts` — Team supervisor (decomposition, assignment, model tier routing, synthesis)
+- `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment (inspired by pi-crew)
 - `src/team/task-graph.ts` — Phase dependency graph (DAG) with timing tracking
-- `src/team/tool.ts` — SwarmTeam tool definition (includes small_model, per-phase model/tools overrides)
-- `src/tui/progress.ts` — TUI progress panel (ported from kimi-code AgentSwarmProgressComponent)
+- `src/tui/progress.ts` — TUI braille progress panel (ported from kimi-code)
 - `src/state/persistence.ts` — Durable state with atomic writes, per-agent output.log
 - `src/index.ts` — extension entry, all registrations
-
-# General Project Rules
-
-## Coding Rules
-
-- Layer boundaries: `tui/` + `state/` must not import from `swarm/` or `team/`. `shared/` is the core with zero pi or tui imports.
-- Tool registration: Every tool file exports a `register*(pi: ExtensionAPI)` function. Registration happens in `index.ts` default export.
-- Output format: AgentSwarm tool returns `<agent_swarm_result>` XML (compatible with kimi-code). Never mix formats.
-- Error handling: Catch blocks must log the error and context. Do not swallow errors silently.
-- Tool descriptions: Write clear, specific `description` strings — these are what the LLM reads to decide when to call.
-- PRs: One vertical slice per PR — build a complete module, then merge. No big-bang PRs.
-- AGENTS.md: Update this file whenever a new module, tool, command, or data flow is created.
-
-## Testing Rules
-
-- Type correctness: Run `npm run typecheck` after every change. This is the minimum verification gate.
-- All tests must pass: `npm test` — 107 tests across 8 test files, 0 failures, 0 skipped.
-- Integration testing: Symlink `dist/` into `~/.pi/agent/extensions/pi-swarm` and verify tool calls in a live Pi session.
-- Verification: Test with 2-3 items first, then scale to 10+ to verify concurrency behavior.
-
-## Debugging Rules
-
-- Read `LOCAL_CI.md` for the exact reproduction commands before investigating any test failure.
-- Check `events.jsonl` under `.pi/swarm/state/runs/<runId>/` for the append-only event log of a failed run.
-- Inspect per-agent status at `.pi/swarm/state/runs/<runId>/agents/<agentId>/status.json`.
-- `npm run build` must succeed before any runtime debugging — run it after every code change.
-
-## API Rules
-
-- Extension API: Import types from `@earendil-works/pi-coding-agent` runtime package. Use `ExtensionAPI`, `ExtensionContext` — do not redefine these types.
-- Tool naming: The AgentSwarm tool is named `AgentSwarm` (matching kimi-code convention). Commands use `/swarm` prefix. Team tool is registered as `SwarmTeam`.
-- Pi --print mode: Sub-agents communicate via `pi --print` JSON Lines output. Parse `message_end` and `tool_result_end` events to track progress.
-
-## Data & State Rules
-
-- State is stored under `.pi/swarm/state/`. The extension auto-creates `.pi/` if it doesn't exist.
-- Atomic writes: `state/persistence.ts` exports `writeAtomic` (temp-file + rename) for crash-safe writes. All JSON/JSONL state mutations (mailbox, delivery, manifest) use it to prevent partial writes on crash.
-- Crash recovery: `state/recovery.ts` detects stale runs (30min no heartbeat) on session start and marks them abandoned.
-- Cleanup: Completed runs auto-deleted after 7 days.
-
-## Verification Before Completion
-
-- `npm run typecheck` passes with zero errors.
-- `npm test` — 107 tests pass across 8 test files.
-- `npm run build` succeeds with `dist/index.js` and `dist/index.d.ts` present.
-- AgentSwarm tool: callable from Pi, returns valid `<agent_swarm_result>` XML.
-- /swarm command: responds correctly to `on`, `off`, and task inputs.
-- TUI progress: renders correctly with live braille animation via onProgress callback.
-- Concurrency: ramp-up follows the 5 + 1/700ms strategy.
 
 ## Project-Specific Rules
 
 - **CREDIT RULE**: README.md MUST include a credit section acknowledging MoonshotAI/kimi-code as the original source of the AgentSwarm architecture. Do not remove or diminish this credit.
 - **LANGUAGE RULE**: All source code, code comments, JSDoc, commit messages, PR titles/descriptions, GitHub Issue content, and GitHub Release notes MUST be written in English. No Chinese or any other non-English language in any artifact that goes into the repository.
-- **No emoji or decorative symbols.** Emoji, Unicode decorative characters, and ASCII art are forbidden in all source files, tool output, code comments, and commit messages. The only allowed symbols are standard ASCII punctuation and Markdown formatting characters. This rule applies to all repository artifacts except `AGENTS.md` itself (this file) and user-facing documentation where appropriate.
-- **Tool output must be clean.** Tool output text returned to the LLM must be minimal, structured, and free of noise. Specifically:
-  - No emoji, no decorative Unicode, no ANSI escape codes
-  - No "friendly" filler phrases — be direct and factual
-  - Consistent heading hierarchy
-  - Numerical data in tables or key-value pairs, not prose
-  - Truncation explicitly flagged
-  - No trailing whitespace, no excessive blank lines
+- **No emoji or decorative symbols**: Emoji, Unicode decorative characters, and ASCII art are forbidden in all source files, tool output, code comments, and commit messages. The only allowed symbols are standard ASCII punctuation and Markdown formatting characters. This rule applies to all repository artifacts except `AGENTS.md` itself and user-facing documentation where appropriate.
+- **Tool output must be clean**: Tool output text returned to the LLM must be minimal, structured, and free of noise: no emoji, no decorative Unicode, no ANSI escape codes, no "friendly" filler phrases, consistent heading hierarchy, numerical data in tables or key-value pairs, truncation explicitly flagged, no trailing whitespace.
 
 ## Agent Checklist
 
-Before committing or creating a PR, verify ALL of the following:
-
+- [ ] Run `bash scripts/ci.sh` before every commit — all checks pass, 0 failures
+- [ ] Run `bash scripts/release.sh` before every release — follow the printed checklist
+- [ ] Read `rules/CODING.md` before writing or modifying code
+- [ ] Read `rules/ARCHITECTURE.md` before modifying module structure or layer boundaries
 - [ ] `npm run typecheck` passes with zero errors
+- [ ] `npm test` passes — 107+ tests, 0 failures
 - [ ] `npm run build` succeeds with `dist/index.js` and `dist/index.d.ts` present
-- [ ] `npm test` passes with 107 tests, 0 failures
-- [ ] `LOCAL_CI.md` all steps passed
 - [ ] `PLAN.md` updated if architecture, API, or module specs changed
 - [ ] `docs/architecture.md` updated if design rationale or data flows changed
-- [ ] `README.md` updated if user-facing features changed (small_model, result format, output.log)
-- [ ] `CHANGELOG.md` updated with version entry
-- [ ] `AGENTS.md` updated if new module/tool/command/hook/data flow was added
-- [ ] `LLM-REVIEW-GUIDE.md` LOC count, test count, file lists match current code
+- [ ] `AGENTS.md` updated if new module, tool, command, or data flow was added
 - [ ] Credit to MoonshotAI/kimi-code preserved in README.md
-- [ ] All code comments, JSDoc, commit messages in English
-- [ ] Completion report: 做了什么 → 结果 → 已确认 → 需要你决策 → 待跟进
-- [ ] Address user as 老板, default to Chinese, explain in business terms, don't dump code
-- [ ] Code comments explain business purpose + implementation logic + edge cases (in Chinese)
-- [ ] No empty catch blocks — handle or propagate every error
+- [ ] Address as 老板 — user-system-rules.md §1
+- [ ] Completion report format — user-system-rules.md §4
+- [ ] No empty catch blocks — user-system-rules.md §0 Quality Gates
 
 </general-project-rules>

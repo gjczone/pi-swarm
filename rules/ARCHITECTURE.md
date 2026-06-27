@@ -1,97 +1,53 @@
-# Architecture Rules
+# ARCHITECTURE.md
 
-## Layer Architecture
+## Layer Boundaries
+
+| Layer | May import from | Must NOT import from |
+|-------|----------------|---------------------|
+| `shared/` | Node.js stdlib only | `swarm/`, `team/`, `tui/`, `state/` |
+| `swarm/` | `shared/` | `team/`, `tui/`, `state/` |
+| `team/` | `shared/` | `swarm/`, `tui/`, `state/` |
+| `tui/` | `shared/`, `@earendil-works/pi-tui` | `swarm/`, `team/`, `state/` |
+| `state/` | `shared/`, Node.js fs | `swarm/`, `team/`, `tui/` |
+| `index.ts` | All layers | None (entry point) |
+
+**Evidence**: Grepping `from "\.\."` across directories confirms zero cross-layer violations. No file in `shared/` imports from `swarm/`, `team/`, `tui/`, or `state/`. No file in `tui/` or `state/` imports from `swarm/` or `team/`.
+
+## Dependency Direction
 
 ```
-tui/ + state/ -> swarm/ + team/ -> shared/ -> index.ts
+tui/ + state/ --> swarm/ + team/ --> shared/ --> index.ts
 ```
 
-### Layer Responsibilities
+All dependency flow moves inward toward `shared/` and `index.ts`. `shared/` is the core with zero pi or tui imports.
 
-| Layer      | Responsibility                                   | Imports From              |
-| ---------- | ------------------------------------------------ | ------------------------- |
-| `shared/`  | Core logic, types, process management            | Node.js stdlib only       |
-| `swarm/`   | AgentSwarm tool, /swarm command, mode state machine | `shared/`               |
-| `team/`    | SwarmTeam tool, mailbox, supervisor, task graph   | `shared/`                 |
-| `tui/`     | TUI components (progress bars, dashboards)        | `shared/`, `@earendil-works/pi-tui` |
-| `state/`   | Persistence, crash recovery                       | `shared/`, Node.js fs     |
-| `index.ts` | Entry point, registration, wiring                 | All layers                |
+## Forbidden Imports
 
-### Layer Rules
+- `shared/**` → `swarm/**`, `team/**`, `tui/**`, `state/**`
+- `tui/**` → `swarm/**`, `team/**`
+- `state/**` → `swarm/**`, `team/**`, `tui/**`
+- `swarm/**` → `team/**`
+- `team/**` → `swarm/**`
 
-- `shared/` MUST NOT import from `swarm/`, `team/`, `tui/`, or `state/`
-- `tui/` and `state/` MUST NOT import from `swarm/` or `team/`
-- `swarm/` and `team/` MUST NOT import from each other
-- All cross-layer communication goes through `index.ts` or `shared/` exports
+Cross-layer communication goes through `index.ts` (tool registration, command handlers) or `shared/` exports (types, utilities).
 
-## Module Inventory
+## Key Modules
 
-### shared/ (6 files, 2783 LOC)
+| Module | Role | Why it matters |
+|--------|------|----------------|
+| `shared/types.ts` | Type definitions, `SubagentBatchLauncher` interface | The single seam between the controller and the process-spawning backend. Tests inject mock launchers through this interface. |
+| `shared/controller.ts` | Two-phase concurrency controller | Most complex module. Ramp-up (5 + 1/700ms) → rate-limit phase with capacity model and exponential backoff. Must never block a test suite. |
+| `shared/spawner.ts` | Child process lifecycle | Manages spawn → event parsing → result extraction → worktree cleanup. The only module that calls `pi --print`. |
+| `team/mailbox.ts` | JSONL inter-agent messaging | All team agent communication flows through this. Atomic writes required — `writeAtomic` from `state/persistence.ts` is the only permitted write primitive. |
+| `team/task-graph.ts` | Phase DAG with dependency propagation | When a phase fails, all downstream phases are auto-skipped. Serialization must be round-trip safe (`toJSON` ↔ `fromJSON`). |
+| `index.ts` | Entry point, all registrations | The only file that imports from `@earendil-works/pi-coding-agent`. Every tool/command/hook is wired here via `pi.registerTool`, `pi.registerCommand`, `pi.on`. |
 
-| File              | LOC  | Purpose                                    |
-| ----------------- | ---- | ------------------------------------------ |
-| `controller.ts`   | 952  | Concurrency controller (ramp-up + rate-limit + abort) |
-| `spawner.ts`      | 771  | Sub-agent process spawner (pi --print)     |
-| `worktree.ts`     | 458  | Worktree management (git worktree isolation) |
-| `types.ts`        | 369  | Shared type definitions                    |
-| `render.ts`       | 159  | Result rendering (<agent_swarm_result> XML) |
-| `pi-invoke.ts`    | 74   | pi CLI invocation helper                   |
+## Architectural Decisions
 
-### swarm/ (3 files, 869 LOC)
-
-| File         | LOC  | Purpose                                    |
-| ------------ | ---- | ------------------------------------------ |
-| `tool.ts`    | 585  | AgentSwarm tool registration               |
-| `command.ts` | 147  | /swarm slash command handler               |
-| `mode.ts`    | 137  | SwarmMode state machine (enter/exit/reminders) |
-
-### team/ (5 files, 2081 LOC)
-
-| File            | LOC  | Purpose                                    |
-| --------------- | ---- | ------------------------------------------ |
-| `supervisor.ts` | 879  | Team supervisor (decomposition + assignment + synthesis) |
-| `tool.ts`       | 615  | SwarmTeam tool registration                |
-| `mailbox.ts`    | 268  | JSONL mailbox system (inbox/outbox/delivery) |
-| `task-graph.ts` | 264  | Phase dependency graph (DAG)               |
-| `command.ts`    | 59   | /swarm-team slash command handler          |
-
-### tui/ (4 files, 886 LOC)
-
-| File                | LOC  | Purpose                                    |
-| ------------------- | ---- | ------------------------------------------ |
-| `team-dashboard.ts` | 325  | SwarmTeam live phase progress dashboard    |
-| `progress.ts`       | 358  | AgentSwarmProgressComponent (braille bars) |
-| `permission-prompt.ts` | 129 | Permission prompt dialog for manual mode  |
-| `swarm-markers.ts`  | 74   | SwarmModeMarkerComponent                   |
-
-### state/ (2 files, 601 LOC)
-
-| File            | LOC  | Purpose                                    |
-| --------------- | ---- | ------------------------------------------ |
-| `persistence.ts`| 384  | Durable state (manifest, tasks, events, atomic writes) |
-| `recovery.ts`   | 217  | Crash recovery (stale run detection, cleanup) |
-
-## Dependency Injection
-
-The controller uses the `SubagentBatchLauncher` interface to abstract subagent execution. This makes the controller testable -- tests inject a mock launcher.
-
-```typescript
-interface SubagentBatchLauncher {
-  spawn(options: SpawnOptions): Promise<SubagentHandle>;
-  resume(agentId: string, options: ResumeOptions): Promise<SubagentHandle>;
-  retry(agentId: string, options: RetryOptions): Promise<SubagentHandle>;
-}
-```
-
-## Change Map
-
-When adding new modules, follow these patterns:
-
-| Change Type | Where | Pattern |
-| ----------- | ----- | ------- |
-| New shared utility | `shared/<name>.ts` | Export function, import in consumers |
-| New type | `shared/types.ts` | Add type, import in consumers |
-| New tool | `swarm/<name>.ts` or `team/<name>.ts` | `register*` function, wire in `index.ts` |
-| New command | `swarm/command.ts` or `team/command.ts` | Handler function, register in `index.ts` |
-| New TUI component | `tui/<name>.ts` | Implement `Component` from pi-tui |
-| New persistence | `state/persistence.ts` | Export function, update recovery if needed |
+- **Out-of-process subagents via `spawn`, not in-process** — Crash isolation. A subagent crash never corrupts parent state. Same model used by pi-crew and pi's built-in subagent example.
+- **Two-phase concurrency (normal → rate-limit)** — Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff (3s/6s/12s/…).
+- **File-based mailbox (JSONL), not a message broker** — Zero runtime dependencies. Every message is a file inspectable with `cat` or `jq`. JSONL supports append-only concurrent writes without file-level coordination.
+- **Atomic writes for all state mutations** — `writeAtomic` (temp-file + rename) is mandatory for every JSON/JSONL write. A crash mid-write leaves the original file intact. Direct `fs.writeFileSync` on state files is forbidden.
+- **Dual mode sharing `shared/` infrastructure** — Both `/swarm` (parallel, homogeneous) and `/swarm-team` (sequential, role-based) share the same controller, spawner, and render modules. Adding a third mode should reuse `shared/`, not fork.
+- **Worktree isolation by default for git repos** — Each subagent runs in a temporary git worktree under `/tmp/`. Non-git repos silently fall back to cwd. This prevents parallel agents from interfering with each other's file changes.
+- **30-minute staleness threshold for crash recovery** — Long enough for a legitimate run, short enough to detect actual crashes. Matches pi's default subagent timeout.
