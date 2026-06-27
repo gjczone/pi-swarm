@@ -93,6 +93,4 @@ Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/ki
 
 [MIT](LICENSE)
 
-## Contributing
 
-Development guide: [AGENTS.md](./AGENTS.md), release: `bash scripts/release.sh`.
