@@ -242,6 +242,8 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly useWorktree?: boolean;
   /** Callback for real-time token usage updates (optional). */
   readonly onUsage?: (usage: SubagentUsage) => void;
+  /** Callback for real-time tool/activity tracking (optional). */
+  readonly onActivity?: (tool: string, activity: string) => void;
   /** Callback for real-time messages via mailbox file writes (optional). */
   readonly onMessage?: (message: MailboxMessage) => void;
   /** Path to the shared mailbox root for real-time inter-agent communication (optional). */
@@ -322,6 +324,10 @@ export interface TeamPhaseStatus {
   readonly status: "queued" | "running" | "completed" | "failed" | "skipped";
   readonly error?: string;
   readonly usage?: SubagentUsage;
+  /** Current tool being executed by the subagent in this phase. */
+  readonly currentTool?: string;
+  /** Current activity description for the subagent in this phase. */
+  readonly activity?: string;
 }
 
 /** Callback for team progress updates. */
@@ -369,6 +375,8 @@ export interface BatchMemberStatus {
   readonly currentTool?: string;
   /** Description of current agent activity (e.g. "editing src/auth.ts"). */
   readonly activity?: string;
+  /** Cumulative progress tick count (incremented on each tool call / activity). */
+  readonly progressTick?: number;
 }
 
 // ---------------------------------------------------------------------------

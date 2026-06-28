@@ -243,11 +243,19 @@ async function runSubagentProcess(
     finalPrompt = finalPrompt + mailboxAddendum;
   }
 
+  // Auto-detect root AGENTS.md for subagent project rules
+  let systemPromptFile: string | undefined;
+  const agentsPath = join(cwd, "AGENTS.md");
+  if (existsSync(agentsPath)) {
+    systemPromptFile = agentsPath;
+  }
+
   const args = buildSubagentArgs({
     task: finalPrompt,
     model: opts.model,
     tools: opts.tools,
     cwd,
+    systemPromptFile,
   });
 
   const invocation = getPiInvocation(args);
@@ -448,7 +456,7 @@ async function runSubagentProcess(
     const result = await new Promise<ParsedResult>((resolve, reject) => {
       streamResolve = resolve;
       streamReject = reject;
-      parseEventStream(proc, agentId, logStream, killState, opts.onUsage).then(
+      parseEventStream(proc, agentId, logStream, killState, opts.onUsage, opts.onActivity).then(
         (parsed) => {
           if (done) return;
           if (settled) {
@@ -536,6 +544,7 @@ function parseEventStream(
   logStream: WriteStream | undefined,
   killState: ProcessKillState,
   onUsage?: (usage: SubagentUsage) => void,
+  onActivity?: (tool: string, activity: string) => void,
 ): Promise<ParsedResult> {
   return new Promise<ParsedResult>((resolve, reject) => {
     const usageAcc = {
@@ -552,6 +561,8 @@ function parseEventStream(
     let unparseableCount = 0;
     let settled = false;
     let lastUsageEmit = 0;
+    let lastActivityEmit = 0;
+    let lastModelText = "";
 
     const emitUsage = () => {
       if (!onUsage) return;
@@ -560,6 +571,18 @@ function parseEventStream(
       lastUsageEmit = now;
       try {
         onUsage({ ...usageAcc });
+      } catch {
+        // Callback errors must not break parsing
+      }
+    };
+
+    const emitActivity = (tool: string, activity: string) => {
+      if (!onActivity) return;
+      const now = Date.now();
+      if (now - lastActivityEmit < 150) return; // Throttle to ~6Hz
+      lastActivityEmit = now;
+      try {
+        onActivity(tool, activity);
       } catch {
         // Callback errors must not break parsing
       }
@@ -671,6 +694,9 @@ function parseEventStream(
         const deltaText = event.delta.text;
         if (deltaText) {
           finalText += deltaText;
+          // Track latest text for scrolling output display
+          lastModelText = (lastModelText + deltaText).slice(-200);
+          emitActivity("model", lastModelText);
         }
       } else if (event.type === "message_delta") {
         if (event.usage) {
@@ -696,6 +722,10 @@ function parseEventStream(
           if (finalText) finalText += "\n";
           finalText += toolOutput;
         }
+        // Forward tool activity to TUI
+        const toolName = event.toolName ?? "tool";
+        const summary = toolOutput.trim().slice(0, 60);
+        emitActivity(toolName, summary);
       }
     };
 

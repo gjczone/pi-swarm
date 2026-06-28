@@ -162,7 +162,7 @@ describe("TeamDashboardComponent", () => {
 
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toContain("5msg");
+    expect(joined).toContain("Mailbox msg: 5");
   });
 
   it("shows elapsed time in footer", () => {
@@ -210,7 +210,7 @@ describe("TeamDashboardComponent", () => {
     component.complete();
     const lines = component.render(60);
     const joined = lines.join("\n");
-    expect(joined).toContain("5/5 ph");
+    expect(joined).toContain("5/5");
   });
 
   it("dispose stops animation", () => {

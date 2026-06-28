@@ -50,16 +50,30 @@ const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 const TEAM_DASHBOARD_WIDGET_KEY = "pi-swarm-team-dashboard";
 
 const AGENT_TEAM_DESCRIPTION = [
-  "Orchestrate role-based agents (explorer, planner, coder, reviewer, tester) with a shared mailbox.",
+  "Orchestrate a collaborative team of role-based agents that communicate",
+  "via a shared mailbox to accomplish complex multi-step goals.",
   "",
-  "CRITICAL RULES:",
-  "1. ONLY use when the user explicitly says 'team' or 'swarm-team'.",
-  "2. For simple parallel tasks, use AgentSwarm instead.",
-  "3. This tool MUST be the ONLY tool call in your response — do not batch.",
+  "Use this tool when the task requires multiple specialized roles working",
+  "together (e.g., explorer discovers, planner designs, coder implements,",
+  "reviewer checks, tester validates). Agents exchange results via mailbox.",
   "",
-  "Default phases: explore -> plan -> implement -> review -> test.",
-  "Use `phases` and `roles` to customize the workflow.",
-  "Use `small_model` to route explorer/tester to a cheaper model.",
+  "When to use:",
+  "- Multi-step workflows: explore -> plan -> implement -> review -> test.",
+  "- Tasks where one phase depends on another phase's results.",
+  "- Complex goals that benefit from role specialization.",
+  "",
+  "When NOT to use:",
+  "- Simple parallel tasks (use the Swarm tool instead).",
+  "- Single-file review or edit (use the Swarm tool with 1 item).",
+  "- Tasks with independent items that don't need inter-agent communication.",
+  "",
+  "Usage:",
+  "1. Set a clear goal. The team decomposes it into phases.",
+  "2. Default phases: explore -> plan -> implement -> review -> test.",
+  "3. Use `phases` to customize. Phases without dependsOn run in parallel.",
+  "4. Use `small_model` for cheaper models on explorer/tester roles.",
+  "5. Agents communicate via mailbox; the supervisor orchestrates.",
+  "6. This tool MUST be the ONLY tool call in your response.",
 ].join("\n");
 
 // ---------------------------------------------------------------------------

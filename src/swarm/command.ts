@@ -2,11 +2,10 @@
  * swarm/command — /swarm slash command handler.
  *
  * Supports:
- *   /swarm on       — enable swarm mode (manual trigger)
- *   /swarm off      — disable swarm mode
- *   /swarm          — toggle swarm mode
- *   /swarm <task>   — enable swarm mode + send task (one-shot)
+ *   /swarm               — show usage hint
+ *   /swarm <task>        — directly invoke the Swarm tool with the given task
  *
+ * Also accepts on/off to enable/disable swarm mode.
  * Ported from MoonshotAI/kimi-code's swarm command.
  */
 
@@ -44,104 +43,44 @@ export function registerSwarmCommand(
 ): void {
   pi.registerCommand("swarm", {
     description:
-      "Turn swarm mode on/off, or run a one-shot swarm task. " +
-      "Usage: /swarm on|off, or /swarm <task>",
+      "Run a one-shot Swarm task. " +
+      'Usage: /swarm <task description and items>',
     async handler(args: string, ctx: ExtensionCommandContext) {
       const prompt = args.trim();
-      const mode = swarmModeSubcommand(prompt);
 
-      // Subcommand: on / off
-      if (mode !== undefined) {
-        await applySwarmMode(host, mode, `/swarm ${prompt}`, ctx);
-        return;
-      }
-
-      // No args: toggle
       if (prompt.length === 0) {
-        await applySwarmMode(host, !host.swarmActive, "/swarm", ctx);
+        // Show usage hint
+        const tools = host.pi.getAllTools?.() ?? [];
+        const swarmTool = tools.find((t) => t.name === "Swarm");
+        if (swarmTool) {
+          ctx.ui?.notify?.("/swarm <task description>", "info");
+        } else {
+          ctx.ui?.notify?.("Swarm tool not available.", "error");
+        }
         return;
       }
 
-      // Task mode: enable swarm + send prompt
       if (!host.hasModel()) {
         host.showError("No model configured. Please set a model first.");
         return;
       }
 
-      await startSwarmTask(host, prompt, ctx);
+      // Activate swarm mode
+      if (!host.swarmActive) {
+        host.setSwarmActive(true, "task");
+      }
+      host.pi.sendMessage?.({
+        customType: "swarm:marker",
+        content: "active",
+        display: true,
+      });
+
+      // Direct invocation: tell LLM to call the tool
+      host.sendNormalUserInput(
+        `Use the Swarm tool with this task: ${prompt}`,
+      );
     },
   });
 }
 
-// ---------------------------------------------------------------------------
-// Command logic
-// ---------------------------------------------------------------------------
 
-async function applySwarmMode(
-  host: SwarmCommandHost,
-  enabled: boolean,
-  commandText: string,
-  ctx: ExtensionCommandContext,
-): Promise<void> {
-  if (enabled && host.swarmActive) {
-    host.showStatus("Swarm mode is already on.");
-    return;
-  }
-  if (!enabled && !host.swarmActive) {
-    host.showStatus("Swarm mode is already off.");
-    return;
-  }
-
-  if (enabled) {
-    host.setSwarmActive(true, "manual");
-    host.showStatus("Swarm mode enabled.");
-
-    // Insert swarm mode marker (via pi.sendMessage for TUI rendering)
-    host.pi.sendMessage?.({
-      customType: "swarm:marker",
-      content: "active",
-      display: true,
-    });
-  } else {
-    host.setSwarmActive(false, "manual");
-    host.showStatus("Swarm mode disabled.");
-
-    host.pi.sendMessage?.({
-      customType: "swarm:marker",
-      content: "inactive",
-      display: true,
-    });
-  }
-}
-
-async function startSwarmTask(
-  host: SwarmCommandHost,
-  prompt: string,
-  ctx: ExtensionCommandContext,
-): Promise<void> {
-  // Enable swarm mode if not already active
-  if (!host.swarmActive) {
-    host.setSwarmActive(true, "task");
-  }
-
-  // TUI marker
-  host.pi.sendMessage?.({
-    customType: "swarm:marker",
-    content: "active",
-    display: true,
-  });
-
-  // Send the prompt
-  host.sendNormalUserInput(prompt);
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function swarmModeSubcommand(input: string): boolean | undefined {
-  const command = input.toLowerCase();
-  if (command === "on") return true;
-  if (command === "off") return false;
-  return undefined;
-}

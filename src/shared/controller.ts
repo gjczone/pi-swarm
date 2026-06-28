@@ -58,6 +58,7 @@ interface TaskState<T> {
   usage: SubagentUsage;
   currentTool?: string;
   activity?: string;
+  progressTick: number;
   startedAt?: number;
   completedAt?: number;
 }
@@ -180,6 +181,7 @@ export class SubagentBatchController<T> {
         cacheWrite: 0,
         totalTokens: 0,
       },
+      progressTick: 0,
     }));
     this.pending = [...this.states];
     this.results = Array.from<TaskState<T> | undefined>({
@@ -420,11 +422,16 @@ export class SubagentBatchController<T> {
       onUsage: (usage) => {
         attempt.state.usage = { ...usage };
         this.emitProgress();
+        // Forward to task-level callback (used by team mode to update supervisor phase usage)
+        task.onUsage?.(usage);
       },
       onActivity: (tool, activity) => {
         attempt.state.currentTool = tool;
         attempt.state.activity = activity;
+        attempt.state.progressTick += 1;
         this.emitProgress();
+        // Forward to task-level callback (used by team mode to update phase activity)
+        task.onActivity?.(tool, activity);
       },
       onMessage: task.onMessage,
       suppressRateLimitFailureEvent: true,
@@ -748,6 +755,7 @@ export class SubagentBatchController<T> {
         usage: memberUsage,
         currentTool: state.currentTool,
         activity: state.activity,
+        progressTick: state.progressTick,
       });
     }
 

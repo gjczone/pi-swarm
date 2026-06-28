@@ -105,12 +105,9 @@ function findGitignore(cwd: string): string | null {
 /**
  * Resolve which swarm mode (if any) should be activated based on user input keywords.
  *
- * Priority: "swarm-team" / "swarm team" > "swarm" alone.
- * Returns null when no keyword matches.
- *
- * 业务说明：根据用户输入中的关键词判断应该激活 AgentSwarm 还是 SwarmTeam。
- * "swarm-team" 或 "swarm team" 激活 team 模式，单独的 "swarm" 激活 swarm 模式。
- * "swarm-team" 中包含 "swarm" 子串，因此 team 检查必须在 swarm 之前。
+ * "swarm-team" / "swarm team" activates team mode (collaborative),
+ * plain "swarm" activates parallel swarm mode.
+ * "swarm-team" check must come before "swarm" since the former contains the latter.
  */
 export function resolveKeywordMode(text: string): "swarm" | "team" | null {
   const t = text.toLowerCase();

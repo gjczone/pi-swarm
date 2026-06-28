@@ -1,8 +1,8 @@
 /**
- * swarm/tool — AgentSwarm tool registration.
+ * swarm/tool — Swarm tool registration.
  *
- * Registers the `AgentSwarm` tool that the LLM can call to launch
- * multiple subagents from a shared prompt template.
+ * Registers the `Swarm` tool that the LLM can call to launch
+ * 1-20 isolated subagents in parallel from a shared prompt template.
  *
  * Ported from MoonshotAI/kimi-code's AgentSwarmTool.
  */
@@ -26,7 +26,6 @@ import {
 import type {
   QueuedSubagentTask,
   SwarmSpawnSpec,
-  SwarmResumeSpec,
   SwarmSpec,
 } from "../shared/types.js";
 import {
@@ -35,7 +34,6 @@ import {
   updateManifest,
   readManifest,
   registerAgentInManifest,
-  validateId,
 } from "../state/persistence.js";
 import { mergeBranch, isGitRepository } from "../shared/worktree.js";
 import {
@@ -52,23 +50,34 @@ const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
 
 const DEFAULT_SUBAGENT_TYPE = "coder";
 const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
-const MAX_AGENT_SWARM_SUBAGENTS = 128;
+const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 const AGENT_SWARM_DESCRIPTION = [
-  "Launch 1-128 isolated subagents in parallel from a template or resume list.",
+  "Launch 1-20 isolated subagents in parallel from a shared prompt template.",
   "",
-  "CRITICAL RULES:",
-  "1. If `items` is provided, `prompt_template` MUST contain {{item}} exactly once.",
-  "2. If only resuming agents, omit both `items` and `prompt_template`.",
-  "3. This tool MUST be the ONLY tool call in your response — do not batch.",
+  "Use this tool when a task benefits from isolated subagents. Each subagent",
+  "runs in its own clean workspace with project rules (AGENTS.md) loaded.",
+  "Subagents do NOT communicate with each other.",
   "",
-  "QUICK REFERENCE:",
-  '- New subagents: { "items": ["a","b"], "prompt_template": "Review {{item}}" }',
-  '- Resume only: { "resume_agent_ids": { "ag-1": "retry prompt" } }',
-  "- Combined: both fields together (resumes fire first, then spawns).",
+  "When to use:",
+  "- Code review: 1 subagent per file. Even a single file benefits from an",
+  "  isolated review pass.",
+  "- Bug investigation: 1 subagent to investigate in isolation.",
+  "- Parallel edits: multiple files, each handled by its own subagent.",
+  "- Complex tasks: the subagent gets a clean context focused on just its item.",
   "",
-  "Use AgentSwarm for parallel independent tasks. Use SwarmTeam for role-based collaboration.",
+  "How to use:",
+  "1. Decompose the task into 1-20 independent items.",
+  "2. Write a prompt_template with {{item}} placeholder.",
+  "3. Include context from the user's task and the specific item.",
+  "4. Use 1 item when a single subagent is enough for isolation.",
+  "5. Use 2-6 items for typical parallel work.",
+  "6. The tool handles concurrency, rate limits, and error recovery.",
+  "7. Read the results from the tool output.",
+  "",
+  "Best for: code review, bug fixing, file editing, investigation, refactoring.",
+  "For collaborative multi-step workflows, use the SwarmTeam tool instead.",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -77,48 +86,31 @@ const AGENT_SWARM_DESCRIPTION = [
 
 export function registerAgentSwarmTool(pi: ExtensionAPI): void {
   pi.registerTool({
-    name: "AgentSwarm",
-    label: "Agent Swarm",
+    name: "Swarm",
+    label: "Swarm",
     description: AGENT_SWARM_DESCRIPTION,
     parameters: Type.Object(
       {
-        description: Type.String({
-          description: "Short description for the whole swarm.",
-          examples: ["Review all source files for bugs"],
+        description: Type.Optional(
+          Type.String({
+            description: "Short description for the whole swarm (optional).",
+            examples: ["Review source files for bugs"],
+          }),
+        ),
+        prompt_template: Type.String({
+          description: `Prompt template with ${PROMPT_TEMPLATE_PLACEHOLDER} exactly once. Each item replaces the placeholder.`,
+          examples: [
+            "You are a code reviewer. Review {{item}} for bugs and security issues.",
+            "Fix the following issue in {{item}}",
+          ],
         }),
-        subagent_type: Type.Optional(
-          Type.String({
-            description:
-              "Subagent type used for every spawned subagent. Defaults to coder when omitted.",
-            examples: ["coder"],
-          }),
-        ),
-        prompt_template: Type.Optional(
-          Type.String({
-            description: `REQUIRED when items is provided. Must contain ${PROMPT_TEMPLATE_PLACEHOLDER} exactly once. Each item replaces the placeholder.`,
-            examples: [
-              "Fix issues in {{item}}",
-              "Review {{item}} for security vulnerabilities",
-            ],
-          }),
-        ),
-        items: Type.Optional(
-          Type.Array(Type.String(), {
-            maxItems: MAX_AGENT_SWARM_SUBAGENTS,
-            description:
-              "REQUIRED with prompt_template. Each item replaces {{item}}. Values are used as {{item}} in the template. Min 1 item, max 128.",
-            examples: [["src/auth.ts", "src/api.ts", "src/db.ts"]],
-          }),
-        ),
-        resume_agent_ids: Type.Optional(
-          Type.Record(Type.String(), Type.String(), {
-            description:
-              "Map of existing subagent agent_id to the prompt used to resume that subagent. Resumed subagents launch before new item-based subagents.",
-            examples: [
-              { "swarm-abc123": "Retry with more focus on XSS detection" },
-            ],
-          }),
-        ),
+        items: Type.Array(Type.String(), {
+          minItems: 1,
+          maxItems: 20,
+          description:
+            "Items (1-20) to parallelize across. Each item replaces {{item}} in the template. Items must be independent — subagents do not communicate.",
+          examples: [["src/auth.ts", "src/api.ts", "src/db.ts"]],
+        }),
       },
       { additionalProperties: false },
     ),
@@ -129,18 +121,10 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const {
-        description,
-        subagent_type,
-        prompt_template,
-        items,
-        resume_agent_ids,
-      } = params as {
-        description: string;
-        subagent_type?: string;
-        prompt_template?: string;
-        items?: string[];
-        resume_agent_ids?: Record<string, string>;
+      const { description, prompt_template, items } = params as {
+        description?: string;
+        prompt_template: string;
+        items: string[];
       };
 
       const ctx = ctxRaw as ExtensionContext;
@@ -153,15 +137,15 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       let runCreated = false;
 
       try {
-        const profileName =
-          normalizeOptionalString(subagent_type) ?? DEFAULT_SUBAGENT_TYPE;
+        const profileName = DEFAULT_SUBAGENT_TYPE;
 
         // Build specs
-        const specs = createAgentSwarmSpecs({
-          items,
-          resume_agent_ids,
-          prompt_template,
-        });
+        const specs = items.map((item: string, index: number) => ({
+          kind: "spawn" as const,
+          index: index + 1,
+          item: item.trim(),
+          prompt: prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item.trim()),
+        } satisfies SwarmSpawnSpec));
 
         createManifest(swarmRoot, {
           runId,
@@ -173,43 +157,23 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         });
         runCreated = true;
 
-        // Convert to queued tasks
-        const tasks = specs.map((spec): QueuedSubagentTask<SwarmSpec> => {
-          const descriptionName =
-            spec.kind === "resume" ? "resume" : profileName;
-          const common = {
-            data: spec,
-            profileName: spec.kind === "resume" ? "subagent" : profileName,
-            parentToolCallId: toolCallId,
-            prompt: spec.prompt,
-            description: childDescription(
-              description,
-              spec.index,
-              descriptionName,
-            ),
-            swarmIndex: spec.index,
-            runInBackground: false,
-            swarmItem: spec.item,
-            signal,
-            timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-            swarmRoot,
-            runId,
-            useWorktree: true,
-          };
-
-          if (spec.kind === "resume") {
-            return {
-              ...common,
-              kind: "resume",
-              resumeAgentId: spec.agentId,
-            } as QueuedSubagentTask<SwarmSpec>;
-          }
-
-          return {
-            ...common,
-            kind: "spawn",
-          } as QueuedSubagentTask<SwarmSpec>;
-        });
+        // Convert to queued tasks (all spawn, no resume — resume handled via separate retry)
+        const tasks = specs.map((spec): QueuedSubagentTask<SwarmSpec> => ({
+          kind: "spawn",
+          data: spec,
+          profileName: profileName,
+          parentToolCallId: toolCallId,
+          prompt: spec.prompt,
+          description: `${description ?? "Swarm"} #${spec.index} (${profileName})`,
+          swarmIndex: spec.index,
+          runInBackground: false,
+          swarmItem: spec.item,
+          signal,
+          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+          swarmRoot,
+          runId,
+          useWorktree: true,
+        }));
 
         // Run with controller
         const maxConcurrency = resolveSwarmMaxConcurrency(process.cwd());
@@ -322,19 +286,13 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
      * prompt 模板预览。
      */
     renderCall(args, theme, _context) {
-      const subagentType = (args.subagent_type as string) || "coder";
       const itemCount = (args.items as string[] | undefined)?.length ?? 0;
-      const resumeCount = Object.keys(
-        (args.resume_agent_ids as Record<string, string> | undefined) ?? {},
-      ).length;
-      const totalCount = itemCount + resumeCount;
-      const hasResume = resumeCount > 0;
 
       const container = new Container();
-      const title = `${theme.fg("toolTitle", theme.bold("swarm "))}${theme.fg("accent", `${totalCount} agent${totalCount !== 1 ? "s" : ""}`)}${hasResume ? theme.fg("warning", ` (${resumeCount} resume)`) : ""}${theme.fg("muted", ` [${subagentType}]`)}`;
+      const title = `${theme.fg("toolTitle", theme.bold("swarm "))}${theme.fg("accent", `${itemCount} agent${itemCount !== 1 ? "s" : ""}`)}`;
       container.addChild(new Text(title, 0, 0));
 
-      const desc = args.description as string;
+      const desc = args.description as string | undefined;
       if (desc) {
         container.addChild(new Spacer(1));
         container.addChild(
@@ -398,133 +356,6 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       return container;
     },
   });
-}
-
-// ---------------------------------------------------------------------------
-// Spec creation (from kimi-code)
-// ---------------------------------------------------------------------------
-
-function createAgentSwarmSpecs(args: {
-  items?: string[];
-  resume_agent_ids?: Record<string, string>;
-  prompt_template?: string;
-}): SwarmSpec[] {
-  const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(
-    ([agentId, prompt]) => {
-      const trimmedId = agentId.trim();
-      validateId(trimmedId, "agentId");
-      return {
-        agentId: trimmedId,
-        prompt: prompt.trim(),
-      };
-    },
-  );
-  const items = (args.items ?? []).map((item) => item.trim());
-  const itemCount = items.length;
-  const resumeCount = resumeEntries.length;
-  const totalCount = resumeCount + itemCount;
-
-  if (!hasMinimumAgentSwarmInputs(itemCount, resumeCount)) {
-    throw new Error(
-      "AgentSwarm requires at least 1 item or a resume_agent_ids entry. " +
-        'Example with items: { "items": ["src/a.ts"], "prompt_template": "Review {{item}}" }. ' +
-        'Example with resume: { "resume_agent_ids": { "swarm-abc": "Retry with more detail" } }.',
-    );
-  }
-
-  if (totalCount > MAX_AGENT_SWARM_SUBAGENTS) {
-    throw new Error(
-      `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
-    );
-  }
-
-  const promptTemplate = normalizeOptionalString(args.prompt_template);
-
-  if (items.length > 0 && promptTemplate === undefined) {
-    throw new Error(
-      "prompt_template is required when items are provided. " +
-        'Example: { "prompt_template": "Review {{item}} for bugs", "items": ["src/a.ts", "src/b.ts"] }',
-    );
-  }
-
-  if (
-    promptTemplate !== undefined &&
-    !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)
-  ) {
-    throw new Error(
-      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder. ` +
-        `Got: "${promptTemplate.slice(0, 80)}". ` +
-        `Add {{item}} where each item value should be inserted. ` +
-        'Example: "Fix issues in {{item}}"',
-    );
-  }
-
-  const seenPrompts = new Map<string, number>();
-  const specs: SwarmSpec[] = [];
-
-  // Resume entries first
-  for (const entry of resumeEntries) {
-    specs.push({
-      kind: "resume",
-      index: specs.length + 1,
-      agentId: entry.agentId,
-      prompt: entry.prompt,
-    } satisfies SwarmResumeSpec);
-  }
-
-  // Item-based spawns
-  if (items.length > 0) {
-    const itemPromptTemplate = promptTemplate!;
-    items.forEach((item, index) => {
-      const prompt = itemPromptTemplate
-        .split(PROMPT_TEMPLATE_PLACEHOLDER)
-        .join(item);
-
-      const previousIndex = seenPrompts.get(prompt);
-      if (previousIndex !== undefined) {
-        throw new Error(
-          `Duplicate subagent prompts from items ${String(previousIndex)} and ${String(index + 1)}. AgentSwarm requires distinct subagents.`,
-        );
-      }
-      seenPrompts.set(prompt, index + 1);
-
-      specs.push({
-        kind: "spawn",
-        index: specs.length + 1,
-        item,
-        prompt,
-      } satisfies SwarmSpawnSpec);
-    });
-  }
-
-  return specs;
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-function hasMinimumAgentSwarmInputs(
-  itemCount: number,
-  resumeCount: number,
-): boolean {
-  return resumeCount > 0 || itemCount >= 1;
-}
-
-function childDescription(
-  swarmDescription: string,
-  index: number,
-  profileName: string,
-): string {
-  return `${swarmDescription} #${String(index)} (${profileName})`;
-}
-
-function normalizeOptionalString(
-  value: string | undefined,
-): string | undefined {
-  if (value === undefined) return undefined;
-  const trimmed = value.trim();
-  return trimmed.length > 0 ? trimmed : undefined;
 }
 
 // ---------------------------------------------------------------------------

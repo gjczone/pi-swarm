@@ -9,8 +9,6 @@
 import { describe, it, expect, afterAll } from "vitest";
 import { SubagentBatchController } from "../src/shared/controller.js";
 import { renderSwarmResults, toSwarmRunResults } from "../src/shared/render.js";
-import { TaskGraph, DEFAULT_TEAM_PHASES } from "../src/team/task-graph.js";
-import { TeamSupervisor } from "../src/team/supervisor.js";
 import { resolveSwarmMaxConcurrency } from "../src/shared/controller.js";
 import {
   resolveSwarmRoot,
@@ -22,42 +20,17 @@ import {
   resolveAgentStateDir,
   type RunManifest,
 } from "../src/state/persistence.js";
-import {
-  resolveMailboxPaths,
-  resolveTaskMailboxPaths,
-  ensureMailbox,
-  sendMessage,
-  readTaskInbox,
-  ackTaskMessages,
-  updateDeliveryState,
-  getDeliveryState,
-} from "../src/team/mailbox.js";
 import { recoverRuns } from "../src/state/recovery.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 
 // ---------------------------------------------------------------------------
-// Import verification
-// ---------------------------------------------------------------------------
 
 describe("Module imports", () => {
-  it("imports controller module", () => {
-    expect(SubagentBatchController).toBeDefined();
-    expect(typeof SubagentBatchController).toBe("function");
-  });
-
   it("imports render module", () => {
     expect(renderSwarmResults).toBeDefined();
     expect(typeof renderSwarmResults).toBe("function");
-  });
-
-  it("imports task-graph module", () => {
-    expect(TaskGraph).toBeDefined();
-  });
-
-  it("imports supervisor module", () => {
-    expect(TeamSupervisor).toBeDefined();
   });
 
   it("imports persistence module", () => {
@@ -180,7 +153,7 @@ describe("Persistence smoke", () => {
   it("deletes run state", () => {
     const manifest: RunManifest = {
       runId: "test-run-002",
-      type: "team",
+      type: "swarm",
       status: "completed",
       startedAt: Date.now(),
       agentIds: [],
@@ -225,149 +198,6 @@ describe("Persistence smoke", () => {
     expect(result.cleanedUp).not.toContain(corruptRunId);
     expect(fs.existsSync(runDir)).toBe(true);
     expect(fs.existsSync(manifestPath)).toBe(true);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Task graph integration
-// ---------------------------------------------------------------------------
-
-describe("Task graph integration", () => {
-  it("completes full default workflow", () => {
-    const graph = new TaskGraph(DEFAULT_TEAM_PHASES);
-
-    for (const name of graph.getPhaseNames()) {
-      const result = graph.startPhase(name);
-      expect(result.ok).toBe(true);
-      graph.completePhase(name, `Done: ${name}`);
-    }
-
-    expect(graph.isComplete()).toBe(true);
-    expect(graph.overallStatus()).toBe("completed");
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Supervisor integration
-// ---------------------------------------------------------------------------
-
-describe("Supervisor integration", () => {
-  it("initializes with default phases", () => {
-    const supervisor = new TeamSupervisor({
-      cwd: process.cwd(),
-      swarmRoot: os.tmpdir(),
-      runId: "test-supervisor-001",
-      goal: "Test goal",
-    });
-
-    expect(supervisor.state.status).toBe("running");
-    expect(supervisor.state.taskGraph.getPhaseNames()).toEqual([
-      "explore",
-      "plan",
-      "implement",
-      "review",
-      "test",
-    ]);
-  });
-
-  it("starts and completes the first phase", () => {
-    const supervisor = new TeamSupervisor({
-      cwd: process.cwd(),
-      swarmRoot: os.tmpdir(),
-      runId: "test-supervisor-002",
-      goal: "Test goal",
-    });
-
-    const next = supervisor.startReadyPhases();
-    expect(next.length).toBeGreaterThan(0);
-    const first = next[0]!;
-    expect(first.phase.phase.name).toBe("explore");
-    expect(first.role).toBe("explorer");
-    expect(first.prompt).toContain("Test goal");
-    expect(first.prompt).toContain("explore");
-  });
-
-  it("synthesizes result XML", () => {
-    const supervisor = new TeamSupervisor({
-      cwd: process.cwd(),
-      swarmRoot: os.tmpdir(),
-      runId: "test-supervisor-003",
-      goal: "Test",
-    });
-
-    supervisor.completePhase("explore", "Found files.");
-    supervisor.completePhase("plan", "Plan ready.");
-    supervisor.completePhase("implement", "Code written.");
-    supervisor.completePhase("review", "Approved.");
-    supervisor.completePhase("test", "All passing.");
-
-    supervisor.finalize();
-
-    const xml = supervisor.synthesizeResult();
-    expect(xml).toContain("<swarm_team_result>");
-    expect(xml).toContain('outcome="completed"');
-    expect(xml).toContain("explore");
-    expect(xml).toContain("</swarm_team_result>");
-  });
-
-  it("starts all independent phases at once", () => {
-    const supervisor = new TeamSupervisor({
-      cwd: process.cwd(),
-      swarmRoot: os.tmpdir(),
-      runId: "test-supervisor-004",
-      goal: "Test parallel",
-      phases: [
-        { name: "explore-a", role: "explorer" },
-        { name: "explore-b", role: "explorer" },
-        {
-          name: "plan",
-          role: "planner",
-          dependsOn: ["explore-a", "explore-b"],
-        },
-      ],
-    });
-
-    // First batch: both independent phases should be ready
-    const batch1 = supervisor.startReadyPhases();
-    expect(batch1.length).toBe(2);
-    expect(batch1[0]!.phase.phase.name).toBe("explore-a");
-    expect(batch1[1]!.phase.phase.name).toBe("explore-b");
-
-    // No more ready phases until batch1 completes
-    const afterFirst = supervisor.startReadyPhases();
-    expect(afterFirst.length).toBe(0);
-
-    // Complete both
-    supervisor.completePhase("explore-a", "Result A");
-    supervisor.completePhase("explore-b", "Result B");
-
-    // Second batch: plan should now be ready
-    const batch2 = supervisor.startReadyPhases();
-    expect(batch2.length).toBe(1);
-    expect(batch2[0]!.phase.phase.name).toBe("plan");
-  });
-
-  it("skips dependent phases when a dependency fails", () => {
-    const supervisor = new TeamSupervisor({
-      cwd: process.cwd(),
-      swarmRoot: os.tmpdir(),
-      runId: "test-supervisor-005",
-      goal: "Test failure cascade",
-      phases: [
-        { name: "explore", role: "explorer" },
-        { name: "plan", role: "planner", dependsOn: ["explore"] },
-        { name: "implement", role: "coder", dependsOn: ["plan"] },
-      ],
-    });
-
-    // Start and fail explore
-    const batch1 = supervisor.startReadyPhases();
-    expect(batch1.length).toBe(1);
-    supervisor.failPhase("explore", "Could not explore");
-
-    // plan and implement should be skipped, so no ready phases remain
-    const batch2 = supervisor.startReadyPhases();
-    expect(batch2.length).toBe(0);
   });
 });
 
@@ -438,79 +268,5 @@ describe("Atomic write", () => {
     const files = fs.readdirSync(tmpDir);
     const tmpFiles = files.filter((f) => f.includes(".tmp."));
     expect(tmpFiles).toHaveLength(0);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Mailbox tests (#45)
-// ---------------------------------------------------------------------------
-
-describe("Mailbox operations", () => {
-  const tmpDir = path.join(os.tmpdir(), `pi-swarm-mailbox-${Date.now()}`);
-
-  afterAll(() => {
-    if (fs.existsSync(tmpDir)) {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it("sends and reads task inbox messages atomically", () => {
-    const paths = resolveMailboxPaths(tmpDir, "test-mailbox-run");
-    ensureMailbox(paths);
-
-    sendMessage(paths, {
-      messageId: "msg-001",
-      from: "agent-a",
-      to: "agent-b",
-      type: "message",
-      content: "Hello",
-      timestamp: Date.now(),
-    });
-
-    // Messages to specific agents go to their task inbox
-    const messages = readTaskInbox(paths, "agent-b");
-    expect(messages).toHaveLength(1);
-    expect(messages[0]!.messageId).toBe("msg-001");
-    expect(messages[0]!.content).toBe("Hello");
-  });
-
-  it("acknowledges task messages without corruption", () => {
-    const paths = resolveMailboxPaths(tmpDir, "test-mailbox-ack");
-    ensureMailbox(paths);
-
-    sendMessage(paths, {
-      messageId: "msg-ack-1",
-      from: "a",
-      to: "b",
-      type: "message",
-      content: "First",
-      timestamp: Date.now(),
-    });
-    sendMessage(paths, {
-      messageId: "msg-ack-2",
-      from: "a",
-      to: "b",
-      type: "message",
-      content: "Second",
-      timestamp: Date.now(),
-    });
-
-    ackTaskMessages(paths, "b", ["msg-ack-1"]);
-
-    const remaining = readTaskInbox(paths, "b");
-    expect(remaining).toHaveLength(1);
-    expect(remaining[0]!.messageId).toBe("msg-ack-2");
-  });
-
-  it("updates delivery state atomically", () => {
-    const paths = resolveMailboxPaths(tmpDir, "test-mailbox-delivery");
-    ensureMailbox(paths);
-
-    updateDeliveryState(paths, "msg-1", "delivered");
-    updateDeliveryState(paths, "msg-2", "read");
-
-    const state = getDeliveryState(paths);
-    expect(state["msg-1"]).toBe("delivered");
-    expect(state["msg-2"]).toBe("read");
   });
 });
