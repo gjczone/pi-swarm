@@ -18,7 +18,7 @@ export function registerTeamCommand(
   pi.registerCommand("swarm-team", {
     description:
       "Launch a collaborative Swarm with mailbox. " +
-      'Usage: /swarm-team <goal>',
+      "Usage: /swarm-team <goal>",
     async handler(args: string, ctx: ExtensionCommandContext) {
       const prompt = args.trim();
 

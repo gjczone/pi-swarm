@@ -21,14 +21,25 @@ import type {
 // ---------------------------------------------------------------------------
 
 const BRAILLE_LEVELS = [
-  "\u28C0", "\u28C4", "\u28E4", "\u28E6",
-  "\u28F6", "\u28F7", "\u28FF",
+  "\u28C0",
+  "\u28C4",
+  "\u28E4",
+  "\u28E6",
+  "\u28F6",
+  "\u28F7",
+  "\u28FF",
 ] as const;
 
 const BRAILLE_EMPTY = "\u2800"; // truly empty braille cell (no dots)
 const BRAILLE_SPINNER = [
-  "\u28BF", "\u28FB", "\u28FD", "\u28FE",
-  "\u28F7", "\u28EF", "\u28DF", "\u287F",
+  "\u28BF",
+  "\u28FB",
+  "\u28FD",
+  "\u28FE",
+  "\u28F7",
+  "\u28EF",
+  "\u28DF",
+  "\u287F",
 ] as const;
 
 const FRAME_INTERVAL_MS = 80;
@@ -45,8 +56,14 @@ const ID_WIDTH = 3;
 // ---------------------------------------------------------------------------
 
 export type MemberPhase =
-  | "pending" | "queued" | "prompting" | "working"
-  | "completed" | "failed" | "cancelled" | "suspended";
+  | "pending"
+  | "queued"
+  | "prompting"
+  | "working"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "suspended";
 
 export interface MemberStatus {
   readonly index: number;
@@ -106,11 +123,16 @@ export function snapshotToProgressState(
 
 function mapMemberPhase(phase: BatchMemberStatus["phase"]): MemberPhase {
   switch (phase) {
-    case "queued": return "queued";
-    case "working": return "working";
-    case "completed": return "completed";
-    case "failed": return "failed";
-    case "suspended": return "suspended";
+    case "queued":
+      return "queued";
+    case "working":
+      return "working";
+    case "completed":
+      return "completed";
+    case "failed":
+      return "failed";
+    case "suspended":
+      return "suspended";
   }
 }
 
@@ -144,7 +166,11 @@ export class AgentSwarmProgressComponent implements Component {
   complete(): void {
     if (this.state_) {
       for (const m of this.state_.members) {
-        if (m.phase !== "completed" && m.phase !== "failed" && m.phase !== "cancelled") {
+        if (
+          m.phase !== "completed" &&
+          m.phase !== "failed" &&
+          m.phase !== "cancelled"
+        ) {
           m.phase = "completed";
         }
       }
@@ -155,9 +181,16 @@ export class AgentSwarmProgressComponent implements Component {
     this.requestRender();
   }
 
-  dispose(): void { this.stopTimers(); this.onRequestRender = undefined; }
-  invalidate(): void { /* no-op */ }
-  handleInput(_data: string): void { /* minimal: no keyboard */ }
+  dispose(): void {
+    this.stopTimers();
+    this.onRequestRender = undefined;
+  }
+  invalidate(): void {
+    /* no-op */
+  }
+  handleInput(_data: string): void {
+    /* minimal: no keyboard */
+  }
 
   // -------------------------------------------------------------------
   // Rendering
@@ -200,7 +233,10 @@ export class AgentSwarmProgressComponent implements Component {
   private renderHeader(width: number, state: SwarmProgressState): string {
     const mode = state.mailbox ? "Swarm Team" : "Agent Swarm";
     const desc = state.title ?? "";
-    const mailboxInfo = state.mailboxCount && state.mailboxCount > 0 ? ` │ Mailbox: ${state.mailboxCount}` : "";
+    const mailboxInfo =
+      state.mailboxCount && state.mailboxCount > 0
+        ? ` │ Mailbox: ${state.mailboxCount}`
+        : "";
     // ─ Agent Swarm ─ <desc> ──────  or  ─ Swarm Team ─ <desc> ─ Mailbox: 3
     const prefix = `─ ${mode}`;
     const content = desc ? ` ─ ${desc}` : "";
@@ -220,7 +256,10 @@ export class AgentSwarmProgressComponent implements Component {
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     const elapsed = formatElapsed(Date.now() - state.startedAt);
     const label = state.active > 0 ? "Working..." : "Completed";
-    return truncateText(`${label}  ${done}/${total} (${pct}%)  ${elapsed}`, width);
+    return truncateText(
+      `${label}  ${done}/${total} (${pct}%)  ${elapsed}`,
+      width,
+    );
   }
 
   // -------------------------------------------------------------------
@@ -228,16 +267,23 @@ export class AgentSwarmProgressComponent implements Component {
   // -------------------------------------------------------------------
 
   private renderSingleAgent(member: MemberStatus, width: number): string {
-    const spinner = member.phase === "working" || member.phase === "prompting"
-      ? BRAILLE_SPINNER[this.frameIndex % BRAILLE_SPINNER.length]
-      : member.phase === "completed" ? "\u2713"
-        : member.phase === "failed" ? "\u2717" : "\u25CB";
+    const spinner =
+      member.phase === "working" || member.phase === "prompting"
+        ? BRAILLE_SPINNER[this.frameIndex % BRAILLE_SPINNER.length]
+        : member.phase === "completed"
+          ? "\u2713"
+          : member.phase === "failed"
+            ? "\u2717"
+            : "\u25CB";
 
     const item = member.item ?? `#${String(member.index).padStart(2, "0")}`;
     const itemTrunc = truncateText(item, Math.max(4, Math.floor(width * 0.4)));
 
     let suffix = "";
-    const remaining = Math.max(0, width - visibleLen(`${spinner} ${itemTrunc}`) - 2);
+    const remaining = Math.max(
+      0,
+      width - visibleLen(`${spinner} ${itemTrunc}`) - 2,
+    );
     if (member.phase === "working" && member.activity && remaining > 4) {
       suffix = ` ${truncateText(member.activity, Math.min(remaining - 1, width - 10))}`;
     } else if (member.phase === "completed") {
@@ -262,15 +308,28 @@ export class AgentSwarmProgressComponent implements Component {
     const gapWidth = visibleLen(CELL_GAP);
     const minLabelWidth = 8;
     const estCellWidth = ID_WIDTH + BRAILLE_BAR_MIN_WIDTH + minLabelWidth;
-    const columns = Math.max(1, Math.min(count, Math.floor((width + gapWidth) / (estCellWidth + gapWidth))));
+    const columns = Math.max(
+      1,
+      Math.min(
+        count,
+        Math.floor((width + gapWidth) / (estCellWidth + gapWidth)),
+      ),
+    );
     const rows = Math.ceil(count / columns);
-    const actualCellWidth = Math.floor((width - gapWidth * (columns - 1)) / columns);
+    const actualCellWidth = Math.floor(
+      (width - gapWidth * (columns - 1)) / columns,
+    );
     // Bar gets what's left after ID + minimum label; cap to keep label readable
     const barCells = Math.max(
       BRAILLE_BAR_MIN_WIDTH,
-      Math.min(BRAILLE_BAR_MAX_WIDTH, actualCellWidth - ID_WIDTH - minLabelWidth),
+      Math.min(
+        BRAILLE_BAR_MAX_WIDTH,
+        actualCellWidth - ID_WIDTH - minLabelWidth,
+      ),
     );
-    const leftPad = Math.floor((width - (actualCellWidth * columns + gapWidth * (columns - 1))) / 2);
+    const leftPad = Math.floor(
+      (width - (actualCellWidth * columns + gapWidth * (columns - 1))) / 2,
+    );
 
     const lines: string[] = [];
     for (let row = 0; row < rows; row++) {
@@ -294,21 +353,32 @@ export class AgentSwarmProgressComponent implements Component {
     return lines;
   }
 
-  private renderCell(member: MemberStatus, cellWidth: number, barCells: number): string {
+  private renderCell(
+    member: MemberStatus,
+    cellWidth: number,
+    barCells: number,
+  ): string {
     const id = String(member.index).padStart(ID_WIDTH, "0");
     const bar = this.renderBrailleBar(member, barCells);
-    const label = this.renderCellLabel(member, Math.max(1, cellWidth - ID_WIDTH - barCells - 3));
+    const label = this.renderCellLabel(
+      member,
+      Math.max(1, cellWidth - ID_WIDTH - barCells - 3),
+    );
     return `${id} ${bar}${label ? " " + label : ""}`;
   }
 
   private renderBrailleBar(member: MemberStatus, width: number): string {
     if (width <= 0) return "";
     const capacity = width * BRAILLE_LEVELS.length;
-    const ticks = member.phase === "completed"
-      ? capacity
-      : member.phase === "working"
-        ? Math.min(capacity, (member.progressTick ?? 0) + this.frameIndex % 3)
-        : 0;
+    const ticks =
+      member.phase === "completed"
+        ? capacity
+        : member.phase === "working"
+          ? Math.min(
+              capacity,
+              (member.progressTick ?? 0) + (this.frameIndex % 3),
+            )
+          : 0;
 
     const fullBars = Math.floor(ticks / BRAILLE_LEVELS.length);
     const partial = ticks % BRAILLE_LEVELS.length;
@@ -336,8 +406,10 @@ export class AgentSwarmProgressComponent implements Component {
       return truncateText(text, width);
     }
     if (member.phase === "completed") return truncateText("ok", width);
-    if (member.phase === "failed" && member.error) return truncateText(member.error, Math.min(width, 20));
-    if (member.phase === "queued") return truncateText(member.item ?? "...", width);
+    if (member.phase === "failed" && member.error)
+      return truncateText(member.error, Math.min(width, 20));
+    if (member.phase === "queued")
+      return truncateText(member.item ?? "...", width);
 
     return "";
   }
@@ -347,7 +419,9 @@ export class AgentSwarmProgressComponent implements Component {
   // -------------------------------------------------------------------
 
   private requestRender(): void {
-    if (this.debounceTimer !== undefined) { return; }
+    if (this.debounceTimer !== undefined) {
+      return;
+    }
     this.debounceTimer = setTimeout(() => {
       this.debounceTimer = undefined;
       this.onRequestRender?.();
@@ -372,9 +446,18 @@ export class AgentSwarmProgressComponent implements Component {
   }
 
   private stopTimers(): void {
-    if (this.animationFrame !== undefined) { clearInterval(this.animationFrame); this.animationFrame = undefined; }
-    if (this.debounceTimer !== undefined) { clearTimeout(this.debounceTimer); this.debounceTimer = undefined; }
-    if (this.pollTimer !== undefined) { clearTimeout(this.pollTimer); this.pollTimer = undefined; }
+    if (this.animationFrame !== undefined) {
+      clearInterval(this.animationFrame);
+      this.animationFrame = undefined;
+    }
+    if (this.debounceTimer !== undefined) {
+      clearTimeout(this.debounceTimer);
+      this.debounceTimer = undefined;
+    }
+    if (this.pollTimer !== undefined) {
+      clearTimeout(this.pollTimer);
+      this.pollTimer = undefined;
+    }
   }
 }
 

@@ -44,7 +44,7 @@ export function registerSwarmCommand(
   pi.registerCommand("swarm", {
     description:
       "Run a one-shot Swarm task. " +
-      'Usage: /swarm <task description and items>',
+      "Usage: /swarm <task description and items>",
     async handler(args: string, ctx: ExtensionCommandContext) {
       const prompt = args.trim();
 
@@ -76,11 +76,7 @@ export function registerSwarmCommand(
       });
 
       // Direct invocation: tell LLM to call the tool
-      host.sendNormalUserInput(
-        `Use the Swarm tool with this task: ${prompt}`,
-      );
+      host.sendNormalUserInput(`Use the Swarm tool with this task: ${prompt}`);
     },
   });
 }
-
-

@@ -1095,5 +1095,7 @@ function getSettingsSmallModel(
   if (!settings) return undefined;
   const swarm = settings["pi-swarm"] as Record<string, unknown> | undefined;
   const val = swarm?.smallModel;
-  return typeof val === "string" && val.trim().length > 0 ? val.trim() : undefined;
+  return typeof val === "string" && val.trim().length > 0
+    ? val.trim()
+    : undefined;
 }

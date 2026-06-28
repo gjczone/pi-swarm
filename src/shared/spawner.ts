@@ -456,7 +456,14 @@ async function runSubagentProcess(
     const result = await new Promise<ParsedResult>((resolve, reject) => {
       streamResolve = resolve;
       streamReject = reject;
-      parseEventStream(proc, agentId, logStream, killState, opts.onUsage, opts.onActivity).then(
+      parseEventStream(
+        proc,
+        agentId,
+        logStream,
+        killState,
+        opts.onUsage,
+        opts.onActivity,
+      ).then(
         (parsed) => {
           if (done) return;
           if (settled) {

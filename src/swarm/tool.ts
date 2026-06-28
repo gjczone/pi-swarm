@@ -37,10 +37,7 @@ import {
   registerAgentInManifest,
 } from "../state/persistence.js";
 import { mergeBranch, isGitRepository } from "../shared/worktree.js";
-import {
-  resolveMailboxPaths,
-  ensureMailbox,
-} from "../team/mailbox.js";
+import { resolveMailboxPaths, ensureMailbox } from "../team/mailbox.js";
 import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
@@ -85,8 +82,8 @@ const AGENT_SWARM_DESCRIPTION = [
   "Best for: code review, bug fixing, file editing, investigation, refactoring,",
   " multi-step research, phased implementation.",
   "",
-  "Optional: set model to \"small\" for simple/exploratory subagent tasks.",
-  "The tool auto-resolves \"small\" from your settings (pi-swarm.smallModel).",
+  'Optional: set model to "small" for simple/exploratory subagent tasks.',
+  'The tool auto-resolves "small" from your settings (pi-swarm.smallModel).',
   "Only use small model for straightforward execution or exploration.",
   "Do NOT use small model for review, planning, or complex analysis.",
   "Default: inherit parent session model (omit model param).",
@@ -126,7 +123,7 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         model: Type.Optional(
           Type.String({
             description:
-              "Model for subagents. Pass \"small\" to auto-resolve from settings pi-swarm.smallModel. Pass an explicit model ID to override. Omit to inherit parent session model. Do NOT use small model for review, planning, or complex analysis.",
+              'Model for subagents. Pass "small" to auto-resolve from settings pi-swarm.smallModel. Pass an explicit model ID to override. Omit to inherit parent session model. Do NOT use small model for review, planning, or complex analysis.',
             examples: ["deepseek/deepseek-v4-flash"],
           }),
         ),
@@ -147,15 +144,17 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const { description, prompt_template, items, model, mailbox } = params as {
-        description?: string;
-        prompt_template: string;
-        items: string[];
-        model?: string;
-        mailbox?: boolean;
-      };
+      const { description, prompt_template, items, model, mailbox } =
+        params as {
+          description?: string;
+          prompt_template: string;
+          items: string[];
+          model?: string;
+          mailbox?: boolean;
+        };
       // Resolve model: "small" keyword → lookup settings; explicit model ID → use as-is; undefined → inherit parent
-      const resolvedModel = model === "small" ? resolveSwarmSmallModel() : model;
+      const resolvedModel =
+        model === "small" ? resolveSwarmSmallModel() : model;
 
       const ctx = ctxRaw as ExtensionContext;
       const progress = createProgressWidget(ctx);
@@ -170,12 +169,17 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         const profileName = DEFAULT_SUBAGENT_TYPE;
 
         // Build specs
-        const specs = items.map((item: string, index: number) => ({
-          kind: "spawn" as const,
-          index: index + 1,
-          item: item.trim(),
-          prompt: prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item.trim()),
-        } satisfies SwarmSpawnSpec));
+        const specs = items.map(
+          (item: string, index: number) =>
+            ({
+              kind: "spawn" as const,
+              index: index + 1,
+              item: item.trim(),
+              prompt: prompt_template
+                .split(PROMPT_TEMPLATE_PLACEHOLDER)
+                .join(item.trim()),
+            }) satisfies SwarmSpawnSpec,
+        );
 
         // Set up mailbox when enabled
         let mailboxPath: string | undefined;
