@@ -7,6 +7,27 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-06-28
+
+### Added
+
+- **Keyboard interaction for TUI panels (#66)**: Both AgentSwarmProgressComponent and TeamDashboardComponent now support `handleInput()` with j/k scrolling, Enter detail overlay, ? help overlay, g/G top/bottom navigation, and Tab/1/2/3 panel switching. Agents list, event log, dependency visualization, and mailbox panels are all keyboard-navigable.
+- **Real-time agent activity tracking (#67)**: Added `currentTool` and `activity` fields to `BatchMemberStatus`. These are wired through the controller's `emitProgress()` to the TUI display, showing the current tool name and activity description inline in each agent row.
+- **Debounced event-driven render scheduling (#68)**: Replaced the pure setInterval polling with a 75ms debounce window that coalesces rapid state changes, plus fallback polling at 800ms (active) / 2s (idle). The animation timer only triggers re-renders when active members or overlays exist.
+- **Mailbox UI panel and dependency visualization (#69)**: TeamDashboard now has a 3rd panel showing mailbox messages (press 3), a 2nd panel showing phase dependency chains (press 2), and a phase detail overlay on Enter.
+- **Progress density enhancements (#70)**: AgentSwarm now displays ETA estimation based on average completion time, an event log panel (press 2) showing recent progress events, and scroll indicators for overflow lists.
+
+### Changed
+
+- **Types**: Added `ProgressEvent`, `PhaseDependencyEdge`, `estimatedRemainingMs` and `eventLog` to `BatchProgressSnapshot`, `dependencyEdges` to `TeamProgressSnapshot`, `onActivity` callback to `RunSubagentOptions`.
+- **Controller ETA calculation**: ETA now includes both queued and active tasks in the remaining count (previously only queued).
+- **Rollup of 5 TUI issues (#66, #67, #68, #69, #70)**: All TUI-related enhancements merged as a single feature batch.
+
+### Fixed
+
+- **Scroll offset boundary in TUI components**: Fixed a bug where `scrollDown()` could set `scrollOffset` to a negative value when `memberCount < VISIBLE_MEMBERS`, because `memberCount - VISIBLE_MEMBERS` was used as `Math.min` argument without `Math.max(0, ...)` wrapping.
+- **node_modules and .pi symlinks tracked in git**: Removed accidentally tracked `node_modules` and `.pi` symlinks from git index (introduced by subagent worktree auto-merge). Updated `.gitignore` to cover the entire `.pi/` directory instead of only `.pi/swarm/state/`.
+
 ## [0.4.1] - 2026-06-25
 
 ### Added
