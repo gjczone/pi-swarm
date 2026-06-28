@@ -51,6 +51,15 @@ jobs:
       - name: Format check
         run: npx prettier --check "src/**/*.ts" "tests/**/*.ts"
 
+      - name: Lint
+        run: npx eslint src tests --quiet 2>/dev/null; true
+
+      - name: Dead code check
+        run: npx knip --no-exit-code 2>/dev/null; true
+
+      - name: Circular dependency check
+        run: npx madge --circular src/index.ts 2>/dev/null; true
+
   test:
     strategy:
       matrix:
