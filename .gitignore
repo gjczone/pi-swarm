@@ -29,6 +29,9 @@ coverage/
 # Worktrees
 .worktrees/
 
+# Repo-inspect cache (generated analysis output)
+.inspect/
+
 # Debug logs
 *.log
 npm-debug.log*
