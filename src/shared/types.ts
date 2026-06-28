@@ -348,7 +348,13 @@ export interface ProgressEvent {
   readonly id: number;
   readonly agentId?: string;
   readonly timestamp: number;
-  readonly type: "started" | "completed" | "failed" | "tool_execution" | "suspended" | "phase_change";
+  readonly type:
+    | "started"
+    | "completed"
+    | "failed"
+    | "tool_execution"
+    | "suspended"
+    | "phase_change";
   readonly detail: string;
 }
 

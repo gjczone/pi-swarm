@@ -16,11 +16,7 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
-import {
-  matchesKey,
-  Key,
-  isKeyRepeat,
-} from "@earendil-works/pi-tui";
+import { matchesKey, Key, isKeyRepeat } from "@earendil-works/pi-tui";
 import type {
   TeamProgressSnapshot,
   TeamPhaseStatus,
@@ -191,7 +187,9 @@ export class TeamDashboardComponent implements Component {
       state.phases.some((p) => p.status === "running") &&
       state.status === "running";
 
-    if (this.scrollOffset > Math.max(0, state.phases.length - MAX_VISIBLE_PHASES)) {
+    if (
+      this.scrollOffset > Math.max(0, state.phases.length - MAX_VISIBLE_PHASES)
+    ) {
       this.scrollOffset = Math.max(0, state.phases.length - MAX_VISIBLE_PHASES);
     }
 
@@ -288,7 +286,10 @@ export class TeamDashboardComponent implements Component {
     }
     if (matchesKey(data, Key.shift("g")) || matchesKey(data, Key.end)) {
       if (this.state_) {
-        const maxScroll = Math.max(0, this.state_.phases.length - MAX_VISIBLE_PHASES);
+        const maxScroll = Math.max(
+          0,
+          this.state_.phases.length - MAX_VISIBLE_PHASES,
+        );
         this.scrollOffset = maxScroll;
         this.selectedIndex = Math.max(0, this.state_.phases.length - 1);
       }
@@ -320,9 +321,8 @@ export class TeamDashboardComponent implements Component {
     // Detail overlay
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
       if (this.activePanel === "phases" && this.state_) {
-        const idx = this.selectedIndex >= 0
-          ? this.selectedIndex
-          : this.scrollOffset;
+        const idx =
+          this.selectedIndex >= 0 ? this.selectedIndex : this.scrollOffset;
         if (idx >= 0 && idx < this.state_.phases.length) {
           this.overlay = {
             kind: "detail",
@@ -370,11 +370,12 @@ export class TeamDashboardComponent implements Component {
 
     // Header with panel indicator
     const header = truncateText(state.title, contentWidth - 20);
-    const panelLabel = this.activePanel === "phases"
-      ? "[1]phases"
-      : this.activePanel === "deps"
-        ? "[2]deps"
-        : "[3]mailbox";
+    const panelLabel =
+      this.activePanel === "phases"
+        ? "[1]phases"
+        : this.activePanel === "deps"
+          ? "[2]deps"
+          : "[3]mailbox";
     lines.push(`  ${header}  ${panelLabel}`);
 
     // Overall progress bar
@@ -433,8 +434,15 @@ export class TeamDashboardComponent implements Component {
     for (let i = this.scrollOffset; i < maxPhases; i += 1) {
       const phase = state.phases[i];
       if (!phase) continue;
-      const isSelected = i === this.selectedIndex || (this.selectedIndex < 0 && i === this.scrollOffset);
-      const row = renderPhaseRow(phase, contentWidth, this.frameIndex, isSelected);
+      const isSelected =
+        i === this.selectedIndex ||
+        (this.selectedIndex < 0 && i === this.scrollOffset);
+      const row = renderPhaseRow(
+        phase,
+        contentWidth,
+        this.frameIndex,
+        isSelected,
+      );
       lines.push(`  ${row}`);
     }
 
@@ -481,7 +489,9 @@ export class TeamDashboardComponent implements Component {
     // Show current phase context
     if (state.currentPhase) {
       lines.push("");
-      lines.push(`  \u25B6 Current: ${truncateText(state.currentPhase, contentWidth - 12)}`);
+      lines.push(
+        `  \u25B6 Current: ${truncateText(state.currentPhase, contentWidth - 12)}`,
+      );
     }
   }
 
@@ -512,9 +522,10 @@ export class TeamDashboardComponent implements Component {
         messages = raw.slice(-VISIBLE_MAILBOX_MSGS).map((m) => ({
           from: m.from,
           type: m.type,
-          preview: typeof m.payload.content === "string"
-            ? m.payload.content.slice(0, 40)
-            : JSON.stringify(m.payload).slice(0, 40),
+          preview:
+            typeof m.payload.content === "string"
+              ? m.payload.content.slice(0, 40)
+              : JSON.stringify(m.payload).slice(0, 40),
         }));
       } catch {
         // If we can't read messages, just show count
@@ -522,15 +533,21 @@ export class TeamDashboardComponent implements Component {
     }
 
     if (messages.length === 0) {
-      lines.push(`  ${padRight(`${state.mailboxCount} message(s) in outbox`, contentWidth)}`);
+      lines.push(
+        `  ${padRight(`${state.mailboxCount} message(s) in outbox`, contentWidth)}`,
+      );
       return;
     }
 
     for (const msg of messages) {
-      const prefix = msg.type === "task_assignment" ? "\u2190"
-        : msg.type === "task_result" ? "\u2713"
-        : msg.type === "handoff" ? "\u2194"
-        : "\u25CB";
+      const prefix =
+        msg.type === "task_assignment"
+          ? "\u2190"
+          : msg.type === "task_result"
+            ? "\u2713"
+            : msg.type === "handoff"
+              ? "\u2194"
+              : "\u25CB";
       const line = `${prefix} ${msg.from}: ${truncateText(msg.preview, contentWidth - 8)}`;
       lines.push(`  ${line}`);
     }
@@ -557,7 +574,9 @@ export class TeamDashboardComponent implements Component {
     const lines: string[] = [];
 
     lines.push(`  \u250C${"\u2500".repeat(safeWidth - 2)}\u2510`);
-    lines.push(`  \u2502  ${padRight("Help" + " ".repeat(contentWidth - 4), safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight("Help" + " ".repeat(contentWidth - 4), safeWidth - 4)}\u2502`,
+    );
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
 
     const helpItems = [
@@ -577,16 +596,15 @@ export class TeamDashboardComponent implements Component {
     }
 
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
-    lines.push(`  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`,
+    );
     lines.push(`  \u2514${"\u2500".repeat(safeWidth - 2)}\u2518`);
 
     return lines;
   }
 
-  private renderPhaseDetailOverlay(
-    width: number,
-    phaseName: string,
-  ): string[] {
+  private renderPhaseDetailOverlay(width: number, phaseName: string): string[] {
     if (!this.state_) return [];
     const phase = this.state_.phases.find((p) => p.name === phaseName);
     if (!phase) return [];
@@ -598,7 +616,9 @@ export class TeamDashboardComponent implements Component {
     const bottom = `\u2514${"\u2500".repeat(safeWidth - 2)}\u2518`;
 
     lines.push(`  \u250C${"\u2500".repeat(safeWidth - 2)}\u2510`);
-    lines.push(`  \u2502  ${padRight(`Phase: ${phase.name} (${phase.role})`, safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight(`Phase: ${phase.name} (${phase.role})`, safeWidth - 4)}\u2502`,
+    );
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
 
     const fields: Array<{ label: string; value: string }> = [
@@ -614,7 +634,9 @@ export class TeamDashboardComponent implements Component {
     }
 
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
-    lines.push(`  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`,
+    );
     lines.push(bottom);
 
     return lines;
@@ -628,9 +650,21 @@ export class TeamDashboardComponent implements Component {
     if (!this.state_) return;
     const phaseCount = this.state_.phases.length;
     const maxOffset = Math.max(0, phaseCount - 1);
-    this.selectedIndex = Math.min(maxOffset, Math.max(0, this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex) + n);
-    if (this.selectedIndex - this.scrollOffset >= MAX_VISIBLE_PHASES || this.selectedIndex < this.scrollOffset) {
-      this.scrollOffset = Math.max(0, this.selectedIndex - MAX_VISIBLE_PHASES + 1);
+    this.selectedIndex = Math.min(
+      maxOffset,
+      Math.max(
+        0,
+        this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex,
+      ) + n,
+    );
+    if (
+      this.selectedIndex - this.scrollOffset >= MAX_VISIBLE_PHASES ||
+      this.selectedIndex < this.scrollOffset
+    ) {
+      this.scrollOffset = Math.max(
+        0,
+        this.selectedIndex - MAX_VISIBLE_PHASES + 1,
+      );
       const maxScroll = Math.max(0, phaseCount - MAX_VISIBLE_PHASES);
       this.scrollOffset = Math.min(this.scrollOffset, maxScroll);
     }
@@ -639,7 +673,10 @@ export class TeamDashboardComponent implements Component {
 
   private scrollUp(n: number): void {
     if (!this.state_) return;
-    this.selectedIndex = Math.max(0, (this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex) - n);
+    this.selectedIndex = Math.max(
+      0,
+      (this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex) - n,
+    );
     if (this.selectedIndex < this.scrollOffset) {
       this.scrollOffset = Math.max(0, this.selectedIndex);
     }

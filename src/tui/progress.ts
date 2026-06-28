@@ -17,11 +17,7 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
-import {
-  matchesKey,
-  Key,
-  isKeyRepeat,
-} from "@earendil-works/pi-tui";
+import { matchesKey, Key, isKeyRepeat } from "@earendil-works/pi-tui";
 import type {
   BatchProgressSnapshot,
   BatchMemberStatus,
@@ -226,7 +222,9 @@ export class AgentSwarmProgressComponent implements Component {
     this.hasActiveMembers = state.active > 0;
 
     // Reset scroll offset if it exceeds member count
-    if (this.scrollOffset > Math.max(0, state.members.length - VISIBLE_MEMBERS)) {
+    if (
+      this.scrollOffset > Math.max(0, state.members.length - VISIBLE_MEMBERS)
+    ) {
       this.scrollOffset = Math.max(0, state.members.length - VISIBLE_MEMBERS);
     }
 
@@ -310,7 +308,10 @@ export class AgentSwarmProgressComponent implements Component {
     }
     if (matchesKey(data, Key.shift("g")) || matchesKey(data, Key.end)) {
       if (this.state_) {
-        const maxScroll = Math.max(0, this.state_.members.length - VISIBLE_MEMBERS);
+        const maxScroll = Math.max(
+          0,
+          this.state_.members.length - VISIBLE_MEMBERS,
+        );
         this.scrollOffset = maxScroll;
         this.selectedIndex = Math.max(0, this.state_.members.length - 1);
       }
@@ -336,9 +337,8 @@ export class AgentSwarmProgressComponent implements Component {
     // Detail overlay
     if (matchesKey(data, Key.enter) || matchesKey(data, Key.return)) {
       if (this.activePanel === "members" && this.state_) {
-        const idx = this.selectedIndex >= 0
-          ? this.selectedIndex
-          : this.scrollOffset;
+        const idx =
+          this.selectedIndex >= 0 ? this.selectedIndex : this.scrollOffset;
         if (idx >= 0 && idx < this.state_.members.length) {
           this.overlay = { kind: "detail" };
           this.requestRender();
@@ -383,7 +383,8 @@ export class AgentSwarmProgressComponent implements Component {
 
     // Header: title + panel indicator
     const title = state.title ?? "Agent Swarm";
-    const panelLabel = this.activePanel === "members" ? "[1]members" : "[2]events";
+    const panelLabel =
+      this.activePanel === "members" ? "[1]members" : "[2]events";
     const headerText = `${title}  ${panelLabel}`;
     lines.push(`  ${truncateText(headerText, contentWidth)}`);
 
@@ -442,8 +443,15 @@ export class AgentSwarmProgressComponent implements Component {
     for (let i = this.scrollOffset; i < maxMembers; i += 1) {
       const member = state.members[i];
       if (!member) continue;
-      const isSelected = i === this.selectedIndex || (this.selectedIndex < 0 && i === this.scrollOffset);
-      const row = renderMemberRow(member, contentWidth, this.frameIndex, isSelected);
+      const isSelected =
+        i === this.selectedIndex ||
+        (this.selectedIndex < 0 && i === this.scrollOffset);
+      const row = renderMemberRow(
+        member,
+        contentWidth,
+        this.frameIndex,
+        isSelected,
+      );
       lines.push(`  ${row}`);
     }
 
@@ -497,7 +505,9 @@ export class AgentSwarmProgressComponent implements Component {
     const bottom = `\u2514${"\u2500".repeat(safeWidth - 2)}\u2518`;
 
     lines.push(`  \u250C${"\u2500".repeat(safeWidth - 2)}\u2510`);
-    lines.push(`  \u2502  ${padRight("Help" + " ".repeat(contentWidth - 4), safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight("Help" + " ".repeat(contentWidth - 4), safeWidth - 4)}\u2502`,
+    );
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
 
     const helpItems = [
@@ -516,7 +526,9 @@ export class AgentSwarmProgressComponent implements Component {
     }
 
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
-    lines.push(`  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`,
+    );
     lines.push(bottom);
 
     return lines;
@@ -529,16 +541,17 @@ export class AgentSwarmProgressComponent implements Component {
 
     if (!this.state_) return [];
 
-    const idx = this.selectedIndex >= 0
-      ? this.selectedIndex
-      : this.scrollOffset;
+    const idx =
+      this.selectedIndex >= 0 ? this.selectedIndex : this.scrollOffset;
     const member = this.state_.members[idx];
     if (!member) return [];
 
     const bottom = `\u2514${"\u2500".repeat(safeWidth - 2)}\u2518`;
 
     lines.push(`  \u250C${"\u2500".repeat(safeWidth - 2)}\u2510`);
-    lines.push(`  \u2502  ${padRight(`Agent #${String(member.index).padStart(2, "0")}`, safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight(`Agent #${String(member.index).padStart(2, "0")}`, safeWidth - 4)}\u2502`,
+    );
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
 
     const fields: Array<{ label: string; value: string }> = [
@@ -570,7 +583,9 @@ export class AgentSwarmProgressComponent implements Component {
     }
 
     lines.push(`  \u2502  ${padRight("", safeWidth - 4)}\u2502`);
-    lines.push(`  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`);
+    lines.push(
+      `  \u2502  ${padRight("Press q or Esc to close", safeWidth - 4)}\u2502`,
+    );
     lines.push(bottom);
 
     return lines;
@@ -584,8 +599,17 @@ export class AgentSwarmProgressComponent implements Component {
     if (!this.state_) return;
     const memberCount = this.state_.members.length;
     const maxOffset = Math.max(0, memberCount - 1);
-    this.selectedIndex = Math.min(maxOffset, Math.max(0, this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex) + n);
-    if (this.selectedIndex - this.scrollOffset >= VISIBLE_MEMBERS || this.selectedIndex < this.scrollOffset) {
+    this.selectedIndex = Math.min(
+      maxOffset,
+      Math.max(
+        0,
+        this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex,
+      ) + n,
+    );
+    if (
+      this.selectedIndex - this.scrollOffset >= VISIBLE_MEMBERS ||
+      this.selectedIndex < this.scrollOffset
+    ) {
       this.scrollOffset = Math.max(0, this.selectedIndex - VISIBLE_MEMBERS + 1);
       const maxScroll = Math.max(0, memberCount - VISIBLE_MEMBERS);
       this.scrollOffset = Math.min(this.scrollOffset, maxScroll);
@@ -595,7 +619,10 @@ export class AgentSwarmProgressComponent implements Component {
 
   private scrollUp(n: number): void {
     if (!this.state_) return;
-    this.selectedIndex = Math.max(0, (this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex) - n);
+    this.selectedIndex = Math.max(
+      0,
+      (this.selectedIndex < 0 ? this.scrollOffset : this.selectedIndex) - n,
+    );
     if (this.selectedIndex < this.scrollOffset) {
       this.scrollOffset = Math.max(0, this.selectedIndex);
     }
@@ -695,12 +722,18 @@ export class AgentSwarmProgressComponent implements Component {
 
 function eventIcon(type: ProgressEvent["type"]): string {
   switch (type) {
-    case "started": return "\u25B6";   // ▶
-    case "completed": return "\u2713";  // ✓
-    case "failed": return "\u2717";     // ✗
-    case "tool_execution": return "\u2699"; // ⚙
-    case "suspended": return "\u23F3";  // ⏳
-    case "phase_change": return "\u2192"; // →
+    case "started":
+      return "\u25B6"; // ▶
+    case "completed":
+      return "\u2713"; // ✓
+    case "failed":
+      return "\u2717"; // ✗
+    case "tool_execution":
+      return "\u2699"; // ⚙
+    case "suspended":
+      return "\u23F3"; // ⏳
+    case "phase_change":
+      return "\u2192"; // →
   }
 }
 
@@ -793,7 +826,10 @@ function buildFooter(state: SwarmProgressState, width: number): string {
   if (state.active > 0) parts.splice(1, 0, `${state.active}act`);
 
   // ETA
-  if (state.estimatedRemainingMs !== undefined && state.estimatedRemainingMs > 0) {
+  if (
+    state.estimatedRemainingMs !== undefined &&
+    state.estimatedRemainingMs > 0
+  ) {
     parts.push(formatElapsed(state.estimatedRemainingMs));
   }
 
