@@ -58,7 +58,7 @@ jobs:
         run: npx knip --no-exit-code 2>/dev/null; true
 
       - name: Circular dependency check
-        run: npx madge --circular src/index.ts 2>/dev/null; true
+        run: npx dpdm --circular src/index.ts 2>/dev/null; true
 
   test:
     strategy:

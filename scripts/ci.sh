@@ -2,8 +2,7 @@
 set -euo pipefail
 
 echo "==> CI Quick Gate (public): $(date)"
-echo "Full verification runs on GitHub Actions (typecheck + format + lint +"
-echo "  knip + madge + test + build + security audit)."
+echo "GitHub Actions independently re-runs all steps + build + audit + matrix."
 echo ""
 
 # Step 1: Install dependencies
@@ -27,13 +26,31 @@ npm run typecheck
 echo "  type check passed"
 echo ""
 
-# Step 4: Tests
+# Step 4: Lint
+echo "--- Lint ---"
+npx eslint src tests --quiet 2>/dev/null; ec=$?; if [ $ec -ne 0 ]; then echo "  FAILED"; exit $ec; fi
+echo "  lint passed"
+echo ""
+
+# Step 5: Dead code check
+echo "--- Dead code check ---"
+npx knip --no-exit-code 2>/dev/null; ec=$?; if [ $ec -ne 0 ]; then echo "  FAILED"; exit $ec; fi
+echo "  no dead code"
+echo ""
+
+# Step 6: Circular dependency check
+echo "--- Circular dependency check ---"
+npx dpdm --circular src/index.ts 2>/dev/null; ec=$?; if [ $ec -ne 0 ]; then echo "  FAILED"; exit $ec; fi
+echo "  no circular dependencies"
+echo ""
+
+# Step 7: Tests
 echo "--- Tests ---"
 npm test
 echo "  tests passed"
 echo ""
 
-# Step 5: CI config check
+# Step 8: CI config check
 echo "--- CI config check ---"
 test -f .github/workflows/ci.yml || {
   echo "  ci.yml missing -- generate via git-ops skill"

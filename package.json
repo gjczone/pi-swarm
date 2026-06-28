@@ -17,8 +17,8 @@
     "test:watch": "vitest",
     "lint": "npx eslint src tests --quiet 2>/dev/null; true",
     "knip": "npx knip --no-exit-code 2>/dev/null; true",
-    "madge": "npx madge --circular src/index.ts 2>/dev/null; true",
-    "ci": "npx prettier --check src tests && npm run typecheck && npm run lint && npm run knip && npm run madge && npm test && npm run build && test -f dist/index.js && test -f dist/index.d.ts"
+    "circular": "npx dpdm --circular src/index.ts 2>/dev/null; true",
+    "ci": "npx prettier --check src tests && npm run typecheck && npm run lint && npm run knip && npm run circular && npm test && npm run build && test -f dist/index.js && test -f dist/index.d.ts"
   },
   "keywords": [
     "pi-package",
@@ -52,8 +52,13 @@
     "@earendil-works/pi-coding-agent": "*"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^26.0.1",
+    "dpdm": "^4.2.0",
+    "eslint": "^10.6.0",
+    "knip": "^6.23.0",
     "typescript": "^6.0.0",
+    "typescript-eslint": "^8.62.0",
     "vitest": "^4.0.0"
   },
   "engines": {
