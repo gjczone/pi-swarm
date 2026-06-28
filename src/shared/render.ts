@@ -10,6 +10,7 @@ import type {
   SwarmResumeSpec,
   SubagentResult,
 } from "./types.js";
+import { escapeXmlAttr, escapeXmlBody } from "./xml.js";
 
 // ---------------------------------------------------------------------------
 // AgentSwarm XML output
@@ -62,12 +63,12 @@ export function renderSwarmResults(results: readonly SwarmRunResult[]): string {
     const agentId =
       result.agentId === undefined
         ? ""
-        : ` agent_id="${escapeXml(result.agentId)}"`;
+        : ` agent_id="${escapeXmlAttr(result.agentId)}"`;
     const mode = result.spec.kind === "resume" ? ' mode="resume"' : "";
     const item =
       result.spec.item === undefined
         ? ""
-        : ` item="${escapeXml(result.spec.item)}"`;
+        : ` item="${escapeXmlAttr(result.spec.item)}"`;
     const state = result.state === undefined ? "" : ` state="${result.state}"`;
     const body =
       result.status === "completed"
@@ -103,27 +104,6 @@ export function toSwarmRunResults<T>(
 }
 
 // ---------------------------------------------------------------------------
-// SwarmTeam output (reserved for Phase 3)
-// ---------------------------------------------------------------------------
-
-/**
- * Render the aggregated SwarmTeam result as an XML string.
- *
- * Format:
- *   <swarm_team_result>
- *   <summary>Phases completed: 5/6. Tasks: 8/10 succeeded, 2 failed.</summary>
- *   <phase name="explore" status="completed">...</phase>
- *   ...
- *   </swarm_team_result>
- */
-export function renderTeamResults(
-  _results: readonly Record<string, unknown>[],
-): string {
-  // Placeholder — full implementation in Phase 3.
-  return "<swarm_team_result>\n<summary>Not yet implemented.</summary>\n</swarm_team_result>";
-}
-
-// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -137,23 +117,4 @@ function renderSwarmSummary(
   if (failed > 0) parts.push(`failed: ${String(failed)}`);
   if (aborted > 0) parts.push(`aborted: ${String(aborted)}`);
   return parts.join(", ");
-}
-
-function escapeXml(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-/**
- * Escape body text for XML.  Body text is not attribute-quoted,
- * so we only need to escape the structural characters.
- */
-function escapeXmlBody(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
 }

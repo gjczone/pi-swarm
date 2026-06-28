@@ -26,11 +26,7 @@ export const DEFAULT_TEAM_PHASES: readonly TeamPhase[] = [
 // ---------------------------------------------------------------------------
 
 export type PhaseStatus =
-  | "queued"
-  | "running"
-  | "completed"
-  | "failed"
-  | "skipped";
+  "queued" | "running" | "completed" | "failed" | "skipped";
 
 export interface PhaseState {
   readonly phase: TeamPhase;
@@ -249,8 +245,7 @@ export class TaskGraph {
   ): TaskGraph {
     const graph = new TaskGraph(phaseDefs);
     const phases = data.phases as
-      | Record<string, Record<string, unknown>>
-      | undefined;
+      Record<string, Record<string, unknown>> | undefined;
     if (phases) {
       for (const [name, stateData] of Object.entries(phases)) {
         const state = graph.phases.get(name);

@@ -40,6 +40,7 @@ const RATE_LIMIT_CAPACITY_SHRINK_INTERVAL_MS = 2000;
 const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = "PI_SWARM_MAX_CONCURRENCY";
 const DEFAULT_MAX_CONCURRENCY = 5;
+const RATE_LIMIT_SUSPENDED_REASON = "Rate limit reached — agent suspended";
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -524,6 +525,14 @@ export class SubagentBatchController<T> {
     state.retryAgentId = state.agentId ?? state.retryAgentId;
     state.retryCount += 1;
 
+    // Notify external listeners that this agent was suspended
+    if (state.agentId) {
+      this.launcher.suspended?.({
+        agentId: state.agentId,
+        reason: RATE_LIMIT_SUSPENDED_REASON,
+      });
+    }
+
     // Exponential backoff
     const delay =
       RATE_LIMIT_RETRY_BASE_MS *
@@ -582,7 +591,10 @@ export class SubagentBatchController<T> {
   private enterRateLimitPhase(): void {
     this.rateLimitMode = true;
     this.clearNormalTimer();
-    this.rateLimitCapacity = Math.max(1, this.countReadyActive());
+    // Use startedSuccessCount (count of agents that fully booted during
+    // the normal phase) so capacity reflects true past throughput rather
+    // than only currently-active attempts (which may already be finishing).
+    this.rateLimitCapacity = Math.max(1, this.startedSuccessCount);
     this.lastRateLimitAt = Date.now();
     this.globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
     this.nextRateLimitLaunchAt = Date.now() + RATE_LIMIT_RETRY_BASE_MS;
@@ -816,6 +828,18 @@ export class SubagentBatchController<T> {
     if (attempt.ready) return;
     attempt.ready = true;
     this.startedSuccessCount += 1;
+
+    // If we are in rate-limit mode, reset the global retry interval
+    // so the next launch uses the base delay rather than an accumulated
+    // exponential backoff, and re-arm the scheduler immediately.
+    if (this.rateLimitMode) {
+      this.globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
+      this.nextRateLimitLaunchAt = Date.now() + this.globalRetryIntervalMs;
+      // Clear any pending rate-limit timer so schedule() re-computes
+      // the next wakeup from the new (shorter) interval.
+      this.clearRateLimitTimer();
+      this.schedule();
+    }
   }
 
   private countReadyActive(): number {
@@ -897,11 +921,11 @@ export class SubagentBatchController<T> {
  *   2. `~/.pi/agent/settings.json` → `pi-swarm.maxConcurrency` (global)
  *   3. `PI_SWARM_MAX_CONCURRENCY` env var
  *
- * Returns `undefined` when unset.  A present value must be a positive
- * integer; invalid input throws so a misconfigured cap never silently
- * reverts to uncapped.
+ * Falls back to DEFAULT_MAX_CONCURRENCY (5) when unset.  A present
+ * value must be a positive integer; invalid input throws so a
+ * misconfigured cap never silently reverts to uncapped.
  */
-export function resolveSwarmMaxConcurrency(cwd?: string): number | undefined {
+export function resolveSwarmMaxConcurrency(cwd?: string): number {
   // 1. Project-local settings
   const projectSettings = readPiSettings(
     path.join(cwd ?? process.cwd(), ".pi", "settings.json"),
@@ -927,15 +951,12 @@ export function resolveSwarmMaxConcurrency(cwd?: string): number | undefined {
     return validateConcurrency(Number(raw), AGENT_SWARM_MAX_CONCURRENCY_ENV);
   }
 
-  // 4. Default
+  // 4. Default (always reached — value guaranteed)
   return DEFAULT_MAX_CONCURRENCY;
 }
 
-function validateConcurrency(
-  value: unknown,
-  source: string,
-): number | undefined {
-  if (value === undefined || value === null) return undefined;
+function validateConcurrency(value: unknown, source: string): number {
+  if (value === undefined || value === null) return DEFAULT_MAX_CONCURRENCY;
   const num = Number(value);
   if (!Number.isInteger(num) || num <= 0) {
     throw new Error(

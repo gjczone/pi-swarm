@@ -49,27 +49,18 @@ const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 const TEAM_DASHBOARD_WIDGET_KEY = "pi-swarm-team-dashboard";
 
-const AGENT_TEAM_DESCRIPTION = `Launch a collaborative team of role-based agents to complete a complex multi-phase task.
-
-**IMPORTANT: ONLY use SwarmTeam when the user EXPLICITLY asks for a "team", "swarm-team", or role-based collaboration with communication between agents. For nearly all parallel tasks, use AgentSwarm instead.**
-
-SwarmTeam is best for COMPLEX tasks that REQUIRE multiple specialized roles collaborating sequentially:
-explorer (codebase understanding) → planner (design) → coder (implementation)
- → reviewer (quality check) → tester (verification).
-
-Do NOT use SwarmTeam for:
-- Simple parallel tasks (use AgentSwarm)
-- Single subagent tasks (use AgentSwarm with 1 item)
-- Tasks where agents don't need to communicate results to each other
-
-Each agent communicates via a shared mailbox. The supervisor decomposes the goal
-into phases, assigns each phase to a role agent, and synthesizes the final result.
-Agents receive context from previous phases automatically.
-
-Default phases: explore → plan → implement → review → test.
-Custom phases and roles can be specified.
-
-If SwarmTeam is called, that call must be the only tool call in the response.`;
+const AGENT_TEAM_DESCRIPTION = [
+  "Orchestrate role-based agents (explorer, planner, coder, reviewer, tester) with a shared mailbox.",
+  "",
+  "CRITICAL RULES:",
+  "1. ONLY use when the user explicitly says 'team' or 'swarm-team'.",
+  "2. For simple parallel tasks, use AgentSwarm instead.",
+  "3. This tool MUST be the ONLY tool call in your response — do not batch.",
+  "",
+  "Default phases: explore -> plan -> implement -> review -> test.",
+  "Use `phases` and `roles` to customize the workflow.",
+  "Use `small_model` to route explorer/tester to a cheaper model.",
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -84,9 +75,11 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
       {
         goal: Type.String({
           description: "High-level goal for the team.",
+          examples: ["Implement JWT authentication with refresh tokens"],
         }),
         description: Type.String({
           description: "Short description for the team run.",
+          examples: ["Build auth system"],
         }),
         phases: Type.Optional(
           Type.Array(
@@ -103,6 +96,13 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             {
               description:
                 "Custom phase definitions. Defaults to explore/plan/implement/review/test.",
+              examples: [
+                [
+                  { name: "explore", role: "explorer" },
+                  { name: "plan", role: "planner", dependsOn: ["explore"] },
+                  { name: "implement", role: "coder", dependsOn: ["plan"] },
+                ],
+              ],
             },
           ),
         ),
@@ -117,6 +117,12 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             {
               description:
                 "Custom role configurations with optional model/tools overrides.",
+              examples: [
+                [
+                  { role: "coder", model: "deepseek/deepseek-v4-pro" },
+                  { role: "explorer", tools: ["read", "bash", "grep"] },
+                ],
+              ],
             },
           ),
         ),
@@ -124,11 +130,13 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
           Type.String({
             description:
               "Lightweight/fast model for exploration roles (e.g. explorer). Other roles use the default model.",
+            examples: ["deepseek/deepseek-v4-flash"],
           }),
         ),
         max_agents: Type.Optional(
           Type.Number({
             description: "Max concurrent agents. Default 4.",
+            examples: [6],
           }),
         ),
       },
@@ -181,6 +189,39 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
           model: ph.model,
           tools: ph.tools,
         }));
+
+        // Validate phases (if provided)
+        if (p.phases) {
+          const phaseNames = new Set(p.phases.map((ph) => ph.name));
+          const VALID_ROLES = new Set([
+            "explorer",
+            "planner",
+            "coder",
+            "reviewer",
+            "tester",
+            "fixer",
+          ]);
+          for (const ph of p.phases) {
+            // Validate role
+            if (!VALID_ROLES.has(ph.role)) {
+              throw new Error(
+                `Phase "${ph.name}" has invalid role "${ph.role}". ` +
+                  `Valid roles: ${[...VALID_ROLES].join(", ")}`,
+              );
+            }
+            // Validate dependsOn references
+            if (ph.dependsOn) {
+              for (const dep of ph.dependsOn) {
+                if (!phaseNames.has(dep)) {
+                  throw new Error(
+                    `Phase "${ph.name}" depends on unknown phase "${dep}". ` +
+                      `Available phases: ${[...phaseNames].join(", ")}`,
+                  );
+                }
+              }
+            }
+          }
+        }
 
         // Build role configs
         const roles: AgentRoleConfig[] | undefined = p.roles?.map((r) => ({
@@ -474,8 +515,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
     renderCall(args, theme, _context) {
       const goal = (args.goal as string) || "";
       const phases = args.phases as
-        | { name: string; role: string }[]
-        | undefined;
+        { name: string; role: string }[] | undefined;
       const phaseCount = phases?.length ?? 5; // Default 5 phases
       const maxAgents = (args.max_agents as number) ?? 4;
 
