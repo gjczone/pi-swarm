@@ -755,8 +755,7 @@ export class TeamSupervisor {
               : "(none)";
             let depResultsText = "";
             const depResults = m.payload.dependencyResults as
-              | Record<string, string>
-              | undefined;
+              Record<string, string> | undefined;
             if (depResults && Object.keys(depResults).length > 0) {
               depResultsText = Object.entries(depResults)
                 .map(

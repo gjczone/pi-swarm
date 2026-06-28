@@ -84,12 +84,7 @@ export type SwarmSpec = SwarmSpawnSpec | SwarmResumeSpec;
 
 /** Predefined agent roles for team mode. */
 export type AgentRole =
-  | "explorer"
-  | "planner"
-  | "coder"
-  | "reviewer"
-  | "tester"
-  | "fixer";
+  "explorer" | "planner" | "coder" | "reviewer" | "tester" | "fixer";
 
 /** Configuration for a single role in a team run. */
 export interface AgentRoleConfig {
@@ -270,8 +265,7 @@ export interface ResumeQueuedSubagentTask<
 
 /** Union of queued task kinds. */
 export type QueuedSubagentTask<T = unknown> =
-  | SpawnQueuedSubagentTask<T>
-  | ResumeQueuedSubagentTask<T>;
+  SpawnQueuedSubagentTask<T> | ResumeQueuedSubagentTask<T>;
 
 // ---------------------------------------------------------------------------
 // Controller options

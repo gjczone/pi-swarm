@@ -79,7 +79,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         }),
         description: Type.String({
           description: "Short description for the team run.",
-          examples: ["Build auth system"]
+          examples: ["Build auth system"],
         }),
         phases: Type.Optional(
           Type.Array(
@@ -96,11 +96,13 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             {
               description:
                 "Custom phase definitions. Defaults to explore/plan/implement/review/test.",
-              examples: [[
-                { name: "explore", role: "explorer" },
-                { name: "plan", role: "planner", dependsOn: ["explore"] },
-                { name: "implement", role: "coder", dependsOn: ["plan"] },
-              ]],
+              examples: [
+                [
+                  { name: "explore", role: "explorer" },
+                  { name: "plan", role: "planner", dependsOn: ["explore"] },
+                  { name: "implement", role: "coder", dependsOn: ["plan"] },
+                ],
+              ],
             },
           ),
         ),
@@ -115,10 +117,12 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
             {
               description:
                 "Custom role configurations with optional model/tools overrides.",
-              examples: [[
-                { role: "coder", model: "deepseek/deepseek-v4-pro" },
-                { role: "explorer", tools: ["read", "bash", "grep"] },
-              ]],
+              examples: [
+                [
+                  { role: "coder", model: "deepseek/deepseek-v4-pro" },
+                  { role: "explorer", tools: ["read", "bash", "grep"] },
+                ],
+              ],
             },
           ),
         ),
@@ -190,14 +194,19 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
         if (p.phases) {
           const phaseNames = new Set(p.phases.map((ph) => ph.name));
           const VALID_ROLES = new Set([
-            "explorer", "planner", "coder", "reviewer", "tester", "fixer",
+            "explorer",
+            "planner",
+            "coder",
+            "reviewer",
+            "tester",
+            "fixer",
           ]);
           for (const ph of p.phases) {
             // Validate role
             if (!VALID_ROLES.has(ph.role)) {
               throw new Error(
                 `Phase "${ph.name}" has invalid role "${ph.role}". ` +
-                `Valid roles: ${[...VALID_ROLES].join(", ")}`
+                  `Valid roles: ${[...VALID_ROLES].join(", ")}`,
               );
             }
             // Validate dependsOn references
@@ -206,7 +215,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
                 if (!phaseNames.has(dep)) {
                   throw new Error(
                     `Phase "${ph.name}" depends on unknown phase "${dep}". ` +
-                    `Available phases: ${[...phaseNames].join(", ")}`
+                      `Available phases: ${[...phaseNames].join(", ")}`,
                   );
                 }
               }
@@ -506,8 +515,7 @@ export function registerSwarmTeamTool(pi: ExtensionAPI): void {
     renderCall(args, theme, _context) {
       const goal = (args.goal as string) || "";
       const phases = args.phases as
-        | { name: string; role: string }[]
-        | undefined;
+        { name: string; role: string }[] | undefined;
       const phaseCount = phases?.length ?? 5; // Default 5 phases
       const maxAgents = (args.max_agents as number) ?? 4;
 

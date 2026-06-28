@@ -955,10 +955,7 @@ export function resolveSwarmMaxConcurrency(cwd?: string): number {
   return DEFAULT_MAX_CONCURRENCY;
 }
 
-function validateConcurrency(
-  value: unknown,
-  source: string,
-): number {
+function validateConcurrency(value: unknown, source: string): number {
   if (value === undefined || value === null) return DEFAULT_MAX_CONCURRENCY;
   const num = Number(value);
   if (!Number.isInteger(num) || num <= 0) {

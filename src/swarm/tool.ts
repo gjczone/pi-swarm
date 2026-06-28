@@ -66,7 +66,7 @@ const AGENT_SWARM_DESCRIPTION = [
   "QUICK REFERENCE:",
   '- New subagents: { "items": ["a","b"], "prompt_template": "Review {{item}}" }',
   '- Resume only: { "resume_agent_ids": { "ag-1": "retry prompt" } }',
-  '- Combined: both fields together (resumes fire first, then spawns).',
+  "- Combined: both fields together (resumes fire first, then spawns).",
   "",
   "Use AgentSwarm for parallel independent tasks. Use SwarmTeam for role-based collaboration.",
 ].join("\n");
@@ -96,7 +96,10 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         prompt_template: Type.Optional(
           Type.String({
             description: `REQUIRED when items is provided. Must contain ${PROMPT_TEMPLATE_PLACEHOLDER} exactly once. Each item replaces the placeholder.`,
-            examples: ["Fix issues in {{item}}", "Review {{item}} for security vulnerabilities"],
+            examples: [
+              "Fix issues in {{item}}",
+              "Review {{item}} for security vulnerabilities",
+            ],
           }),
         ),
         items: Type.Optional(
@@ -111,7 +114,9 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           Type.Record(Type.String(), Type.String(), {
             description:
               "Map of existing subagent agent_id to the prompt used to resume that subagent. Resumed subagents launch before new item-based subagents.",
-            examples: [{ "swarm-abc123": "Retry with more focus on XSS detection" }],
+            examples: [
+              { "swarm-abc123": "Retry with more focus on XSS detection" },
+            ],
           }),
         ),
       },
@@ -422,8 +427,8 @@ function createAgentSwarmSpecs(args: {
   if (!hasMinimumAgentSwarmInputs(itemCount, resumeCount)) {
     throw new Error(
       "AgentSwarm requires at least 1 item or a resume_agent_ids entry. " +
-      'Example with items: { "items": ["src/a.ts"], "prompt_template": "Review {{item}}" }. ' +
-      'Example with resume: { "resume_agent_ids": { "swarm-abc": "Retry with more detail" } }.',
+        'Example with items: { "items": ["src/a.ts"], "prompt_template": "Review {{item}}" }. ' +
+        'Example with resume: { "resume_agent_ids": { "swarm-abc": "Retry with more detail" } }.',
     );
   }
 
@@ -438,7 +443,7 @@ function createAgentSwarmSpecs(args: {
   if (items.length > 0 && promptTemplate === undefined) {
     throw new Error(
       "prompt_template is required when items are provided. " +
-      'Example: { "prompt_template": "Review {{item}} for bugs", "items": ["src/a.ts", "src/b.ts"] }',
+        'Example: { "prompt_template": "Review {{item}} for bugs", "items": ["src/a.ts", "src/b.ts"] }',
     );
   }
 
@@ -448,9 +453,9 @@ function createAgentSwarmSpecs(args: {
   ) {
     throw new Error(
       `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder. ` +
-      `Got: "${promptTemplate.slice(0, 80)}". ` +
-      `Add {{item}} where each item value should be inserted. ` +
-      'Example: "Fix issues in {{item}}"',
+        `Got: "${promptTemplate.slice(0, 80)}". ` +
+        `Add {{item}} where each item value should be inserted. ` +
+        'Example: "Fix issues in {{item}}"',
     );
   }
 
