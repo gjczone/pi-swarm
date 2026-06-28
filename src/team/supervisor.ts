@@ -17,6 +17,7 @@ import type {
   SubagentUsage,
 } from "../shared/types.js";
 import { SMALL_MODEL_ROLES } from "../shared/types.js";
+import { escapeXmlAttr, escapeXmlBody } from "../shared/xml.js";
 import {
   TaskGraph,
   DEFAULT_TEAM_PHASES,
@@ -557,11 +558,11 @@ export class TeamSupervisor {
           : undefined;
 
       const attrs = [
-        `name="${escapeAttr(name)}"`,
-        `role="${escapeAttr(role)}"`,
-        `outcome="${escapeAttr(status)}"`,
+        `name="${escapeXmlAttr(name)}"`,
+        `role="${escapeXmlAttr(role)}"`,
+        `outcome="${escapeXmlAttr(status)}"`,
       ];
-      if (agentId) attrs.push(`agent_id="${escapeAttr(agentId)}"`);
+      if (agentId) attrs.push(`agent_id="${escapeXmlAttr(agentId)}"`);
       if (duration !== undefined)
         attrs.push(`duration_ms="${String(duration)}"`);
 
@@ -570,14 +571,14 @@ export class TeamSupervisor {
       if (status === "completed") {
         if (result.trim()) {
           const truncated = this.truncateForOutput(result);
-          lines.push(escapeBody(truncated));
+          lines.push(escapeXmlBody(truncated));
         } else {
           lines.push(
             "(agent returned no text output; see per-agent output.log for full session transcript)",
           );
         }
       } else if (status === "failed" && error) {
-        lines.push(`<error>${escapeBody(error)}</error>`);
+        lines.push(`<error>${escapeXmlBody(error)}</error>`);
       } else if (status === "skipped") {
         lines.push("(phase skipped due to failed dependency)");
       }
@@ -587,7 +588,7 @@ export class TeamSupervisor {
 
     // Supervisor synthesis — a consolidated summary across all phases
     lines.push("<supervisor_synthesis>");
-    lines.push(escapeBody(this.buildSynthesis(allPhases)));
+    lines.push(escapeXmlBody(this.buildSynthesis(allPhases)));
     lines.push("</supervisor_synthesis>");
 
     lines.push("</swarm_team_result>");
@@ -849,33 +850,4 @@ export class TeamSupervisor {
       `Succeeded: ${completed}, Failed: ${failed}, Skipped: ${skipped}.`
     );
   }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Escape a string for use in an XML attribute value.
- * Full XML special character escaping.
- */
-function escapeAttr(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll('"', "&quot;")
-    .replaceAll("'", "&apos;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;");
-}
-
-/**
- * Escape a string for use in XML element body content.
- * Escapes XML structural characters to prevent malformed XML.
- */
-function escapeBody(value: string): string {
-  return value
-    .replaceAll("&", "&amp;")
-    .replaceAll("<", "&lt;")
-    .replaceAll(">", "&gt;")
-    .replaceAll("]]>", "]]&gt;");
 }

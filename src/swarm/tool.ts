@@ -55,22 +55,21 @@ const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const MAX_AGENT_SWARM_SUBAGENTS = 128;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
-const AGENT_SWARM_DESCRIPTION = `Launch multiple parallel subagents from one prompt template, existing agent resumes, or both.
-
-**IMPORTANT: This is the DEFAULT tool for delegating work to subagents. Use AgentSwarm for nearly all parallel tasks unless the user explicitly asks for a "team" or "swarm-team" with role-based collaboration.**
-
-Use AgentSwarm when:
-- Many subagents should run the same kind of task over different inputs (embarrassingly parallel)
-- You need to delegate 1-128 independent items
-- You want to resume failed/timed-out subagents from earlier work
-
-The placeholder is exactly \`{{item}}\`. For example, with \`prompt_template\` set to \`Fix issues in {{item}}\` and \`items\` set to \`["file1.ts", "file2.ts"]\`, AgentSwarm launches two new subagents in parallel.
-
-Use \`resume_agent_ids\` to continue subagents that already exist: map each agent id to the resume prompt. You may combine \`resume_agent_ids\` with \`items\` in the same call.
-
-AgentSwarm also works for single subagents (1 item). Use it for any task you want to delegate to a fresh subagent with an isolated context.
-
-If \`AgentSwarm\` is called, that call must be the only tool call in the response.`;
+const AGENT_SWARM_DESCRIPTION = [
+  "Launch 1-128 isolated subagents in parallel from a template or resume list.",
+  "",
+  "CRITICAL RULES:",
+  "1. If `items` is provided, `prompt_template` MUST contain {{item}} exactly once.",
+  "2. If only resuming agents, omit both `items` and `prompt_template`.",
+  "3. This tool MUST be the ONLY tool call in your response — do not batch.",
+  "",
+  "QUICK REFERENCE:",
+  '- New subagents: { "items": ["a","b"], "prompt_template": "Review {{item}}" }',
+  '- Resume only: { "resume_agent_ids": { "ag-1": "retry prompt" } }',
+  '- Combined: both fields together (resumes fire first, then spawns).',
+  "",
+  "Use AgentSwarm for parallel independent tasks. Use SwarmTeam for role-based collaboration.",
+].join("\n");
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -85,29 +84,34 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       {
         description: Type.String({
           description: "Short description for the whole swarm.",
+          examples: ["Review all source files for bugs"],
         }),
         subagent_type: Type.Optional(
           Type.String({
             description:
               "Subagent type used for every spawned subagent. Defaults to coder when omitted.",
+            examples: ["coder"],
           }),
         ),
         prompt_template: Type.Optional(
           Type.String({
-            description: `Prompt template for each subagent. The ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder is replaced with each item value.`,
+            description: `REQUIRED when items is provided. Must contain ${PROMPT_TEMPLATE_PLACEHOLDER} exactly once. Each item replaces the placeholder.`,
+            examples: ["Fix issues in {{item}}", "Review {{item}} for security vulnerabilities"],
           }),
         ),
         items: Type.Optional(
           Type.Array(Type.String(), {
             maxItems: MAX_AGENT_SWARM_SUBAGENTS,
             description:
-              "Values used to fill the {{item}} placeholder. Each item launches one new subagent. Supports 1 to 128 items.",
+              "REQUIRED with prompt_template. Each item replaces {{item}}. Values are used as {{item}} in the template. Min 1 item, max 128.",
+            examples: [["src/auth.ts", "src/api.ts", "src/db.ts"]],
           }),
         ),
         resume_agent_ids: Type.Optional(
           Type.Record(Type.String(), Type.String(), {
             description:
               "Map of existing subagent agent_id to the prompt used to resume that subagent. Resumed subagents launch before new item-based subagents.",
+            examples: [{ "swarm-abc123": "Retry with more focus on XSS detection" }],
           }),
         ),
       },
@@ -417,7 +421,9 @@ function createAgentSwarmSpecs(args: {
 
   if (!hasMinimumAgentSwarmInputs(itemCount, resumeCount)) {
     throw new Error(
-      "AgentSwarm requires at least 1 item or a resume_agent_ids entry.",
+      "AgentSwarm requires at least 1 item or a resume_agent_ids entry. " +
+      'Example with items: { "items": ["src/a.ts"], "prompt_template": "Review {{item}}" }. ' +
+      'Example with resume: { "resume_agent_ids": { "swarm-abc": "Retry with more detail" } }.',
     );
   }
 
@@ -430,7 +436,10 @@ function createAgentSwarmSpecs(args: {
   const promptTemplate = normalizeOptionalString(args.prompt_template);
 
   if (items.length > 0 && promptTemplate === undefined) {
-    throw new Error("prompt_template is required when items are provided.");
+    throw new Error(
+      "prompt_template is required when items are provided. " +
+      'Example: { "prompt_template": "Review {{item}} for bugs", "items": ["src/a.ts", "src/b.ts"] }',
+    );
   }
 
   if (
@@ -438,7 +447,10 @@ function createAgentSwarmSpecs(args: {
     !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)
   ) {
     throw new Error(
-      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder.`,
+      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder. ` +
+      `Got: "${promptTemplate.slice(0, 80)}". ` +
+      `Add {{item}} where each item value should be inserted. ` +
+      'Example: "Fix issues in {{item}}"',
     );
   }
 

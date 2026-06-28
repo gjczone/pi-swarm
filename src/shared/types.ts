@@ -366,4 +366,9 @@ export interface SubagentBatchLauncher {
   spawn(options: SpawnSubagentOptions): Promise<SubagentHandle>;
   resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
   retry(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
+  /**
+   * Optional callback invoked when a subagent is suspended due to
+   * rate limiting during the rate-limit phase.
+   */
+  suspended?: (event: SubagentSuspendedEvent) => void;
 }
