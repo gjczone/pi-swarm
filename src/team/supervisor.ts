@@ -488,6 +488,16 @@ export class TeamSupervisor {
 
       const totalUsage = this.state.taskGraph.getTotalUsage();
 
+      // Build dependency edges from phase definitions
+      const allPhaseDefs = this.state.taskGraph.getAllPhases();
+      const dependencyEdges: Array<{ from: string; to: string }> = [];
+      for (const p of allPhaseDefs) {
+        const deps = p.phase.dependsOn ?? [];
+        for (const dep of deps) {
+          dependencyEdges.push({ from: dep, to: p.phase.name });
+        }
+      }
+
       const snapshot: TeamProgressSnapshot = {
         title: this.config.goal,
         goal: this.config.goal,
@@ -507,6 +517,7 @@ export class TeamSupervisor {
         mailboxCount,
         startedAt: this.state.startedAt,
         totalUsage,
+        dependencyEdges,
       };
 
       this.onProgress(snapshot);
