@@ -15,10 +15,11 @@
     "dev": "tsc --watch",
     "test": "vitest run",
     "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
     "lint": "npx eslint src tests --quiet 2>/dev/null; true",
     "knip": "npx knip --no-exit-code 2>/dev/null; true",
     "circular": "npx dpdm --circular src/index.ts 2>/dev/null; true",
-    "ci": "npx prettier --check src tests && npm run typecheck && npm run lint && npm run knip && npm run circular && npm test && npm run build && test -f dist/index.js && test -f dist/index.d.ts"
+    "ci": "npx prettier --check src tests && npm run typecheck && npm run lint && npm run knip && npm run circular && npm run coverage && npm run build && test -f dist/index.js && test -f dist/index.d.ts"
   },
   "keywords": [
     "pi-package",
@@ -54,6 +55,7 @@
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/node": "^26.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
     "dpdm": "^4.2.0",
     "eslint": "^10.6.0",
     "knip": "^6.23.0",
