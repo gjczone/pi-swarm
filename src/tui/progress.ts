@@ -1,12 +1,12 @@
 /**
- * tui/progress — AgentSwarm live progress panel (kimi-code style).
+ * tui/progress — AgentSwarm live progress panel (minimal).
  *
  * Grid layout with braille progress bars and scrolling model output.
  * - Multiple agents: grid cells with ID + braille bar + model text
  * - Single agent: compact status line with spinner + text
  * - No token/in/out display — replaced by scrolling model output
  *
- * Ported from MoonshotAI/kimi-code's AgentSwarmProgressComponent.
+ * Architecture reference: AgentSwarm pattern.
  */
 
 import type { Component } from "@earendil-works/pi-tui";
@@ -70,6 +70,8 @@ export interface SwarmProgressState {
   members: MemberStatus[];
   totalUsage: SubagentUsage;
   startedAt: number;
+  mailbox?: boolean;
+  mailboxCount?: number;
 }
 
 // ---------------------------------------------------------------------------
@@ -155,7 +157,7 @@ export class AgentSwarmProgressComponent implements Component {
 
   dispose(): void { this.stopTimers(); this.onRequestRender = undefined; }
   invalidate(): void { /* no-op */ }
-  handleInput(_data: string): void { /* kimi-code style: no keyboard */ }
+  handleInput(_data: string): void { /* minimal: no keyboard */ }
 
   // -------------------------------------------------------------------
   // Rendering
@@ -168,11 +170,8 @@ export class AgentSwarmProgressComponent implements Component {
 
     const lines: string[] = [];
 
-    // Kimi-code style header: ─ Agent Swarm ─ description ──────
+    // Layout: header → grid → status line
     lines.push(this.renderHeader(safeWidth, state));
-
-    // Status line
-    lines.push(this.renderStatusLine(safeWidth, state));
     lines.push("");
 
     if (state.members.length === 1) {
@@ -185,6 +184,12 @@ export class AgentSwarmProgressComponent implements Component {
       lines.push(...gridLines);
     }
 
+    lines.push("");
+    // Bottom separator
+    const sepWidth = safeWidth - 2;
+    lines.push(truncateText(repeatStr("─", sepWidth), sepWidth));
+    lines.push(this.renderStatusLine(safeWidth, state));
+
     return lines;
   }
 
@@ -193,12 +198,13 @@ export class AgentSwarmProgressComponent implements Component {
   // -------------------------------------------------------------------
 
   private renderHeader(width: number, state: SwarmProgressState): string {
-    const title = "Agent Swarm";
+    const mode = state.mailbox ? "Swarm Team" : "Agent Swarm";
     const desc = state.title ?? "";
-    // ─ Agent Swarm ─ <desc> ─<fill>
-    const prefix = "─ Agent Swarm";
+    const mailboxInfo = state.mailboxCount && state.mailboxCount > 0 ? ` │ Mailbox: ${state.mailboxCount}` : "";
+    // ─ Agent Swarm ─ <desc> ──────  or  ─ Swarm Team ─ <desc> ─ Mailbox: 3
+    const prefix = `─ ${mode}`;
     const content = desc ? ` ─ ${desc}` : "";
-    const label = `${prefix}${content}`;
+    const label = `${prefix}${content}${mailboxInfo}`;
     const suffixLen = Math.max(0, width - visibleLen(label) - 2);
     const suffix = suffixLen > 0 ? ` ─${repeatStr("─", suffixLen)}` : "";
     return truncateText(`${label}${suffix}`, width);
@@ -290,11 +296,9 @@ export class AgentSwarmProgressComponent implements Component {
 
   private renderCell(member: MemberStatus, cellWidth: number, barCells: number): string {
     const id = String(member.index).padStart(ID_WIDTH, "0");
-    const bee = "\u2B21"; // ⬡ honeycomb hexagon (swarm/bee theme)
     const bar = this.renderBrailleBar(member, barCells);
-    const beeWidth = 2; // emoji typically occupies 2 columns
-    const label = this.renderCellLabel(member, Math.max(1, cellWidth - ID_WIDTH - beeWidth - barCells - 2));
-    return `${id}${bee} ${bar}${label ? " " + label : ""}`;
+    const label = this.renderCellLabel(member, Math.max(1, cellWidth - ID_WIDTH - barCells - 3));
+    return `${id} ${bar}${label ? " " + label : ""}`;
   }
 
   private renderBrailleBar(member: MemberStatus, width: number): string {

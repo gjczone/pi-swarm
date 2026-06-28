@@ -4,7 +4,7 @@
  * Registers the `Swarm` tool that the LLM can call to launch
  * 1-20 isolated subagents in parallel from a shared prompt template.
  *
- * Ported from MoonshotAI/kimi-code's AgentSwarmTool.
+ * Architecture reference: AgentSwarm pattern.
  */
 
 import type {
@@ -16,6 +16,7 @@ import { Container, Spacer, Text } from "@earendil-works/pi-tui";
 import {
   SubagentBatchController,
   resolveSwarmMaxConcurrency,
+  resolveSwarmSmallModel,
 } from "../shared/controller.js";
 import { renderSwarmResults, toSwarmRunResults } from "../shared/render.js";
 import {
@@ -58,36 +59,37 @@ const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 const AGENT_SWARM_DESCRIPTION = [
-  "Launch 1-20 isolated subagents in parallel from a shared prompt template.",
+  "Launch 1-20 subagents in parallel, with optional inter-agent mailbox.",
   "",
-  "Use this tool when a task benefits from isolated subagents. Each subagent",
-  "runs in its own clean workspace with project rules (AGENTS.md) loaded.",
-  "Subagents do NOT communicate with each other.",
-  "",
-  "When to use:",
-  "- Code review: 1 subagent per file. Even a single file benefits from an",
-  "  isolated review pass.",
-  "- Bug investigation: 1 subagent to investigate in isolation.",
-  "- Parallel edits: multiple files, each handled by its own subagent.",
-  "- Complex tasks: the subagent gets a clean context focused on just its item.",
+  "YOU (the assistant) decide whether to enable mailbox based on the task:",
+  "- Simple parallel work (review files, fix independent bugs, investigate):",
+  "  mailbox: false (default). Items are independent.",
+  "- Collaborative workflows (agents need to share findings between phases):",
+  "  mailbox: true. Agents communicate via shared inbox/outbox.",
   "",
   "How to use:",
-  "1. Decompose the task into 1-20 independent items.",
-  "2. Write a prompt_template with {{item}} placeholder.",
-  "3. Include context from the user's task and the specific item.",
-  "4. Use 1 item when a single subagent is enough for isolation.",
-  "5. Use 2-6 items for typical parallel work.",
-  "6. The tool handles concurrency, rate limits, and error recovery.",
-  "7. Read the results from the tool output.",
+  "1. Analyze the task. Decompose it into 1-20 items.",
+  "2. Decide: do agents need to communicate?",
+  "   - No -> mailbox: false (default)",
+  "   - Yes -> mailbox: true",
+  "3. Write a prompt_template with {{item}} placeholder.",
+  "   Include context from the user's task and the specific item.",
+  "4. Use 1 item for a single isolated agent, 2-6 for typical parallel work.",
+  "5. The tool handles concurrency, rate limits, and error recovery.",
+  "6. Read the results from the tool output.",
   "",
-  "Best for: code review, bug fixing, file editing, investigation, refactoring.",
+  "Each subagent runs in a clean workspace with project rules (AGENTS.md) loaded.",
+  "With mailbox, subagents get inbox/outbox and send messages during execution.",
+  "Without mailbox, subagents are fully independent and do not communicate.",
   "",
-  "Mailbox mode (mailbox: true):",
-  "- Enables inter-agent communication via shared mailbox.",
-  "- Each subagent gets an inbox/outbox. Agents can send messages to each other.",
-  "- The main agent orchestrates: decompose tasks, assign via mailbox, collect results.",
-  "- Use for collaborative workflows where agents need to share findings.",
-  "- Without mailbox, agents are fully independent and do not communicate.",
+  "Best for: code review, bug fixing, file editing, investigation, refactoring,",
+  " multi-step research, phased implementation.",
+  "",
+  "Optional: set model to \"small\" for simple/exploratory subagent tasks.",
+  "The tool auto-resolves \"small\" from your settings (pi-swarm.smallModel).",
+  "Only use small model for straightforward execution or exploration.",
+  "Do NOT use small model for review, planning, or complex analysis.",
+  "Default: inherit parent session model (omit model param).",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -116,11 +118,18 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         }),
         items: Type.Array(Type.String(), {
           minItems: 1,
-          maxItems: 20,
+          maxItems: MAX_ITEM_COUNT,
           description:
             "Items (1-20) to parallelize across. Each item replaces {{item}} in the template.",
           examples: [["src/auth.ts", "src/api.ts", "src/db.ts"]],
         }),
+        model: Type.Optional(
+          Type.String({
+            description:
+              "Model for subagents. Pass \"small\" to auto-resolve from settings pi-swarm.smallModel. Pass an explicit model ID to override. Omit to inherit parent session model. Do NOT use small model for review, planning, or complex analysis.",
+            examples: ["deepseek/deepseek-v4-flash"],
+          }),
+        ),
         mailbox: Type.Optional(
           Type.Boolean({
             description:
@@ -138,12 +147,15 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const { description, prompt_template, items, mailbox } = params as {
+      const { description, prompt_template, items, model, mailbox } = params as {
         description?: string;
         prompt_template: string;
         items: string[];
+        model?: string;
         mailbox?: boolean;
       };
+      // Resolve model: "small" keyword → lookup settings; explicit model ID → use as-is; undefined → inherit parent
+      const resolvedModel = model === "small" ? resolveSwarmSmallModel() : model;
 
       const ctx = ctxRaw as ExtensionContext;
       const progress = createProgressWidget(ctx);
@@ -199,6 +211,7 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           swarmRoot,
           runId,
           useWorktree: true,
+          model: resolvedModel,
           mailboxPath,
           roleName: `agent-${idx + 1}`,
         }));
@@ -217,9 +230,9 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           {
             maxConcurrency,
             onProgress: (snapshot) => {
-              progress?.component.update(
-                snapshotToProgressState(snapshot, description),
-              );
+              const state = snapshotToProgressState(snapshot, description);
+              state.mailbox = mailbox;
+              progress?.component.update(state);
             },
           },
         );
@@ -293,7 +306,7 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           }
         }
         return {
-          content: [{ type: "text", text: `AgentSwarm failed: ${message}` }],
+          content: [{ type: "text", text: `Swarm failed: ${message}` }],
           isError: true,
           details: undefined,
         };

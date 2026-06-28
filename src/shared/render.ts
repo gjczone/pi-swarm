@@ -2,7 +2,7 @@
  * render — format AgentSwarm and SwarmTeam output.
  *
  * Produces the structured XML output that the parent LLM reads.
- * Format is compatible with kimi-code's AgentSwarm output.
+ * Format: XML-wrapped per-agent results.
  */
 
 import type {

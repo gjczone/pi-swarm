@@ -4,7 +4,7 @@
  * Tracks whether swarm mode is active and manages the lifecycle
  * of entering/exiting swarm mode with system reminders.
  *
- * Ported from MoonshotAI/kimi-code's SwarmMode.
+ * Architecture reference: AgentSwarm pattern.
  */
 
 /** How swarm mode was triggered. */
@@ -39,7 +39,7 @@ export interface SwarmModeAgent {
 }
 
 // ---------------------------------------------------------------------------
-// System reminder templates (from kimi-code)
+// System reminder templates
 // ---------------------------------------------------------------------------
 
 const SWARM_MODE_ENTER_REMINDER = `

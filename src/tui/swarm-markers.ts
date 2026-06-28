@@ -5,7 +5,7 @@
  * Displays a coloured marker line when swarm mode is activated,
  * deactivated, or ended.
  *
- * Ported from MoonshotAI/kimi-code's SwarmModeMarkerComponent.
+ * Architecture reference: AgentSwarm pattern.
  */
 
 import type { Component } from "@earendil-works/pi-tui";

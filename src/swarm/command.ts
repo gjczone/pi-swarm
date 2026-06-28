@@ -6,7 +6,7 @@
  *   /swarm <task>        — directly invoke the Swarm tool with the given task
  *
  * Also accepts on/off to enable/disable swarm mode.
- * Ported from MoonshotAI/kimi-code's swarm command.
+ * Architecture reference: AgentSwarm pattern.
  */
 
 import type {

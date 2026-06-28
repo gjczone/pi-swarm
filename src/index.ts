@@ -5,7 +5,7 @@
  * the AgentSwarm tool, /swarm command, swarm-mode state machine,
  * and TUI progress components.
  *
- * Credit: AgentSwarm architecture ported from MoonshotAI/kimi-code.
+ * Credit: AgentSwarm architecture references MoonshotAI/kimi-code.
  * Team/mailbox patterns inspired by pi-crew.
  */
 
@@ -112,7 +112,7 @@ export function resolveKeywordMode(text: string): "swarm" | null {
 export default function (pi: ExtensionAPI): void {
   // ---- State ----
 
-  let swarmMode: "swarm" | "team" | null = null;
+  let swarmMode: "swarm" | null = null;
 
   const log = (_msg: string): void => {
     // Silent by default — pi extensions should not print startup noise.

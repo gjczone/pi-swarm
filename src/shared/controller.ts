@@ -1,7 +1,7 @@
 /**
  * controller — concurrency controller for subagent batches.
  *
- * Ported from MoonshotAI/kimi-code's SubagentBatch.
+ * Architecture reference: AgentSwarm pattern.
  *
  * Two-phase scheduling:
  *   Normal phase: ramp-up (5 initial, +1 every 700ms).
@@ -30,7 +30,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 
 // ---------------------------------------------------------------------------
-// Constants (from kimi-code)
+// Constants
 // ---------------------------------------------------------------------------
 
 const INITIAL_LAUNCH_LIMIT = 5;
@@ -1065,4 +1065,35 @@ function getSettingsMaxConcurrency(
   if (!settings) return undefined;
   const swarm = settings["pi-swarm"] as Record<string, unknown> | undefined;
   return swarm?.maxConcurrency;
+}
+
+/**
+ * Resolve the optional small model from pi settings.
+ * Used as the default model for simple subagent tasks.
+ *
+ * Priority:
+ *   1. `.pi/settings.json` → `pi-swarm.smallModel`
+ *   2. `~/.pi/agent/settings.json` → `pi-swarm.smallModel`
+ */
+export function resolveSwarmSmallModel(cwd?: string): string | undefined {
+  const projectSettings = readPiSettings(
+    path.join(cwd ?? process.cwd(), ".pi", "settings.json"),
+  );
+  const projectValue = getSettingsSmallModel(projectSettings);
+  if (projectValue !== undefined) return projectValue;
+
+  const home = process.env.HOME ?? process.env.USERPROFILE ?? "~";
+  const globalSettings = readPiSettings(
+    path.join(home, ".pi", "agent", "settings.json"),
+  );
+  return getSettingsSmallModel(globalSettings);
+}
+
+function getSettingsSmallModel(
+  settings: Record<string, unknown> | null,
+): string | undefined {
+  if (!settings) return undefined;
+  const swarm = settings["pi-swarm"] as Record<string, unknown> | undefined;
+  const val = swarm?.smallModel;
+  return typeof val === "string" && val.trim().length > 0 ? val.trim() : undefined;
 }

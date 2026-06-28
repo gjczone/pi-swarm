@@ -7,6 +7,45 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-06-28
+
+### Added
+
+- **Single unified Swarm tool**: Merged SwarmTeam into Swarm with optional `mailbox` parameter. Removed supervisor, task-graph, team-dashboard. One tool handles both parallel and collaborative modes.
+- **Mailbox flag**: `mailbox: true` enables inter-agent mailbox communication. Default `false` keeps agents independent.
+- **Model override**: `model` parameter to set subagent model. Pass `"small"` to auto-resolve from settings `pi-swarm.smallModel` in `~/.pi/agent/settings.json`.
+- **Progress tick tracking**: Controller counts `onActivity` calls as `progressTick`. Braille bar fills based on real agent activity instead of frame animation.
+- **onActivity forwarding**: Spawner now forwards model deltas (`content_block_delta`) and tool results (`tool_result`) as `onActivity` callbacks to the controller, enabling real-time scrolling output display.
+- **AGENTS.md auto-loading**: Spawner auto-detects `AGENTS.md` in the project root and passes it via `--append-system-prompt` to subagent `pi --print` processes.
+
+### Changed
+
+- **TUI fully rewritten to kimi-code style**: Grid layout with braille progress bars, agent IDs (`001`, `002`), compact single-agent mode (no grid), mailbox count in header, bottom status line with `─` separator.
+- **Tool renamed**: `AgentSwarm` → `Swarm`.
+- **Parameters simplified**: Removed `subagent_type`, `resume_agent_ids`. Only `prompt_template`, `items`, `model`, `mailbox`, `description`.
+- **Max items**: Reduced from 128 to 20 (`MAX_ITEM_COUNT`).
+- **Header labels**: `─ Agent Swarm ─` for no-mailbox mode, `─ Swarm Team ─` with `Mailbox: N` when mailbox enabled.
+- **Status line at bottom**: Moved from between header and grid to after grid, matching kimi-code layout.
+- **All "kimi-code" references removed from source comments**: Replaced with neutral descriptions.
+- **`swarmMode` type**: Cleaned up from `"swarm" | "team" | null` to `"swarm" | null`.
+- **README.md**: Updated feature table, usage examples, settings, credits.
+
+### Removed
+
+- `src/team/supervisor.ts` (phase supervisor, no longer needed)
+- `src/team/task-graph.ts` (phase DAG, no longer needed)
+- `src/team/tool.ts` (separate SwarmTeam tool, merged into Swarm)
+- `src/tui/team-dashboard.ts` (separate team TUI, kimi-code progress.ts used for everything)
+- `src/tui/permission-prompt.ts` (dead code, unsed)
+- `tests/team-dashboard.test.ts`, `tests/task-graph.test.ts` (corresponding tests)
+- `rules/` companion files (LOCAL_CI.md, OPS.md, LLM-REVIEW-GUIDE.md — consolidated into AGENTS.md rules section)
+
+### Fixed
+
+- **LSP errors in tests**: Fixed `controller.test.ts` type compatibility issue with `QueuedSubagentTask` spread and `MockAgentConfig.result` optionality.
+- **`MAX_ITEM_COUNT` unused**: Constant was defined but not referenced in schema. Now used.
+- **Error message outdated**: "AgentSwarm failed" → "Swarm failed".
+
 ## [0.5.0] - 2026-06-28
 
 ### Added

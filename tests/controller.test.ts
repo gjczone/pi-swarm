@@ -23,8 +23,8 @@ import type {
 interface MockAgentConfig {
   /** Delay before completion in ms. */
   delayMs: number;
-  /** Result text. */
-  result: string;
+  /** Result text (optional, only needed for success cases). */
+  result?: string;
   /** Whether to throw an error. */
   throwError?: boolean;
   /** Whether to throw a rate-limit error. */
@@ -96,7 +96,7 @@ function makeTask(
   overrides: Partial<QueuedSubagentTask<unknown>> = {},
 ): QueuedSubagentTask<unknown> {
   return {
-    kind: "spawn",
+    kind: "spawn" as const,
     data: { index },
     profileName: "test-agent",
     parentToolCallId: "test-call",
@@ -106,7 +106,7 @@ function makeTask(
     runInBackground: false,
     timeout: 5000,
     ...overrides,
-  };
+  } as QueuedSubagentTask<unknown>;
 }
 
 // ---------------------------------------------------------------------------
