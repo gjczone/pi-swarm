@@ -24,6 +24,7 @@ import type {
   BatchMemberStatus,
   SubagentUsage,
   MailboxMessage,
+  ProgressEvent,
 } from "./types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -55,6 +56,10 @@ interface TaskState<T> {
   retryReadyAt: number;
   started: boolean;
   usage: SubagentUsage;
+  currentTool?: string;
+  activity?: string;
+  startedAt?: number;
+  completedAt?: number;
 }
 
 interface ActiveAttempt<T> {
@@ -147,6 +152,13 @@ export class SubagentBatchController<T> {
   private startedAt = 0;
   private startedSuccessCount = 0;
   private readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
+
+  // Event log
+  private eventLog: ProgressEvent[] = [];
+  private nextEventId = 1;
+
+  // ETA tracking: track completion timestamps for average calculation
+  private completionTimesMs: number[] = [];
 
   constructor(
     private readonly launcher: SubagentBatchLauncher,
@@ -362,6 +374,21 @@ export class SubagentBatchController<T> {
     attempt.cleanup = this.linkAttemptSignals(attempt, state.task);
     this.active.add(attempt);
     attempt.state.started = true;
+    attempt.state.startedAt = Date.now();
+    // Add event to log
+    this.addEvent({
+      id: this.nextEventId++,
+      agentId: undefined,
+      timestamp: Date.now(),
+      type: "started",
+      detail: state.task.swarmItem
+        ? `Started: ${state.task.swarmItem.slice(0, 60)}`
+        : `Started task ${state.index + 1}`,
+    });
+    // Trim event log to last 50 entries
+    if (this.eventLog.length > 50) {
+      this.eventLog = this.eventLog.slice(-50);
+    }
     // A task transitioned from queued to working
     this.emitProgress();
 
@@ -392,6 +419,11 @@ export class SubagentBatchController<T> {
       },
       onUsage: (usage) => {
         attempt.state.usage = { ...usage };
+        this.emitProgress();
+      },
+      onActivity: (tool, activity) => {
+        attempt.state.currentTool = tool;
+        attempt.state.activity = activity;
         this.emitProgress();
       },
       onMessage: task.onMessage,
@@ -445,6 +477,21 @@ export class SubagentBatchController<T> {
       if (completion.usage) {
         attempt.state.usage = { ...completion.usage };
       }
+      const completedAt = Date.now();
+      attempt.state.completedAt = completedAt;
+      if (attempt.state.startedAt) {
+        this.completionTimesMs.push(completedAt - attempt.state.startedAt);
+      }
+      // Add event to log
+      this.addEvent({
+        id: this.nextEventId++,
+        agentId: handle.agentId,
+        timestamp: completedAt,
+        type: "completed",
+        detail: attempt.state.task.swarmItem
+          ? `Agent completed: ${attempt.state.task.swarmItem.slice(0, 60)}`
+          : `Agent completed`,
+      });
       return {
         task,
         agentId: handle.agentId,
@@ -699,10 +746,27 @@ export class SubagentBatchController<T> {
         item: state.task.swarmItem,
         error,
         usage: memberUsage,
+        currentTool: state.currentTool,
+        activity: state.activity,
       });
     }
 
     const queued = this.states.length - completed - failed - active;
+
+    // Calculate ETA based on average completion time
+    let estimatedRemainingMs: number | undefined;
+    const totalFinished = completed + failed;
+    const totalRemaining = queued + active;
+    if (totalFinished > 0 && totalRemaining > 0) {
+      const avgTimeMs =
+        this.completionTimesMs.length > 0
+          ? this.completionTimesMs.reduce((a, b) => a + b, 0) /
+            this.completionTimesMs.length
+          : 0;
+      if (avgTimeMs > 0) {
+        estimatedRemainingMs = avgTimeMs * totalRemaining;
+      }
+    }
 
     this.onProgress({
       total: this.states.length,
@@ -713,7 +777,18 @@ export class SubagentBatchController<T> {
       members,
       totalUsage,
       startedAt: this.startedAt,
+      estimatedRemainingMs,
+      eventLog: [...this.eventLog],
     });
+  }
+
+  /** Add an event to the event log, keeping it bounded. */
+  private addEvent(event: ProgressEvent): void {
+    this.eventLog.push(event);
+    // Keep max 100 events
+    if (this.eventLog.length > 100) {
+      this.eventLog = this.eventLog.slice(-100);
+    }
   }
 
   private finish(results: Array<SubagentResult<T>>): void {

@@ -137,6 +137,8 @@ export interface RunSubagentOptions {
   readonly signal: AbortSignal;
   readonly onReady?: () => void;
   readonly onUsage?: (usage: SubagentUsage) => void;
+  /** Callback for real-time tool/activity tracking. Called when the agent starts a new tool or activity. */
+  readonly onActivity?: (tool: string, activity: string) => void;
   /** Callback for real-time messages sent by the agent via mailbox file writes. */
   readonly onMessage?: (message: MailboxMessage) => void;
   readonly suppressRateLimitFailureEvent?: boolean;
@@ -289,6 +291,12 @@ export interface SubagentBatchOptions {
 // Team progress types (for TUI dashboard)
 // ---------------------------------------------------------------------------
 
+/** Describes a dependency edge between phases. */
+export interface PhaseDependencyEdge {
+  readonly from: string;
+  readonly to: string;
+}
+
 /** Snapshot of team run progress for TUI display. */
 export interface TeamProgressSnapshot {
   readonly title: string;
@@ -303,6 +311,8 @@ export interface TeamProgressSnapshot {
   readonly mailboxCount: number;
   readonly startedAt: number;
   readonly totalUsage: SubagentUsage;
+  /** Dependency edges between phases (from → to). */
+  readonly dependencyEdges?: ReadonlyArray<PhaseDependencyEdge>;
 }
 
 /** Per-phase status in a team progress snapshot. */
@@ -327,6 +337,25 @@ export interface BatchProgressSnapshot {
   readonly members: ReadonlyArray<BatchMemberStatus>;
   readonly totalUsage: SubagentUsage;
   readonly startedAt: number;
+  /** Estimated time remaining in ms (based on average task duration * remaining). */
+  readonly estimatedRemainingMs?: number;
+  /** Recent event log entries. */
+  readonly eventLog?: ReadonlyArray<ProgressEvent>;
+}
+
+/** A single progress event for the event log. */
+export interface ProgressEvent {
+  readonly id: number;
+  readonly agentId?: string;
+  readonly timestamp: number;
+  readonly type:
+    | "started"
+    | "completed"
+    | "failed"
+    | "tool_execution"
+    | "suspended"
+    | "phase_change";
+  readonly detail: string;
 }
 
 /** Per-member status in a progress snapshot. */
@@ -336,6 +365,10 @@ export interface BatchMemberStatus {
   readonly item?: string;
   readonly error?: string;
   readonly usage?: SubagentUsage;
+  /** Current tool being executed by this agent (e.g. "read", "edit", "bash"). */
+  readonly currentTool?: string;
+  /** Description of current agent activity (e.g. "editing src/auth.ts"). */
+  readonly activity?: string;
 }
 
 // ---------------------------------------------------------------------------
