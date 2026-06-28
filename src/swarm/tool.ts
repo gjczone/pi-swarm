@@ -37,6 +37,10 @@ import {
 } from "../state/persistence.js";
 import { mergeBranch, isGitRepository } from "../shared/worktree.js";
 import {
+  resolveMailboxPaths,
+  ensureMailbox,
+} from "../team/mailbox.js";
+import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
 } from "../tui/progress.js";
@@ -77,7 +81,13 @@ const AGENT_SWARM_DESCRIPTION = [
   "7. Read the results from the tool output.",
   "",
   "Best for: code review, bug fixing, file editing, investigation, refactoring.",
-  "For collaborative multi-step workflows, use the SwarmTeam tool instead.",
+  "",
+  "Mailbox mode (mailbox: true):",
+  "- Enables inter-agent communication via shared mailbox.",
+  "- Each subagent gets an inbox/outbox. Agents can send messages to each other.",
+  "- The main agent orchestrates: decompose tasks, assign via mailbox, collect results.",
+  "- Use for collaborative workflows where agents need to share findings.",
+  "- Without mailbox, agents are fully independent and do not communicate.",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -108,9 +118,16 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           minItems: 1,
           maxItems: 20,
           description:
-            "Items (1-20) to parallelize across. Each item replaces {{item}} in the template. Items must be independent — subagents do not communicate.",
+            "Items (1-20) to parallelize across. Each item replaces {{item}} in the template.",
           examples: [["src/auth.ts", "src/api.ts", "src/db.ts"]],
         }),
+        mailbox: Type.Optional(
+          Type.Boolean({
+            description:
+              "Enable inter-agent mailbox. When true, subagents can exchange messages via shared mailbox. Use for collaborative workflows where agents need to share findings. Default: false (agents are independent, no communication).",
+            examples: [true],
+          }),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -121,10 +138,11 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const { description, prompt_template, items } = params as {
+      const { description, prompt_template, items, mailbox } = params as {
         description?: string;
         prompt_template: string;
         items: string[];
+        mailbox?: boolean;
       };
 
       const ctx = ctxRaw as ExtensionContext;
@@ -147,18 +165,26 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           prompt: prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).join(item.trim()),
         } satisfies SwarmSpawnSpec));
 
+        // Set up mailbox when enabled
+        let mailboxPath: string | undefined;
+        if (mailbox) {
+          const paths = resolveMailboxPaths(swarmRoot, runId);
+          ensureMailbox(paths);
+          mailboxPath = paths.root;
+        }
+
         createManifest(swarmRoot, {
           runId,
           type: "swarm",
           status: "running",
-          goal: description,
+          goal: description ?? "Swarm",
           startedAt: Date.now(),
           agentIds: [],
         });
         runCreated = true;
 
-        // Convert to queued tasks (all spawn, no resume — resume handled via separate retry)
-        const tasks = specs.map((spec): QueuedSubagentTask<SwarmSpec> => ({
+        // Convert to queued tasks
+        const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => ({
           kind: "spawn",
           data: spec,
           profileName: profileName,
@@ -173,6 +199,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           swarmRoot,
           runId,
           useWorktree: true,
+          mailboxPath,
+          roleName: `agent-${idx + 1}`,
         }));
 
         // Run with controller

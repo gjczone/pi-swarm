@@ -15,8 +15,6 @@ import {
   registerSwarmCommand,
   type SwarmCommandHost,
 } from "./swarm/command.js";
-import { registerSwarmTeamTool } from "./team/tool.js";
-import { registerTeamCommand } from "./team/command.js";
 import { recoverRuns } from "./state/recovery.js";
 import {
   SwarmModeMarkerComponent,
@@ -103,15 +101,10 @@ function findGitignore(cwd: string): string | null {
 // ---------------------------------------------------------------------------
 
 /**
- * Resolve which swarm mode (if any) should be activated based on user input keywords.
- *
- * "swarm-team" / "swarm team" activates team mode (collaborative),
- * plain "swarm" activates parallel swarm mode.
- * "swarm-team" check must come before "swarm" since the former contains the latter.
+ * Return "swarm" when the input contains the word "swarm", otherwise null.
  */
-export function resolveKeywordMode(text: string): "swarm" | "team" | null {
+export function resolveKeywordMode(text: string): "swarm" | null {
   const t = text.toLowerCase();
-  if (t.includes("swarm-team") || t.includes("swarm team")) return "team";
   if (t.includes("swarm")) return "swarm";
   return null;
 }
@@ -233,8 +226,6 @@ export default function (pi: ExtensionAPI): void {
 
   registerAgentSwarmTool(pi);
   registerSwarmCommand(pi, commandHost);
-  registerSwarmTeamTool(pi);
-  registerTeamCommand(pi, commandHost);
 }
 
 // ---------------------------------------------------------------------------
