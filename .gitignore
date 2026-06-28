@@ -23,8 +23,8 @@ Thumbs.db
 # Test coverage
 coverage/
 
-# Crew state (generated at runtime)
-.pi/swarm/state/
+# pi runtime directory (generated at runtime)
+.pi/
 
 # Worktrees
 .worktrees/
