@@ -11,19 +11,25 @@ npm install
 echo "  dependencies installed"
 echo ""
 
-# Step 2: Type check
+# Step 2: Format check
+echo "--- Format check ---"
+npx prettier --check src tests 2>/dev/null || { echo "  prettier check FAILED -- run npx prettier --write 'src/**/*.ts' 'tests/**/*.ts'"; exit 1; }
+echo "  prettier check passed"
+echo ""
+
+# Step 3: Type check
 echo "--- Type check ---"
 npm run typecheck
 echo "  type check passed"
 echo ""
 
-# Step 3: Tests
+# Step 4: Tests
 echo "--- Tests ---"
 npm test
 echo "  tests passed"
 echo ""
 
-# Step 4: Build and dist artifacts
+# Step 5: Build and dist artifacts
 echo "--- Build and dist artifacts ---"
 npm run build
 test -f dist/index.js
@@ -31,7 +37,7 @@ test -f dist/index.d.ts
 echo "  build succeeded, dist artifacts present"
 echo ""
 
-# Step 5: CI config check
+# Step 6: CI config check
 echo "--- CI config check ---"
 test -f .github/workflows/ci.yml || { echo "  ci.yml missing -- generate via git-ops skill"; exit 1; }
 echo "  ci.yml present"
