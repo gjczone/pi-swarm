@@ -5,7 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
+## [0.7.1] - 2026-06-29
+
+### Changed
+
+- **TUI progress panel overhaul (#100)**: Replaced grid layout with fixed-width tool-call-driven progress bars. Each agent renders as a single line with 5 braille cells (baseline `⣀` when empty, 85% cap while working, full bar when completed). Tool labels (`read:`, `edit:`, `bash:`) align vertically across agents. Vertical layout for 1-4 agents, 2-column compact grid for 5+.
+
+### Fixed
+
+- **Mailbox messages never delivered (P0, #100)**: Wired `onMessage` callback in swarm tool — inter-agent messages are now delivered via `sendMessage()` to the recipient's per-task inbox. Previously, spawner polling detected outbox writes but the `onMessage` callback was undefined so messages were lost.
+- **Broadcast delivery always broken in swarm mode (P1, #100)**: Replaced hardcoded team role list (`explorer`, `planner`, `coder`, ...) with dynamic `fs.readdirSync` scan of the tasks directory. Broadcast now works for both swarm mode (`agent-1`/`agent-2`/...) and team mode.
+- **Mailbox prompt had wrong recipient names (#100)**: Agent prompt listed team roles as recipients instead of dynamic agent names. Now tells agents to discover recipients from the filesystem.
+
+### Removed
+
+- Orphaned `BRAILLE_SPINNER`, `frameIndex`, and `startAnimation()` dead code from TUI progress component.
+- Brand name references (pi-crew, MoonshotAI, kimi-code, gotgenes) from source files (credit preserved in README.md).
 
 ## [0.7.0] - 2026-06-29
 
