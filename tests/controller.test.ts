@@ -354,8 +354,6 @@ describe("SubagentBatchController", () => {
 
         const completion: Promise<SubagentCompletion> = new Promise(
           (resolve, reject) => {
-            resolveLateTask = resolve;
-            rejectLateTask = reject;
             if (opts.signal) {
               if (opts.signal.aborted) {
                 reject(new Error("User cancelled"));
