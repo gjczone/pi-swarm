@@ -255,7 +255,7 @@ export function cleanupWorktree(
     return { hasChanges: false };
   }
 
-  let changesStaged = false;
+  let hadChanges = false;
   try {
     const status = execFileSync("git", ["status", "--porcelain"], {
       cwd: worktree.path,
@@ -270,13 +270,17 @@ export function cleanupWorktree(
       return { hasChanges: false };
     }
 
+    // #109: Track that uncommitted changes exist BEFORE attempting to stage
+    // them. If staging or commit fails, the worktree must be preserved so the
+    // user can recover the changes manually instead of being silently destroyed.
+    hadChanges = true;
+
     // Stage all changes
     execFileSync("git", ["add", "-A"], {
       cwd: worktree.path,
       stdio: "pipe",
       timeout: 10000,
     });
-    changesStaged = true;
 
     // Commit in worktree
     const safeDesc = agentDescription.slice(0, 200);
@@ -322,7 +326,9 @@ export function cleanupWorktree(
 
     return { hasChanges: true, branch: branchName };
   } catch (err) {
-    if (changesStaged) {
+    // #109: If uncommitted changes were detected, preserve the worktree for
+    // manual recovery regardless of whether staging/commit succeeded.
+    if (hadChanges) {
       console.error(
         `[pi-swarm] Failed to commit changes for agent: ${err instanceof Error ? err.message : String(err)}. Worktree preserved at ${worktree.path} for manual recovery.`,
       );

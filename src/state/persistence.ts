@@ -224,6 +224,11 @@ export function loadTaskState(
 
 /**
  * Append an event to the run's event log.
+ *
+ * Business (#106p): Uses atomic read-modify-write via writeAtomic to satisfy
+ * the AGENTS.md invariant that all JSON/JSONL mutations use writeAtomic.
+ * All event appends originate from the parent process (no concurrent writers),
+ * so read-modify-write is safe and crash-proof.
  */
 export function appendEvent(
   swarmRoot: string,
@@ -234,7 +239,13 @@ export function appendEvent(
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, "events.jsonl");
   const line = JSON.stringify(event) + "\n";
-  fs.appendFileSync(filePath, line, "utf-8");
+  let existing = "";
+  try {
+    existing = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    // File doesn't exist yet — start with empty content
+  }
+  writeAtomic(filePath, existing + line);
 }
 
 /**

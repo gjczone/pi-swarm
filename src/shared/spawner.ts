@@ -37,6 +37,71 @@ import type {
 const MAX_LINE_BUFFER_SIZE = 10 * 1024 * 1024;
 
 // ---------------------------------------------------------------------------
+// Mailbox outbox polling helper
+// ---------------------------------------------------------------------------
+
+/**
+ * Read new mailbox messages from an outbox file starting at the given byte
+ * offset. Returns parsed messages and the new offset to use on the next call.
+ *
+ * Business (#101): Only complete lines (terminated by \n) are consumed.
+ * A partial trailing line (mid-write, no \n yet) is held back — the offset
+ * only advances to the last \n boundary, so the partial content is re-read
+ * on the next poll once the writer completes the line. This prevents
+ * messages from being silently swallowed when the file is read mid-write.
+ */
+export function readNewMailboxLines(
+  filePath: string,
+  offset: number,
+): { messages: MailboxMessage[]; newOffset: number } {
+  let raw: string;
+  let fileSize: number;
+  try {
+    fileSize = statSync(filePath).size;
+  } catch {
+    // File doesn't exist (yet) — nothing to read
+    return { messages: [], newOffset: offset };
+  }
+  if (fileSize <= offset) {
+    return { messages: [], newOffset: offset };
+  }
+  try {
+    raw = readFileSync(filePath, "utf-8");
+  } catch {
+    // Read error — non-fatal, try again next poll
+    return { messages: [], newOffset: offset };
+  }
+
+  const newContent = raw.slice(offset);
+
+  // Find the last \n boundary — only consume up to it (#101)
+  const lastNewlineIdx = newContent.lastIndexOf("\n");
+  if (lastNewlineIdx === -1) {
+    // No complete line yet — hold back everything
+    return { messages: [], newOffset: offset };
+  }
+
+  const completeContent = newContent.slice(0, lastNewlineIdx + 1);
+  const newOffset = offset + lastNewlineIdx + 1;
+
+  const messages: MailboxMessage[] = [];
+  for (const line of completeContent.split("\n")) {
+    const trimmed = line.trim();
+    if (!trimmed) continue;
+    try {
+      const msg = JSON.parse(trimmed) as MailboxMessage;
+      if (msg.messageId && msg.to && msg.from) {
+        messages.push(msg);
+      }
+    } catch {
+      // Skip malformed lines but still advance past them
+    }
+  }
+
+  return { messages, newOffset };
+}
+
+// ---------------------------------------------------------------------------
 // Spawner implementation
 // ---------------------------------------------------------------------------
 
@@ -400,24 +465,13 @@ async function runSubagentProcess(
     mailboxPollHandle = setInterval(() => {
       if (settled || done) return;
       try {
-        if (!existsSync(pollOutboxPath)) return;
-        const currentSize = statSync(pollOutboxPath).size;
-        if (currentSize <= mailboxReadOffset) return;
-
-        const raw = readFileSync(pollOutboxPath, "utf-8");
-        const newContent = raw.slice(mailboxReadOffset);
-        mailboxReadOffset = currentSize;
-
-        const lines = newContent.split("\n").filter((l) => l.trim());
-        for (const line of lines) {
-          try {
-            const msg = JSON.parse(line) as MailboxMessage;
-            if (msg.messageId && msg.to && msg.from) {
-              opts.onMessage?.(msg);
-            }
-          } catch {
-            // Skip malformed lines
-          }
+        const { messages, newOffset } = readNewMailboxLines(
+          pollOutboxPath,
+          mailboxReadOffset,
+        );
+        mailboxReadOffset = newOffset;
+        for (const msg of messages) {
+          opts.onMessage?.(msg);
         }
       } catch {
         // Poll errors are non-fatal
