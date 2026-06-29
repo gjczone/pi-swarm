@@ -17,8 +17,6 @@ import {
   updateManifest,
   appendEvent,
   updateHeartbeat,
-  writeAtomic,
-  deleteRunState,
   type RunManifest,
 } from "../src/state/persistence.js";
 import { recoverRuns } from "../src/state/recovery.js";
