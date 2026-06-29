@@ -143,7 +143,7 @@ Trigger only when the task or milestone is fully completed:
 
 # pi-swarm
 
-Agent Swarm & Team extension for pi-coding-agent. Single to 128 subagents: parallel swarm (item-template) and collaborative team (role-based with mailbox). Live TUI progress, rate-limit-aware retries, concurrency control, crash recovery. Architecture ported from [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code), team patterns inspired by [pi-crew](https://github.com/baphuongna/pi-crew).
+Agent Swarm & Team extension for pi-coding-agent. Single to 20 subagents: parallel swarm (item-template) with optional mailbox mode. Live TUI progress, rate-limit-aware retries, concurrency control, crash recovery.
 
 Goal: replace both the third-party `subagent` extension and `worktree`, becoming the unified sub-agent orchestration solution for the pi ecosystem.
 
@@ -191,7 +191,7 @@ If a tool errors or is unavailable, try once more, then work around it. But you 
 - **Runtime**: Node.js >= 18, npm package manager
 - **Type**: pi-coding-agent extension, auto-discovered via `pi.extensions: ["./dist"]` in `package.json`
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema); peer: `@earendil-works/pi-coding-agent`
-- **Test framework**: vitest — 107+ tests, 8 test files, 0 failures
+- **Test framework**: vitest — 57 tests, 6 test files, 0 failures
 - **Key risk areas**: concurrency controller (rate-limit capacity model), sub-agent process lifecycle (spawn/kill/abort), worktree isolation edge cases, mailbox atomic writes
 
 ## Commands
@@ -228,11 +228,10 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 | Rate-limit handling | Auto suspend + retry with exponential backoff (3s/6s/12s/…) |
 | Context isolation | Each sub-agent runs in a fresh pi process, no parent context sharing |
 | Persistence | Durable file-based state under `.pi/swarm/state/`; resume if not completed |
-| TUI progress | Braille progress bars with 80ms frame animation, onProgress callback |
-| Swarm output format | `<agent_swarm_result>` XML (compatible with kimi-code) |
-| Team communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes |
-| Team workflow | Sequential phases with dependency graph (DAG) |
-| Dual mode | `/swarm` (parallel, item-template) + `/swarm-team` (collaborative, role-based) |
+| TUI progress | Fixed-width tool-call-driven braille bars with baseline track, onProgress callback |
+| Swarm output format | `<agent_swarm_result>` XML |
+| Mailbox communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes and real-time polling |
+| Dual mode | `/swarm` (parallel, item-template) + `/swarm-team` (Swarm with mailbox enabled) |
 
 ## Data & State Flows
 
@@ -273,14 +272,13 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 
 ## First Places to Inspect
 
-- `src/shared/controller.ts` — concurrency controller (most complex module, ported from kimi-code SubagentBatch)
+- `src/shared/controller.ts` — concurrency controller (two-phase ramp-up / rate-limit)
 - `src/shared/spawner.ts` — sub-agent lifecycle: spawn, event parsing, worktree, mailbox polling
 - `src/shared/worktree.ts` — git worktree isolation (create, symlink, commit, cleanup)
 - `src/swarm/tool.ts` — AgentSwarm tool definition (output.log persistence, run manifests)
-- `src/team/supervisor.ts` — Team supervisor (decomposition, assignment, model tier routing, synthesis)
-- `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment (inspired by pi-crew)
-- `src/team/task-graph.ts` — Phase dependency graph (DAG) with timing tracking
-- `src/tui/progress.ts` — TUI braille progress panel (ported from kimi-code)
+- `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment
+- `src/team/command.ts` — /swarm-team slash command
+- `src/tui/progress.ts` — TUI braille progress panel (fixed-width baseline track)
 - `src/state/persistence.ts` — Durable state with atomic writes, per-agent output.log
 - `src/index.ts` — extension entry, all registrations
 

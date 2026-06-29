@@ -80,14 +80,10 @@ pi-swarm/
     ├── team/
     │   ├── tool.ts               # SwarmTeam tool (collaborative, mailbox-based)
     │   ├── command.ts            # /swarm-team slash command
-    │   ├── mailbox.ts            # Mailbox system (JSONL inbox/outbox/delivery)
-    │   ├── supervisor.ts         # Team supervisor (task decomposition, assignment)
-    │   └── task-graph.ts         # Task dependency graph with phases
+    │   └── mailbox.ts            # Mailbox system (JSONL inbox/outbox/delivery)
     ├── tui/
-    │   ├── progress.ts           # Shared progress component (braille bars)
-    │   ├── swarm-markers.ts      # Swarm mode markers
-    │   ├── team-dashboard.ts     # Team run dashboard
-    │   └── permission-prompt.ts  # Manual mode permission dialog
+    │   ├── progress.ts           # Braille progress bar panel
+    │   └── swarm-markers.ts      # Swarm mode markers
     └── state/
         ├── persistence.ts        # Durable state (manifest, tasks, events)
         └── recovery.ts           # Crash recovery, stale run detection
@@ -98,8 +94,8 @@ pi-swarm/
 Both Swarm and Team modes share:
 
 - **Spawner** (`shared/spawner.ts`): Launch `pi --print` child processes, parse JSONL event stream
-- **Controller** (`shared/controller.ts`): kimi-code SubagentBatch port — ramp-up (5 + 1/700ms), rate-limit phase, abort handling
-- **Progress** (`tui/progress.ts`): Braille progress bars with 80ms animation frames
+- **Controller** (`shared/controller.ts`): Two-phase ramp-up (5 + 1/700ms), rate-limit phase, abort handling
+- **Progress** (`tui/progress.ts`): Fixed-width tool-call-driven braille bars with baseline track
 - **Persistence** (`state/`): Durable file-based state for crash recovery
 
 ### 3.2 Mode: Swarm (Parallel)
@@ -411,30 +407,30 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Shared types (`shared/types.ts`)
 - [x] Pi CLI invocation helper (`shared/spawner.ts`)
 
-### Phase 2: Swarm Mode (from kimi-code)
+### Phase 2: Swarm Mode
 
-- [x] Concurrency controller (`shared/controller.ts`) — full SubagentBatch port
+- [x] Concurrency controller (`shared/controller.ts`) — full SubagentBatch
 - [x] Result renderer (`shared/render.ts`) — XML output
 - [x] AgentSwarm tool (`swarm/tool.ts`) — `pi.registerTool`
 - [x] SwarmMode state machine (`swarm/mode.ts`)
 - [x] `/swarm` command (`swarm/command.ts`)
 
-### Phase 3: Team Mode (from pi-crew)
+### Phase 3: Team / Mailbox Mode
 
 - [x] Mailbox system (`team/mailbox.ts`) — JSONL inbox/outbox
-- [x] Task graph (`team/task-graph.ts`) — phases with dependencies
-- [x] Team supervisor (`team/supervisor.ts`) — task decomposition & assignment
-- [x] SwarmTeam tool (`team/tool.ts`) — `pi.registerTool`
+- [ ] Task graph (`team/task-graph.ts`) — phases with dependencies (planned)
+- [ ] Team supervisor (`team/supervisor.ts`) — task decomposition & assignment (planned)
+- [ ] SwarmTeam tool (`team/tool.ts`) — `pi.registerTool` (planned)
 - [x] `/swarm-team` command (`team/command.ts`)
 
 ### Phase 4: TUI
 
-- [x] Progress component (`tui/progress.ts`) — braille bars
+- [x] Progress component (`tui/progress.ts`) — fixed-width braille bars
 - [x] Swarm markers (`tui/swarm-markers.ts`)
 - [x] Wire `onProgress` callback through controller → tool → widget
 - [x] Register `swarm:marker` message renderer in `index.ts`
-- [x] Team dashboard (`tui/team-dashboard.ts`)
-- [x] Permission prompt (`tui/permission-prompt.ts`)
+- [ ] Team dashboard (`tui/team-dashboard.ts`) — planned
+- [ ] Permission prompt (`tui/permission-prompt.ts`) — planned
 
 ### Phase 5: Persistence & Integration
 
@@ -452,7 +448,7 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Per-role model tier routing — small_model for explorer, per-phase overrides
 - [x] Enhanced result format — per-phase output, duration_ms, supervisor_synthesis
 
-- [x] README.md with kimi-code + pi-crew credits
+- [x] README.md with credits
 
 ### Phase 6: Worktree Isolation & Real-time Mailbox
 

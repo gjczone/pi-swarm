@@ -12,6 +12,7 @@ import {
   registerSwarmCommand,
   type SwarmCommandHost,
 } from "./swarm/command.js";
+import { registerTeamCommand } from "./team/command.js";
 import { recoverRuns } from "./state/recovery.js";
 import {
   SwarmModeMarkerComponent,
@@ -226,6 +227,7 @@ export default function (pi: ExtensionAPI): void {
 
   registerAgentSwarmTool(pi);
   registerSwarmCommand(pi, commandHost);
+  registerTeamCommand(pi, commandHost);
 }
 
 // ---------------------------------------------------------------------------

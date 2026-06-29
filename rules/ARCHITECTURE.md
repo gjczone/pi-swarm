@@ -44,7 +44,7 @@ Cross-layer communication goes through `index.ts` (tool registration, command ha
 
 ## Architectural Decisions
 
-- **Out-of-process subagents via `spawn`, not in-process** — Crash isolation. A subagent crash never corrupts parent state. Same model used by pi-crew and pi's built-in subagent example.
+- **Out-of-process subagents via `spawn`, not in-process** — Crash isolation. A subagent crash never corrupts parent state. 
 - **Two-phase concurrency (normal → rate-limit)** — Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff (3s/6s/12s/…).
 - **File-based mailbox (JSONL), not a message broker** — Zero runtime dependencies. Every message is a file inspectable with `cat` or `jq`. JSONL supports append-only concurrent writes without file-level coordination.
 - **Atomic writes for all state mutations** — `writeAtomic` (temp-file + rename) is mandatory for every JSON/JSONL write. A crash mid-write leaves the original file intact. Direct `fs.writeFileSync` on state files is forbidden.

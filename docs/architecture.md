@@ -9,17 +9,17 @@ pi-swarm is a **subagent orchestration system** with two operational modes:
 | Mode      | Pattern                               | Trigger                                   | Communication      |
 | --------- | ------------------------------------- | ----------------------------------------- | ------------------ |
 | **Swarm** | Parallel, item-template, homogeneous  | `AgentSwarm` tool or `/swarm` command     | None (independent) |
-| **Team**  | Sequential, role-based, heterogeneous | `SwarmTeam` tool or `/swarm-team` command | JSONL mailbox      |
+| **Team**  | Collaborative with mailbox   | `/swarm-team` command                    | JSONL mailbox      |
 
 The design follows these principles:
 
-1. **Process isolation over in-process reuse.** Each subagent runs as an independent `pi --print` child process. A crash in one agent never affects the parent or sibling agents. This is the same model used by pi's built-in subagent example and pi-crew.
+1. **Process isolation over in-process reuse.** Each subagent runs as an independent `pi --print` child process. A crash in one agent never affects the parent or sibling agents.
 
 2. **File-based state over in-memory only.** Every run has a manifest, task graph, and event log persisted to disk under `.pi/swarm/`. On session restart, incomplete runs are detected and can be resumed.
 
-3. **Two-phase concurrency.** The SubagentBatch controller operates in two phases: a normal ramp-up phase and a rate-limit-sensitive phase. This is ported directly from kimi-code's SubagentBatch.
+3. **Two-phase concurrency.** The SubagentBatch controller operates in two phases: a normal ramp-up phase and a rate-limit-sensitive phase.
 
-4. **Mailbox as the team primitive.** In team mode, agents do not call each other directly. They write JSON messages to a shared mailbox directory. The supervisor reads the mailbox and advances the task graph.
+4. **Mailbox as the team primitive.** In mailbox mode, agents communicate by writing JSON messages to a shared mailbox directory. The spawner polls outbox files and delivers messages to recipient inboxes for inter-agent communication.
 
 5. **Zero runtime dependencies.** The only external packages are `typebox` (schema validation) and `@earendil-works/pi-tui` (rendering). All orchestration, state management, and process control are custom-built.
 
@@ -44,16 +44,11 @@ src/
 │   ├── command.ts        # /swarm slash command
 │   └── mode.ts           # SwarmMode lifecycle state machine
 ├── team/                 # Team mode (imports from shared/)
-│   ├── tool.ts           # SwarmTeam tool (pi.registerTool)
 │   ├── command.ts        # /swarm-team slash command
-│   ├── mailbox.ts        # JSONL inbox/outbox/delivery (atomic writes)
-│   ├── task-graph.ts     # Directed acyclic phase graph with dependencies
-│   └── supervisor.ts     # Team supervisor: decomposition, assignment, synthesis
+│   └── mailbox.ts        # JSONL inbox/outbox/delivery (atomic writes)
 ├── tui/                  # TUI components (imports from shared/ + pi-tui)
-│   ├── progress.ts       # Braille progress bar panel
-│   ├── swarm-markers.ts  # Swarm mode state markers
-│   ├── permission-prompt.ts  # Manual-mode permission dialog
-│   └── team-dashboard.ts # SwarmTeam live phase progress dashboard
+│   ├── progress.ts       # Braille progress bar panel (fixed-width, baseline track)
+│   └── swarm-markers.ts  # Swarm mode state markers
 └── state/                # Persistence layer (imports from shared/)
     ├── persistence.ts    # Atomic file writes, manifest/task/event I/O, writeAtomic export
     └── recovery.ts       # Crash detection, stale run cleanup, corrupt manifest preservation
@@ -166,7 +161,7 @@ The `resolveOnce`/`rejectOnce` helpers ensure the promise settles exactly once, 
 
 ### 3.4 Concurrency Controller (`shared/controller.ts`)
 
-The most complex module. Ported from kimi-code's SubagentBatch with full fidelity.
+The most complex module.
 
 #### Normal Phase
 
@@ -226,7 +221,7 @@ The two-phase design separates the "go fast" normal mode from the "be careful" r
 
 Produces the structured XML output that the parent LLM reads.
 
-**AgentSwarm format** (compatible with kimi-code):
+**AgentSwarm format**:
 
 ```xml
 <agent_swarm_result>
@@ -261,7 +256,7 @@ Registered via `pi.registerTool("AgentSwarm", ...)` with a TypeBox parameter sch
 | `items` | Conditional | At least 2 unless `resume_agent_ids` is provided |
 | `resume_agent_ids` | No | Map of agentId → resume prompt |
 
-**Validation rules** (from kimi-code):
+**Validation rules**:
 
 1. At least 2 items unless resume_agent_ids is provided
 2. Total (items + resume entries) ≤ 128
@@ -345,95 +340,11 @@ A JSONL-based messaging system for inter-agent communication.
 
 **Why files not a message broker**: pi is a local CLI tool. Adding a dependency on Redis/RabbitMQ would violate the "zero runtime deps" principle. The filesystem is always available and provides durability for free.
 
-### 5.2 Task Graph (`team/task-graph.ts`)
+### 5.2 Future: Task Graph & Supervisor
 
-A directed acyclic graph of phases with role assignments and dependency constraints.
+Task graph with phase dependencies and team supervisor orchestration are planned features not yet implemented. The current team mode works via the `/swarm-team` command, which directs the LLM to call the `Swarm` tool with `mailbox: true`. Inter-agent communication happens through the JSONL mailbox system described above.
 
-**Default phases** (from CrewAI research):
-
-```
-explore ──→ plan ──→ implement ──→ review ──→ test
-```
-
-Each phase has:
-
-- `name` — unique identifier
-- `role` — assigned agent role (explorer, planner, coder, reviewer, tester)
-- `dependsOn` — phases that must complete before this one starts
-- `status` — queued, running, completed, failed, or skipped
-
-**State machine**:
-
-```
-queued → running → completed
-                 → failed
-queued → skipped (when dependency fails)
-```
-
-**Dependency propagation**: When a phase fails, all downstream phases that depend on it are automatically marked as "skipped". This prevents wasting resources on phases that can't succeed without their dependencies.
-
-**Serialization**: `toJSON()` and `fromJSON()` support persisting and restoring the complete task graph. This is used by the persistence layer and crash recovery.
-
-### 5.3 Team Supervisor (`team/supervisor.ts`)
-
-Orchestrates the team run by managing the task graph and spawning agents.
-
-**Responsibilities**:
-
-1. Decompose the goal into phases (using default or custom phase definitions)
-2. Determine which phase is ready to execute (dependencies satisfied)
-3. Resolve model/tools/cwd for each phase via `getPhaseExecutionConfig()` using priority: phase-level model > phase-level modelTier > role-level config > auto-route (explorer → small) > default
-4. Build a phase-specific prompt that includes context from completed dependency phases and mailbox messages
-5. Spawn a role agent for the current phase with resolved model/tools/cwd
-6. Collect results and advance the task graph
-7. Acknowledge (delete) consumed mailbox messages to prevent cross-phase leakage
-8. Synthesize the final `<swarm_team_result>` XML output with per-phase content, timing, and supervisor synthesis
-
-**Phase prompt construction**: Each agent receives:
-
-- Role-specific system prompt (from role config, or generic default)
-- Team goal context
-- Results from completed dependency phases (injected as context, with status badges)
-- Mailbox messages addressed to the role (task_assignment, handoff, task_result)
-- Phase-specific instruction with communication protocol
-
-This is analogous to CrewAI's task context chaining — each task receives the output of its predecessor tasks as input context.
-
-**Result synthesis**: The final XML includes:
-
-- `<summary>` with phase counts
-- `<total_duration_ms>` for overall wall-clock time
-- Per-phase `<phase>` elements with `agent_id`, `duration_ms`, `outcome` attributes and full markdown output (truncated at 12,000 chars)
-- `<supervisor_synthesis>` with consolidated outcomes, errors, and key deliverables excerpts
-- Failed phases get `<error>` sub-elements; skipped phases get explanatory messages
-- Empty results show a note pointing to `output.log` for full transcripts
-
-### 5.4 SwarmTeam Tool (`team/tool.ts`)
-
-Registered via `pi.registerTool("SwarmTeam", ...)`.
-
-**Input parameters**:
-| Parameter | Required | Description |
-|-----------|----------|-------------|
-| `goal` | Yes | High-level team goal |
-| `description` | Yes | Human-readable run description |
-| `phases` | No | Custom phase definitions; defaults to explore/plan/implement/review/test |
-| `roles` | No | Custom role configs with model/tools/systemPrompt overrides |
-| `small_model` | No | Lightweight model for exploration roles (e.g. deepseek/deepseek-v4-flash) |
-| `max_agents` | No | Max concurrent agents (default 4) |
-| `resume_agent_ids` | No | Map for resuming failed phase agents |
-
-**Execution flow**:
-
-1. Create a TeamSupervisor with the run configuration (including `smallModel`)
-2. Loop: get next ready phase → resolve model/tools/cwd via `getPhaseExecutionConfig()` → spawn agent with resolved config → wait for completion → advance graph
-3. On phase completion: assign agent ID, save result, update heartbeat
-4. On phase failure: mark as failed, skip downstream phases
-5. After all phases: finalize run, synthesize enhanced XML output with per-phase content and supervisor synthesis
-
-**Why sequential not parallel for team phases**: Team phases have explicit dependencies (plan must finish before coding starts). Each phase agent needs the output of previous phases as context. Running phases in parallel would violate these dependencies. Future work could support parallel sub-phases within a single phase.
-
-### 5.5 /swarm-team Command (`team/command.ts`)
+### 5.3 /swarm-team Command (`team/command.ts`)
 
 Sends the goal as a user message. The LLM can then decide whether to call SwarmTeam directly or handle the goal differently. This is a lightweight command — the heavy lifting is in the tool.
 
@@ -459,24 +370,11 @@ The most visually complex component. Renders a live progress panel above the inp
 └─────────────────────────────────────────────────────┘
 ```
 
-**Braille animation**: The progress bar uses Unicode braille characters (U+28C0–U+28FF) to render a continuous fill animation. Each braille character can represent 0-6 dots. The animation cycles through the fill levels at 80ms intervals, creating a smooth progress effect.
+**Progress bar design**: Fixed-width braille bars (5 cells in vertical mode, 3 in compact grid). Each cell uses Unicode braille characters (U+28C0–U+28FF) representing 0-8 dots. The baseline empty character (`⣀`) ensures the bar track is always visible even at zero progress.
 
-**Parameters** (from kimi-code):
+Progress is driven by `progressTick` — each tool call or model output event increments the tick by one. Working agents cap at 85% fill, visually distinguishing "almost done" from "completed" (full bar at 100%). Failed agents show a half bar; queued/suspended agents show the baseline track.
 
-- `TEXT_CELL_PREFERRED_WIDTH = 30` — item name column width
-- `BRAILLE_BAR_MAX_WIDTH = 8` — progress bar width in characters
-- `FRAME_INTERVAL_MS = 80` — animation frame interval
-- `COMPLETE_FILL_MS = 360` — completion fill animation duration
-
-**Phase-to-bar mapping**:
-| Phase | Bar display |
-|-------|------------|
-| completed | Full bar |
-| failed/cancelled | Empty bar |
-| pending/queued | Empty bar (static) |
-| prompting/working/suspended | Animated fill |
-
-**Design rationale for custom braille rendering**: pi-tui does not provide a built-in braille progress bar component. The implementation handles the dot-level rendering directly to achieve the same visual effect as kimi-code's AgentSwarmProgressComponent.
+Each agent renders as a single line: `001 [braille bar] read: src/lib.rs lines 42-99`. The fixed bar width ensures tool labels (`read:`, `edit:`, `bash:`) align vertically across agents. For 1-4 agents, vertical layout with blank-line separators; for 5+, a 2-column compact grid with 3-cell bars.
 
 ### 6.2 Swarm Markers (`tui/swarm-markers.ts`)
 
@@ -490,67 +388,28 @@ Swarm ended        (ended state — one-shot task completed)
 
 **Rendering**: Each marker is a single line with the label text. The `invalidate()` method resets the cached render so theme changes are reflected.
 
-### 6.3 Permission Prompt (`tui/permission-prompt.ts`)
+### 6.3 Widget Wiring Pattern
 
-A dialog component for manual permission mode. When the user in manual mode tries to start a swarm, this dialog offers:
-
-```
-┌──────────────────────────────────────────────┐
-│ Manual mode can block swarm work.            │
-│                                              │
-│ Choose a permission mode for this swarm:     │
-│                                              │
-│  > Auto mode — tools auto-approved           │
-│    YOLO mode — all tools auto-approved       │
-│    Cancel — do not start the swarm           │
-│                                              │
-│ Use arrow keys to select, Enter to confirm.  │
-└──────────────────────────────────────────────┘
-```
-
-**Input handling**: Up/Down arrows or j/k to navigate, Enter to select, Escape to cancel. This matches kimi-code's SwarmStartPermissionPromptComponent.
-
-### 6.4 Team Dashboard (`tui/team-dashboard.ts`)
-
-Live phase progress dashboard for SwarmTeam mode. Renders a multi-row panel showing each phase's status, assigned role, and elapsed time during team execution.
-
-**Visual layout**:
-
-```
-┌─ Swarm Team ─────────────────────────────────────────────┐
-│  Goal: Implement login with tests                         │
-│  ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ │
-│  explore    ──→ plan    ──→ implement ──→ review ──→ test │
-│    done         done        running        queued  queued │
-│   (coder)      (planner)    (coder)                                │
-│   2.3s         1.8s         12.5s                                  │
-└──────────────────────────────────────────────────────────┘
-```
-
-**Parameters**:
-
-- Uses `TeamProgressSnapshot` from `shared/types.ts` for phase status data
-- `TeamPhaseStatus` enum: queued, running, completed, failed, skipped
-- `TeamProgressCallback` type: `(snapshot: TeamProgressSnapshot) => void`
-
-**Phase display**: Each phase shows its status with a role label and elapsed time. Phases are connected by arrows showing the flow direction. Running phases display a spinner or elapsed timer. Completed phases show their duration. Failed phases are highlighted. Skipped phases are grayed out.
-
-**Integration**: The team supervisor calls the progress callback after each phase state change. The callback updates the dashboard component via TUI invalidation, providing real-time visual feedback during team runs.
-
-### 6.5 Widget Wiring Pattern
-
-Both the Progress Panel and Team Dashboard are installed as extension widgets via `ctx.ui.setWidget(key, factory, options)`.  A critical implementation detail:
-
-The `setWidget` factory receives `(tui: TUI, theme: Theme)` from the framework.  The `tui` reference MUST be captured and exposed to the component so that `setInterval`-based animation timers can call `tui.requestRender()` after `invalidate()`.  Without this call the TUI framework has no trigger to redraw the widget, and braille bars / spinners appear frozen.
+Both the Progress Panel and Swarm Markers are installed as extension widgets via `ctx.ui.setWidget(key, factory, options)`.  The `setWidget` factory receives `(tui: TUI, theme: Theme)` from the framework.  The `tui` reference MUST be captured and exposed to the component so that animation/poll timers can call `tui.requestRender()` after `invalidate()`.  Without this call the TUI framework has no trigger to redraw the widget.
 
 ```
 setWidget(key, (tui, _theme) => {
   capturedTui = tui;
-  return component;  // component calls capturedTui.requestRender() on each animation tick
+  return component;  // component calls capturedTui.requestRender() on each refresh tick
 }, { placement: "aboveEditor" });
 ```
 
-This pattern was ported from pi-crew's `requestRenderTarget(tui)` callback.
+### 6.2 Swarm Markers (`tui/swarm-markers.ts`)
+
+Simple single-line markers inserted into the conversation transcript.
+
+```
+Swarm activated    (active state)
+Swarm deactivated  (inactive state)
+Swarm ended        (ended state — one-shot task completed)
+```
+
+**Rendering**: Each marker is a single line with the label text. The `invalidate()` method resets the cached render so theme changes are reflected.
 
 ---
 
@@ -645,44 +504,27 @@ AgentSwarm.execute()
      Returned to LLM as tool result
 ```
 
-### 8.2 Team Execution Flow
+### 8.2 Team / Mailbox Execution Flow
 
 ```
 User: /swarm-team Implement login with tests
   │
   ▼
 /swarm-team command handler
-  │  sends user prompt
+  │  sends user prompt (instructs LLM to use Swarm with mailbox:true)
   ▼
-LLM receives prompt → decides to call SwarmTeam
+LLM receives prompt → calls Swarm tool with mailbox: true
   │
   ▼
-SwarmTeam.execute()
-  │
-  ├─ new TeamSupervisor(config)
-  │     ├─ resolves phases (default or custom)
-  │     ├─ creates TaskGraph
-  │     └─ ensures mailbox exists
-  │
-  ├─ Loop:
-  │   ├─ supervisor.startNextPhase()
-  │   │     ├─ checks dependencies
-  │   │     └─ builds phase prompt with dependency context + mailbox messages
-  │   │
-  │   ├─ supervisor.getPhaseExecutionConfig(phaseName)
-  │   │     └─ resolves model/tools/cwd via priority chain
-  │   │
-  │   ├─ spawn agent for phase (via controller)
-  │   │     ├─ agent runs with resolved model, tools, cwd
-  │   │     └─ agent writes to mailbox if needed
-  │   │
-  │   ├─ on complete: supervisor.completePhase() + ackTaskMessages()
-  │   ├─ on fail: supervisor.failPhase() + skip downstream
-  │   └─ continue until no more ready phases
-  │
-  ├─ supervisor.finalize()
-  ├─ supervisor.synthesizeResult() → enhanced XML with per-phase output, timing, synthesis
-  └─ return <swarm_team_result> XML
+Swarm.execute()  (see Swarm Execution Flow above)
+  │  mailbox enabled → per-agent inbox/outbox created
+  │  onMessage wired → sendMessage() delivers to recipient inbox
+  ▼
+Sub-agents communicate via mailbox during execution
+  │  agent writes to its outbox → spawner polls → onMessage → sendMessage → recipient inbox
+  │  recipient reads its inbox periodically
+  ▼
+Swarm results rendered as <agent_swarm_result> XML
 ```
 
 ---
@@ -691,9 +533,9 @@ SwarmTeam.execute()
 
 | Decision                                              | Rationale                                                                                                                                                                                           |
 | ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Out-of-process subagents** (`spawn` not in-process) | Crash isolation. A subagent that runs in-process can corrupt the parent's state. Process isolation is the same model used by pi-crew and pi's built-in subagent example                             |
-| **Two-phase concurrency**                             | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures. This is proven in kimi-code's production use                          |
-| **XML output format**                                 | Compatible with kimi-code's output format. The parent LLM already knows how to parse `<agent_swarm_result>`. Using the same format ensures the LLM's training data includes examples of this format |
+| **Out-of-process subagents** (`spawn` not in-process) | Crash isolation. A subagent that runs in-process can corrupt the parent's state. Process isolation prevents cross-contamination between agents. |
+| **Two-phase concurrency**                             | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff. |
+| **XML output format**                                 | Uses `<agent_swarm_result>` XML. The parent LLM already knows how to parse this format from its training data. |
 | **Mailbox as JSONL files**                            | Simplicity, durability, auditability. Every message is a file that can be inspected with `cat` or `jq`. No message broker to install                                                                |
 | **Sequential team phases**                            | Team phases have semantic dependencies (plan before code). Parallel execution within a phase is possible (future work) but inter-phase parallelism would violate the dependency graph               |
 | **Default 5-phase team workflow**                     | Based on research of CrewAI's hierarchical model and common software development workflows. The explore → plan → implement → review → test pipeline mirrors real engineering processes              |
@@ -705,30 +547,11 @@ SwarmTeam.execute()
 
 ---
 
-## 10. Comparison with Reference Projects
+## 10. Future Work
 
-| Aspect             | kimi-code                        | pi-crew                                    | pi-swarm                                                       |
-| ------------------ | -------------------------------- | ------------------------------------------ | -------------------------------------------------------------- |
-| Subagent execution | In-process session API           | Out-of-process spawn                       | Out-of-process spawn + worktree isolation                      |
-| Concurrency model  | Two-phase SubagentBatch          | Task queue with configurable cap           | Two-phase SubagentBatch (ported from kimi-code)                |
-| Swarm mode         | AgentSwarm tool + /swarm         | N/A (team only)                            | AgentSwarm + SwarmTeam dual mode                               |
-| Team mode          | N/A                              | Task graph + supervisor + mailbox          | Task graph + supervisor + mailbox (inspired by pi-crew)        |
-| State persistence  | In-memory                        | Full state machine (JSONL + atomic writes) | Manifest + tasks + events (atomic writes)                      |
-| TUI                | Braille progress + swarm markers | Dashboard + widget + powerbar              | Braille progress + markers + permission dialog                 |
-| Mailbox            | N/A                              | JSONL inbox/outbox/delivery                | JSONL inbox/outbox + real-time polling + worktree symlinks     |
-| Crash recovery     | N/A                              | Heartbeat + deadletter                     | Staleness detection + auto-abandon + corrupt manifest preserve |
-| Worktree isolation | N/A                              | Per-agent worktrees                        | Per-agent worktrees + project context symlinks + merge support |
-| Runtime deps       | Many (internal packages)         | Zero (for orchestration)                   | Zero (for orchestration)                                       |
-
-**pi-swarm's unique position**: Combines kimi-code's proven concurrency model with pi-crew's mailbox-driven team collaboration, while maintaining zero runtime dependencies and 100% process isolation.
-
----
-
-## 11. Future Work
-
-1. **Parallel team sub-phases**: Within a single team phase, spawn multiple agents working on different files simultaneously, then aggregate results
-2. **Heartbeat-based liveness**: Replace the 30-minute staleness threshold with active heartbeat updates from running agents
-3. **Agent capability inventory**: Auto-detect what tools/skills each role agent has available
-4. **Model fallback chain**: If the primary model for a role is rate-limited, fall back to a cheaper model
-5. **Run export/import**: Bundle a complete run (state + artifacts + events) for cross-machine sharing or debugging
-6. **Dashboard TUI**: A `/swarm-status` command showing all active and recent runs
+1. **Team supervisor and task graph**: Implement phase-based team orchestration with role agents, dependency DAG, and supervisor synthesis (design documented in PLAN.md).
+2. **Parallel team sub-phases**: Within a single team phase, spawn multiple agents working on different files simultaneously, then aggregate results.
+3. **Heartbeat-based liveness**: Replace the 30-minute staleness threshold with active heartbeat updates from running agents.
+4. **Model fallback chain**: If the primary model is rate-limited, fall back to a cheaper model.
+5. **Dashboard TUI**: A `/swarm-status` command showing all active and recent runs.
+6. **Run export/import**: Bundle a complete run (state + artifacts + events) for cross-machine sharing or debugging.

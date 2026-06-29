@@ -44,7 +44,7 @@ Evidence: `grep "export function register" src/` → 4 register functions across
 
 ## 3. Output Format
 
-AgentSwarm tool output MUST use the `<agent_swarm_result>` XML format (compatible with kimi-code). Do NOT mix this output with plain text or other shapes — the parent LLM parses the XML structure.
+AgentSwarm tool output MUST use the `<agent_swarm_result>` XML format. Do NOT mix this output with plain text or other shapes — the parent LLM parses the XML structure.
 
 Evidence: `src/shared/render.ts` exports `renderSwarmResults()` building this exact format.
 

@@ -5,7 +5,7 @@ You are reviewing **pi-swarm**, a dual-mode multi-agent orchestration extension 
 ## Project Context
 
 - **What it is**: TypeScript extension for `pi-coding-agent` that spawns subagent child processes (`pi --print`) with concurrency control, rate-limit retries, TUI progress rendering, and durable crash recovery.
-- **Size**: 15 source modules, ~7,600 lines of TypeScript, 107 tests (8 test files, 0 failures).
+- **Size**: 15 source modules, ~7,600 lines of TypeScript, 57 tests (6 test files, 0 failures).
 - **Runtime**: Node.js >= 18, TypeScript 6.x with `NodeNext` module resolution. Compiled to `dist/` via `tsc`.
 - **Dependencies**: `@earendil-works/pi-coding-agent` (peer — extension API), `@earendil-works/pi-tui` (TUI components), `typebox` (schema validation).
 - **Key architecture facts**:
