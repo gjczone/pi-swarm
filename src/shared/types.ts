@@ -84,7 +84,12 @@ export type SwarmSpec = SwarmSpawnSpec | SwarmResumeSpec;
 
 /** Predefined agent roles for team mode. */
 export type AgentRole =
-  "explorer" | "planner" | "coder" | "reviewer" | "tester" | "fixer";
+  | "explorer"
+  | "planner"
+  | "coder"
+  | "reviewer"
+  | "tester"
+  | "fixer";
 
 /** Configuration for a single role in a team run. */
 export interface AgentRoleConfig {
@@ -154,6 +159,12 @@ export interface RunSubagentOptions {
   readonly mailboxPath?: string;
   /** Role name for team agents (used to resolve mailbox paths). */
   readonly roleName?: string;
+  /** Additional system prompt appended from agent profile. */
+  readonly additionalSystemPrompt?: string;
+  /** Human-readable name for this agent. */
+  readonly agentName?: string;
+  /** When set, the agent reads this file for incoming coordinator messages. */
+  readonly messageInboxPath?: string;
 }
 
 /** Model tier for cost-optimized routing. */
@@ -172,6 +183,8 @@ export interface SpawnSubagentOptions extends RunSubagentOptions {
   readonly model?: string;
   readonly tools?: string[];
   readonly cwd?: string;
+  readonly useWorktree?: boolean;
+  readonly agentName?: string;
 }
 
 /** Result returned by the subagent launcher. */
@@ -208,6 +221,8 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly data: T;
   /** Subagent profile name. */
   readonly profileName: string;
+  /** Human-readable agent name (derived from profile, item, or fallback). */
+  readonly agentName?: string;
   /** Parent tool-call id for nesting. */
   readonly parentToolCallId: string;
   /** Parent tool-call uuid for event correlation. */
@@ -250,6 +265,10 @@ export interface BaseQueuedSubagentTask<T = unknown> {
   readonly mailboxPath?: string;
   /** Role name for team agents (optional, used for mailbox routing). */
   readonly roleName?: string;
+  /** Additional system prompt content from profile (optional). */
+  readonly additionalSystemPrompt?: string;
+  /** Path to per-agent message inbox for coordinator SendMessage (optional). */
+  readonly messageInboxPath?: string;
 }
 
 /** A task that spawns a NEW subagent. */
@@ -269,7 +288,8 @@ export interface ResumeQueuedSubagentTask<
 
 /** Union of queued task kinds. */
 export type QueuedSubagentTask<T = unknown> =
-  SpawnQueuedSubagentTask<T> | ResumeQueuedSubagentTask<T>;
+  | SpawnQueuedSubagentTask<T>
+  | ResumeQueuedSubagentTask<T>;
 
 // ---------------------------------------------------------------------------
 // Controller options
@@ -368,6 +388,7 @@ export interface ProgressEvent {
 export interface BatchMemberStatus {
   readonly index: number;
   readonly phase: "queued" | "working" | "completed" | "failed" | "suspended";
+  readonly name?: string;
   readonly item?: string;
   readonly error?: string;
   readonly usage?: SubagentUsage;
@@ -408,4 +429,62 @@ export interface SubagentBatchLauncher {
    * rate limiting during the rate-limit phase.
    */
   suspended?: (event: SubagentSuspendedEvent) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Agent Profiles (#99)
+// ---------------------------------------------------------------------------
+
+/** Output format for agent results. */
+export type AgentOutputFormat = "free" | "structured";
+
+/**
+ * Agent profile defining role-specific behavior, tool restrictions,
+ * model routing, and system prompt.
+ */
+export interface AgentProfile {
+  readonly name: string;
+  readonly description: string;
+  readonly allowWrite: boolean;
+  readonly allowBashWrite: boolean;
+  readonly model?: string | "inherit";
+  readonly outputFormat: AgentOutputFormat;
+  readonly systemPrompt: string;
+}
+
+/** Built-in profile name type. */
+export type BuiltinProfileName = "explore" | "plan" | "general" | "review";
+
+// ---------------------------------------------------------------------------
+// Coordinator Mode (#98)
+// ---------------------------------------------------------------------------
+
+/** Event emitted by the controller when agent state changes in coordinator mode. */
+export interface SubagentEvent<T = unknown> {
+  readonly runId: string;
+  readonly agentId: string;
+  readonly agentName?: string;
+  readonly eventType: "agent_started" | "agent_completed";
+  readonly timestamp: number;
+  readonly result?: SubagentResult<T>;
+}
+
+/** Handle returned by runAsync() for coordinator mode. */
+export interface SwarmHandle<T = unknown> {
+  readonly runId: string;
+  /** Get all completed results so far (non-blocking). */
+  getResults(): Array<SubagentResult<T>>;
+  /** Send a message to a running agent (best-effort via file). */
+  sendMessage(agentId: string, message: string): void;
+  /** Gracefully stop a running agent. */
+  stopAgent(agentId: string): void;
+  /** Abort the entire swarm. */
+  abort(): void;
+  /** Promise that resolves when all agents complete. */
+  readonly completion: Promise<Array<SubagentResult<T>>>;
+}
+
+/** Options for coordinator mode run. */
+export interface CoordinatorOptions<T = unknown> {
+  readonly onEvent?: (event: SubagentEvent<T>) => void;
 }

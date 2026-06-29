@@ -66,6 +66,7 @@ export type MemberPhase =
 export interface MemberStatus {
   readonly index: number;
   phase: MemberPhase;
+  name?: string;
   item?: string;
   result?: string;
   error?: string;
@@ -105,17 +106,20 @@ export function snapshotToProgressState(
     failed: snapshot.failed,
     active: snapshot.active,
     queued: snapshot.queued,
-    members: snapshot.members.map((m: BatchMemberStatus): MemberStatus => ({
-      index: m.index,
-      phase: mapMemberPhase(m.phase),
-      item: m.item,
-      error: m.error,
-      currentTool: m.currentTool,
-      activity: m.activity,
-      usage: m.usage,
-      progressTick: m.progressTick,
-      startedAt: m.startedAt,
-    })),
+    members: snapshot.members.map(
+      (m: BatchMemberStatus): MemberStatus => ({
+        index: m.index,
+        phase: mapMemberPhase(m.phase),
+        name: m.name,
+        item: m.item,
+        error: m.error,
+        currentTool: m.currentTool,
+        activity: m.activity,
+        usage: m.usage,
+        progressTick: m.progressTick,
+        startedAt: m.startedAt,
+      }),
+    ),
     totalUsage: snapshot.totalUsage,
     startedAt: snapshot.startedAt ?? Date.now(),
   };
@@ -450,20 +454,27 @@ export class AgentSwarmProgressComponent implements Component {
   private renderCellLabel(member: MemberStatus, width: number): string {
     if (width <= 0) return "";
 
+    const displayName = member.name ?? member.item ?? `agent-${member.index}`;
+
     if (member.phase === "working" || member.phase === "prompting") {
-      // Show tool: activity_text (scrolling model output / shell command)
       const toolPart = member.currentTool ? `${member.currentTool}: ` : "";
-      const activityText = member.activity ?? member.item ?? "";
-      const text = toolPart + activityText;
+      const activityText = member.activity ?? "";
+      const text = activityText
+        ? `${displayName} ${toolPart}${activityText}`
+        : displayName;
       return truncateToWidth(text, width);
     }
-    if (member.phase === "completed") return truncateToWidth("ok", width);
+    if (member.phase === "completed")
+      return truncateToWidth(`${displayName} ok`, width);
     if (member.phase === "failed" && member.error)
-      return truncateToWidth(member.error, Math.min(width, 20));
+      return truncateToWidth(
+        `${displayName}: ${member.error}`,
+        Math.min(width, 40),
+      );
     if (member.phase === "queued" || member.phase === "suspended")
-      return truncateToWidth(member.item ?? "...", width);
+      return truncateToWidth(displayName, width);
 
-    return "";
+    return truncateToWidth(displayName, width);
   }
 
   // -------------------------------------------------------------------

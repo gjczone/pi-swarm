@@ -16,7 +16,7 @@ import {
   readFileSync,
   statSync,
 } from "node:fs";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { getPiInvocation, buildSubagentArgs } from "./pi-invoke.js";
 import { resolveAgentStateDir } from "../state/persistence.js";
 import {
@@ -198,7 +198,7 @@ async function runSubagentProcess(
   }
 
   // Resolve paths for inbox/outbox polling when mailbox is enabled
-  const roleName = opts.roleName ?? agentId;
+  const roleName = opts.agentName ?? opts.roleName ?? agentId;
   let pollInboxPath: string | undefined;
   let pollOutboxPath: string | undefined;
   if (opts.mailboxPath) {
@@ -213,6 +213,16 @@ async function runSubagentProcess(
     // Ensure inbox file exists
     if (!existsSync(pollInboxPath)) {
       writeFileSync(pollInboxPath, "", "utf-8");
+    }
+  }
+
+  // Set up coordinator message inbox if path provided
+  let coordInboxPath: string | undefined;
+  if (opts.messageInboxPath) {
+    coordInboxPath = opts.messageInboxPath;
+    mkdirSync(dirname(coordInboxPath), { recursive: true });
+    if (!existsSync(coordInboxPath)) {
+      writeFileSync(coordInboxPath, "", "utf-8");
     }
   }
 
@@ -251,11 +261,46 @@ async function runSubagentProcess(
     finalPrompt = finalPrompt + mailboxAddendum;
   }
 
+  // Inject coordinator message inbox instructions if available
+  if (coordInboxPath) {
+    const inboxRel = relative(cwd, coordInboxPath);
+    const coordAddendum = [
+      "",
+      "---",
+      "",
+      "## Coordinator Messages",
+      "",
+      "You can receive messages from the coordinator during your execution.",
+      `Check your message inbox periodically: ${inboxRel}`,
+      'To read messages, use the read tool on this file. New messages are appended as JSON lines: {"messageId":"...","from":"coordinator","content":"...","timestamp":"..."}',
+      "When you receive a message, acknowledge it and adjust your work accordingly.",
+      "",
+    ].join("\n");
+    finalPrompt = finalPrompt + coordAddendum;
+  }
+
   // Auto-detect root AGENTS.md for subagent project rules
-  let systemPromptFile: string | undefined;
   const agentsPath = join(cwd, "AGENTS.md");
-  if (existsSync(agentsPath)) {
-    systemPromptFile = agentsPath;
+  const baseSystemPrompt = existsSync(agentsPath)
+    ? readFileSync(agentsPath, "utf-8")
+    : undefined;
+
+  // Build combined system prompt from base (AGENTS.md) + profile additions
+  const systemPromptParts: string[] = [];
+  if (baseSystemPrompt) systemPromptParts.push(baseSystemPrompt);
+  if (opts.additionalSystemPrompt) {
+    systemPromptParts.push(opts.additionalSystemPrompt);
+  }
+
+  let effectiveSystemPrompt: string | undefined;
+  if (systemPromptParts.length > 0) {
+    const tempDir = opts.swarmRoot
+      ? join(opts.swarmRoot, "temp")
+      : join(process.cwd(), ".pi", "swarm", "temp");
+    mkdirSync(tempDir, { recursive: true });
+    const tempFile = join(tempDir, `sys-${agentId}.md`);
+    writeFileSync(tempFile, systemPromptParts.join("\n\n"), "utf-8");
+    effectiveSystemPrompt = tempFile;
   }
 
   const args = buildSubagentArgs({
@@ -263,7 +308,7 @@ async function runSubagentProcess(
     model: opts.model,
     tools: opts.tools,
     cwd,
-    systemPromptFile,
+    systemPromptFile: effectiveSystemPrompt,
   });
 
   const invocation = getPiInvocation(args);

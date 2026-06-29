@@ -25,6 +25,9 @@ import type {
   SubagentUsage,
   MailboxMessage,
   ProgressEvent,
+  SubagentEvent,
+  SwarmHandle,
+  CoordinatorOptions,
 } from "./types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
@@ -51,6 +54,7 @@ interface TaskState<T> {
   readonly index: number;
   readonly task: QueuedSubagentTask<T>;
   agentId?: string;
+  agentController?: AbortController;
   retryAgentId?: string;
   retryCount: number;
   retryReadyAt: number;
@@ -158,6 +162,14 @@ export class SubagentBatchController<T> {
   // ETA tracking: track completion timestamps for average calculation
   private completionTimesMs: number[] = [];
 
+  // Coordinator mode state
+  private coordRunId?: string;
+  private coordOnEvent?: (event: SubagentEvent<T>) => void;
+  private readonly coordAgentControllers = new Map<string, AbortController>();
+  private coordResolve?: (results: Array<SubagentResult<T>>) => void;
+  private coordReject?: (error: unknown) => void;
+  private coordStarted = false;
+
   constructor(
     private readonly launcher: SubagentBatchLauncher,
     tasks: readonly QueuedSubagentTask<T>[],
@@ -213,30 +225,73 @@ export class SubagentBatchController<T> {
     return new Promise((resolve, reject) => {
       this.resolve = resolve;
       this.reject = reject;
+      this.startInternal();
+    });
+  }
 
-      if (this.states.length === 0) {
-        this.finish([]);
+  /**
+   * Run the batch in non-blocking coordinator mode.
+   * Returns a SwarmHandle immediately that allows:
+   * - Getting results so far via getResults()
+   * - Stopping individual agents via stopAgent()
+   * - Aborting the entire swarm via abort()
+   * - Waiting for all agents via completion promise
+   *
+   * Per-agent events are delivered via onEvent callback.
+   */
+  runAsync(runId: string, coordOpts?: CoordinatorOptions<T>): SwarmHandle<T> {
+    if (this.started) {
+      throw new Error(
+        "SubagentBatchController.runAsync() can only be called once.",
+      );
+    }
+    this.started = true;
+    this.coordStarted = true;
+    this.startedAt = Date.now();
+    this.coordRunId = runId;
+    this.coordOnEvent = coordOpts?.onEvent;
+
+    const completion = new Promise<Array<SubagentResult<T>>>(
+      (resolve, reject) => {
+        this.coordResolve = resolve;
+        this.coordReject = reject;
+      },
+    );
+
+    this.startInternal();
+
+    return {
+      runId,
+      getResults: (): Array<SubagentResult<T>> => this.getCompletedResults(),
+      sendMessage: (agentId: string, message: string): void =>
+        this.sendMessageToAgent(agentId, message),
+      stopAgent: (agentId: string): void => this.stopAgentById(agentId),
+      abort: (): void =>
+        this.controller.abort(new Error("Coordinator aborted swarm")),
+      completion,
+    };
+  }
+
+  private startInternal(): void {
+    if (this.states.length === 0) {
+      this.finish([]);
+      return;
+    }
+
+    for (const signal of this.batchSignals) {
+      if (signal.aborted) {
+        this.handleBatchAbort(signal);
         return;
       }
+    }
 
-      // Check if any signal is already aborted
-      for (const signal of this.batchSignals) {
-        if (signal.aborted) {
-          this.handleBatchAbort(signal);
-          return;
-        }
-      }
-
-      // Listen to all batch signals
-      for (const signal of this.batchSignals) {
-        signal.addEventListener("abort", () => this.handleBatchAbort(signal), {
-          once: true,
-        });
-      }
-      // Emit initial snapshot (all queued) before scheduling starts
-      this.emitProgress();
-      this.schedule();
-    });
+    for (const signal of this.batchSignals) {
+      signal.addEventListener("abort", () => this.handleBatchAbort(signal), {
+        once: true,
+      });
+    }
+    this.emitProgress();
+    this.schedule();
   }
 
   private handleBatchAbort(signal: AbortSignal): void {
@@ -367,9 +422,10 @@ export class SubagentBatchController<T> {
   private startAttempt(state: TaskState<T>): void {
     if (this.finished || this.controller.signal.aborted) return;
 
+    const attemptController = new AbortController();
     const attempt: ActiveAttempt<T> = {
       state,
-      controller: new AbortController(),
+      controller: attemptController,
       cleanup: () => {},
       ready: false,
       timedOut: false,
@@ -378,6 +434,7 @@ export class SubagentBatchController<T> {
     this.active.add(attempt);
     attempt.state.started = true;
     attempt.state.startedAt = Date.now();
+    attempt.state.agentController = attemptController;
     // Add event to log
     this.addEvent({
       id: this.nextEventId++,
@@ -446,6 +503,9 @@ export class SubagentBatchController<T> {
       useWorktree: task.useWorktree,
       mailboxPath: task.mailboxPath,
       roleName: task.roleName,
+      additionalSystemPrompt: task.additionalSystemPrompt,
+      agentName: task.agentName,
+      messageInboxPath: task.messageInboxPath,
     };
 
     let handle: SubagentHandle;
@@ -469,6 +529,9 @@ export class SubagentBatchController<T> {
           useWorktree: task.useWorktree,
           mailboxPath: task.mailboxPath,
           roleName: task.roleName,
+          additionalSystemPrompt: task.additionalSystemPrompt,
+          agentName: task.agentName,
+          messageInboxPath: task.messageInboxPath,
           onMessage: task.onMessage,
           ...runOptions,
         };
@@ -479,6 +542,20 @@ export class SubagentBatchController<T> {
     }
 
     attempt.state.agentId = handle.agentId;
+
+    // Track controller for coordinator stopAgent
+    if (this.coordStarted) {
+      this.coordAgentControllers.set(handle.agentId, attempt.controller);
+      if (this.coordOnEvent) {
+        this.coordOnEvent({
+          runId: this.coordRunId ?? "",
+          agentId: handle.agentId,
+          agentName: task.agentName,
+          eventType: "agent_started",
+          timestamp: Date.now(),
+        });
+      }
+    }
 
     try {
       const completion: SubagentCompletion = await handle.completion;
@@ -541,6 +618,20 @@ export class SubagentBatchController<T> {
     }
 
     this.results[attempt.state.index] = outcome;
+
+    const agentId = outcome.agentId;
+    if (this.coordOnEvent && agentId) {
+      const result = outcome as SubagentResult<T>;
+      this.coordOnEvent({
+        runId: this.coordRunId ?? "",
+        agentId,
+        agentName: attempt.state.task.agentName,
+        eventType: "agent_completed",
+        timestamp: Date.now(),
+        result,
+      });
+    }
+
     // A task reached a terminal state (completed/failed/aborted)
     this.emitProgress();
     this.schedule();
@@ -565,6 +656,19 @@ export class SubagentBatchController<T> {
 
     const result: SubagentResult<T> = this.failedAttemptOutcome(attempt, error);
     this.results[attempt.state.index] = result;
+
+    const resAgentId = result.agentId;
+    if (this.coordOnEvent && resAgentId) {
+      this.coordOnEvent({
+        runId: this.coordRunId ?? "",
+        agentId: resAgentId,
+        agentName: attempt.state.task.agentName,
+        eventType: "agent_completed",
+        timestamp: Date.now(),
+        result,
+      });
+    }
+
     // A task reached a terminal state (completed/failed/aborted)
     this.emitProgress();
     this.schedule();
@@ -758,6 +862,7 @@ export class SubagentBatchController<T> {
       members.push({
         index: state.task.swarmIndex ?? state.index + 1,
         phase,
+        name: state.task.agentName,
         item: state.task.swarmItem,
         error,
         usage: memberUsage,
@@ -816,6 +921,7 @@ export class SubagentBatchController<T> {
     // Emit final snapshot so the TUI reflects the terminal state
     this.emitProgress();
     this.resolve?.(results);
+    this.coordResolve?.(results);
   }
 
   private finishWithUserCancellation(): void {
@@ -870,6 +976,9 @@ export class SubagentBatchController<T> {
     // Emit final snapshot so the TUI reflects the failed state
     this.emitProgress();
     this.reject?.(error);
+    this.coordReject?.(
+      error instanceof Error ? error : new Error(String(error)),
+    );
   }
 
   // -----------------------------------------------------------------------
@@ -997,6 +1106,40 @@ export class SubagentBatchController<T> {
       this.controller.signal.removeEventListener("abort", abortFromBatch);
       task.signal?.removeEventListener("abort", abortFromTask);
     };
+  }
+
+  // -----------------------------------------------------------------------
+  // Coordinator helpers
+  // -----------------------------------------------------------------------
+
+  private getCompletedResults(): Array<SubagentResult<T>> {
+    return this.results.filter((r): r is SubagentResult<T> => r !== undefined);
+  }
+
+  private stopAgentById(agentId: string): void {
+    const ctrl = this.coordAgentControllers.get(agentId);
+    if (ctrl) {
+      ctrl.abort(new Error("Agent stopped by coordinator"));
+      this.coordAgentControllers.delete(agentId);
+    }
+  }
+
+  private sendMessageToAgent(agentId: string, message: string): void {
+    const state = this.states.find(
+      (s) => s.agentId === agentId || s.retryAgentId === agentId,
+    );
+    const inboxPath = state?.task.messageInboxPath;
+    if (!inboxPath) return;
+
+    const line =
+      JSON.stringify({
+        messageId: `coord-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+        from: "coordinator",
+        content: message,
+        timestamp: new Date().toISOString(),
+      }) + "\n";
+
+    fs.appendFileSync(inboxPath, line, "utf-8");
   }
 }
 
