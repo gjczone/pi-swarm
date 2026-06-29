@@ -168,6 +168,16 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       try {
         const profileName = DEFAULT_SUBAGENT_TYPE;
 
+        // Validate prompt_template contains exactly one placeholder
+        const placeholderCount =
+          prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).length - 1;
+        if (placeholderCount !== 1) {
+          throw new Error(
+            `prompt_template must contain {{item}} exactly once, found ${placeholderCount} occurrence(s). ` +
+              `Each item replaces the placeholder to generate per-agent prompts.`,
+          );
+        }
+
         // Build specs
         const specs = items.map(
           (item: string, index: number) =>
