@@ -67,6 +67,7 @@ export interface MailboxPaths {
   readonly outbox: string;
   readonly delivery: string;
   readonly taskDir: string;
+  readonly inboxAcks: string;
 }
 
 export function resolveMailboxPaths(
@@ -74,12 +75,14 @@ export function resolveMailboxPaths(
   runId: string,
 ): MailboxPaths {
   const root = path.join(swarmRoot, "state", "runs", runId, "mailbox");
+  const inbox = path.join(root, "inbox.jsonl");
   return {
     root,
-    inbox: path.join(root, "inbox.jsonl"),
+    inbox,
     outbox: path.join(root, "outbox.jsonl"),
     delivery: path.join(root, "delivery.json"),
     taskDir: path.join(root, "tasks"),
+    inboxAcks: inbox + ".acks",
   };
 }
 
@@ -161,7 +164,14 @@ export function sendMessage(
  * Read unacknowledged messages from the team inbox.
  */
 export function readInbox(paths: MailboxPaths): MailboxMessage[] {
-  return readJsonLines(paths.inbox);
+  const messages = readJsonLines(paths.inbox);
+  const ackedIds = readAckIds(paths.inboxAcks);
+  if (ackedIds.size === 0) return messages;
+  return messages.filter((m) => !ackedIds.has(m.messageId));
+}
+
+function taskAckPath(taskInbox: string): string {
+  return taskInbox + ".acks";
 }
 
 /**
@@ -172,7 +182,10 @@ export function readTaskInbox(
   taskId: string,
 ): MailboxMessage[] {
   const taskPaths = resolveTaskMailboxPaths(paths, taskId);
-  return readJsonLines(taskPaths.inbox);
+  const messages = readJsonLines(taskPaths.inbox);
+  const ackedIds = readAckIds(taskAckPath(taskPaths.inbox));
+  if (ackedIds.size === 0) return messages;
+  return messages.filter((m) => !ackedIds.has(m.messageId));
 }
 
 /**
@@ -193,16 +206,22 @@ export function countOutboxMessages(paths: MailboxPaths): number {
 
 /**
  * Acknowledge (delete) messages from the team inbox.
+ *
+ * Uses an append-only ack file to avoid the TOCTOU race between
+ * reading and rewriting inbox.jsonl. Acknowledged message IDs are
+ * appended to inboxAcks.jsonl and filtered at read time.
  */
 export function ackMessages(paths: MailboxPaths, messageIds: string[]): void {
-  const messages = readJsonLines(paths.inbox);
-  const idSet = new Set(messageIds);
-  const remaining = messages.filter((m) => !idSet.has(m.messageId));
-  writeJsonLines(paths.inbox, remaining);
+  for (const id of messageIds) {
+    appendJsonLine(paths.inboxAcks, { messageId: id });
+  }
+  compactAcks(paths.inboxAcks);
 }
 
 /**
  * Acknowledge (delete) messages from a task-specific inbox.
+ *
+ * Uses the same append-only ack approach as ackMessages.
  */
 export function ackTaskMessages(
   paths: MailboxPaths,
@@ -210,10 +229,11 @@ export function ackTaskMessages(
   messageIds: string[],
 ): void {
   const taskPaths = resolveTaskMailboxPaths(paths, taskId);
-  const messages = readJsonLines(taskPaths.inbox);
-  const idSet = new Set(messageIds);
-  const remaining = messages.filter((m) => !idSet.has(m.messageId));
-  writeJsonLines(taskPaths.inbox, remaining);
+  const ackPath = taskAckPath(taskPaths.inbox);
+  for (const id of messageIds) {
+    appendJsonLine(ackPath, { messageId: id });
+  }
+  compactAcks(ackPath);
 }
 
 /**
@@ -251,22 +271,86 @@ function appendJsonLine(filePath: string, data: unknown): void {
   fs.appendFileSync(filePath, line, "utf-8");
 }
 
+/**
+ * Read acknowledged message IDs from an ack file (JSONL with {messageId: string} entries).
+ */
+function readAckIds(ackPath: string): Set<string> {
+  try {
+    const raw = fs.readFileSync(ackPath, "utf-8");
+    if (!raw.trim()) return new Set();
+    const ids = new Set<string>();
+    for (const line of raw.trim().split("\n")) {
+      const trimmed = line.trim();
+      if (!trimmed) continue;
+      try {
+        const parsed = JSON.parse(trimmed) as { messageId?: string };
+        if (parsed.messageId) ids.add(parsed.messageId);
+      } catch {
+        // Skip corrupted ack lines
+      }
+    }
+    return ids;
+  } catch {
+    return new Set();
+  }
+}
+
+/**
+ * Compact an ack file if the number of lines exceeds 10x the unique ID count
+ * (indicating significant duplication from repeated acknowledgment cycles).
+ */
+function compactAcks(ackPath: string): void {
+  try {
+    const raw = fs.readFileSync(ackPath, "utf-8");
+    if (!raw.trim()) return;
+    const lines = raw
+      .trim()
+      .split("\n")
+      .filter((l) => l.trim());
+    if (lines.length < 100) return; // Don't compact small files
+    const uniqueIds = readAckIds(ackPath);
+    if (uniqueIds.size === 0) return;
+    // Compact if ratio exceeds 10x
+    if (lines.length > uniqueIds.size * 10) {
+      const content = Array.from(uniqueIds)
+        .map((id) => JSON.stringify({ messageId: id }))
+        .join("\n");
+      writeAtomic(ackPath, content + "\n");
+    }
+  } catch {
+    // Best effort compaction
+  }
+}
+
 function readJsonLines(filePath: string): MailboxMessage[] {
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     if (!raw.trim()) return [];
-    return raw
+    const lines = raw
       .trim()
       .split("\n")
-      .filter((line) => line.trim())
+      .filter((line) => line.trim());
+    let corruptedCount = 0;
+    const messages = lines
       .map((line) => {
         try {
           return JSON.parse(line) as MailboxMessage;
         } catch {
+          corruptedCount++;
+          console.error(
+            `[pi-swarm] Corrupted JSONL line in ${filePath}:`,
+            line.slice(0, 200),
+          );
           return null;
         }
       })
       .filter((m): m is MailboxMessage => m !== null);
+    if (corruptedCount > 0) {
+      console.error(
+        `[pi-swarm] Skipped ${corruptedCount} corrupted line(s) in ${filePath}`,
+      );
+    }
+    return messages;
   } catch {
     return [];
   }
