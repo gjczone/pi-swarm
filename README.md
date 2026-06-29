@@ -24,12 +24,12 @@ The LLM calls the `Swarm` tool, spawning one subagent per item. Each runs in an 
 
 Four built-in profiles control agent capabilities:
 
-| Profile   | Write Files | Bash Write | Model        | Use Case                              |
-| --------- | ----------- | ---------- | ------------ | ------------------------------------- |
-| `general` | Yes         | Yes        | Inherit      | Default. Full access for implementation |
-| `explore` | No          | No         | Small        | Codebase exploration, file finding     |
-| `plan`    | No          | No         | Inherit      | Architecture design, implementation plans |
-| `review`  | No          | No         | Inherit      | Code review with severity levels       |
+| Profile   | Write Files | Bash Write | Model   | Use Case                                  |
+| --------- | ----------- | ---------- | ------- | ----------------------------------------- |
+| `general` | Yes         | Yes        | Inherit | Default. Full access for implementation   |
+| `explore` | No          | No         | Small   | Codebase exploration, file finding        |
+| `plan`    | No          | No         | Inherit | Architecture design, implementation plans |
+| `review`  | No          | No         | Inherit | Code review with severity levels          |
 
 The `explore`, `plan`, and `review` profiles restrict agents to read-only operations. Profile selection affects tool availability, model routing, system prompt, and output format.
 
@@ -80,6 +80,7 @@ disallowedTools:
 You are a Rust code audit specialist operating in READ-ONLY mode.
 
 Focus on:
+
 - Memory safety issues (unsafe blocks, raw pointers, lifetime violations)
 - Concurrency bugs (Send/Sync, data races, deadlocks)
 - Unsafe code blocks — verify each one has a proper safety comment
@@ -89,7 +90,8 @@ Focus on:
 
 Scope: <one-sentence summary>
 Findings:
-  - [P0/P1/P2/P3] <file:line> — <description>
+
+- [P0/P1/P2/P3] <file:line> — <description>
   (P0=memory safety, P1=likely bug, P2=should fix, P3=style/nit)
 ```
 
@@ -101,16 +103,18 @@ agentType: "rust-audit"
 
 #### Reference
 
-| Frontmatter key    | Required | Type             | Description |
-|--------------------|----------|------------------|-------------|
-| `name`             | Yes*     | string           | Agent name. Defaults to filename if omitted. |
-| `description`      | Yes      | string           | One-line purpose. Shown in agent list and tool descriptions. |
-| `allowWrite`       | No       | boolean          | Whether agent can use edit/write tools. Default: `true`. |
-| `allowBashWrite`   | No       | boolean          | Whether agent can run write-mode bash commands. Default: `true`. |
-| `model`            | No       | string           | Model routing: `"small"` (auto-resolve), or explicit `"provider/modelId"`. Omit to inherit. |
-| `outputFormat`     | No       | `"free"` or `"structured"` | Agent output format. Default: `"free"`. |
-| `tools`            | No       | string[]         | **Explicit tool allowlist.** When set, ONLY these tools are available to the agent. |
-| `disallowedTools`  | No       | string[]         | **Tool denylist.** Subtracts from the resolved tool set. |
+| Frontmatter key   | Required | Type                       | Description                                                                                                                          |
+| ----------------- | -------- | -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------ |
+| `name`            | Yes\*    | string                     | Agent name. Defaults to filename if omitted.                                                                                         |
+| `description`     | Yes      | string                     | One-line purpose. Shown in agent list and tool descriptions.                                                                         |
+| `allowWrite`      | No       | boolean                    | Whether agent can use edit/write tools. Default: `true`.                                                                             |
+| `allowBashWrite`  | No       | boolean                    | Whether agent can run write-mode bash commands. Default: `true`.                                                                     |
+| `model`           | No       | string                     | Model routing: `"small"` (auto-resolve), or explicit `"provider/modelId"`. Omit to inherit.                                          |
+| `outputFormat`    | No       | `"free"` or `"structured"` | Agent output format. Default: `"free"`.                                                                                              |
+| `tools`           | No       | string[]                   | **Explicit tool allowlist.** When set, ONLY these tools are available to the agent.                                                  |
+| `disallowedTools` | No       | string[]                   | **Tool denylist.** Subtracts from the resolved tool set.                                                                             |
+| `matchPatterns`   | No       | string[]                   | Glob patterns for auto-routing (e.g. `*.rs`, `src/*.ts`). When set, items matching these patterns automatically route to this agent. |
+| `matchKeywords`   | No       | string[]                   | Keywords for auto-routing (case-insensitive). Items mentioning these words automatically route to this agent.                        |
 
 The Markdown **body** (after `---`) becomes the agent's **system prompt**.
 
@@ -118,13 +122,14 @@ The Markdown **body** (after `---`) becomes the agent's **system prompt**.
 
 pi-swarm runs on pi-coding-agent, which has a dynamic tool set varying by installation (community extensions, MCP servers, user-installed tools). The permission model uses three layers:
 
-| Layer | Mechanism | When to use |
-|-------|-----------|-------------|
-| **Capability flags** | `allowWrite`, `allowBashWrite` | **Default/recommended.** Works on any pi installation regardless of installed tools. |
-| **Tool allowlist** | `tools: [read, bash]` | Power users who know their exact tool inventory. When set, **only** listed tools are available. |
-| **Tool denylist** | `disallowedTools: [Swarm]` | Power users who want to block specific tools (e.g. prevent subagents from spawning sub-sub-agents). |
+| Layer                | Mechanism                      | When to use                                                                                         |
+| -------------------- | ------------------------------ | --------------------------------------------------------------------------------------------------- |
+| **Capability flags** | `allowWrite`, `allowBashWrite` | **Default/recommended.** Works on any pi installation regardless of installed tools.                |
+| **Tool allowlist**   | `tools: [read, bash]`          | Power users who know their exact tool inventory. When set, **only** listed tools are available.     |
+| **Tool denylist**    | `disallowedTools: [Swarm]`     | Power users who want to block specific tools (e.g. prevent subagents from spawning sub-sub-agents). |
 
 **Resolution order**:
+
 1. If `tools` allowlist is set → use that exact list (capability flags still filter native tools)
 2. If `disallowedTools` is set → start from capability-derived tool set, subtract disallowed items
 3. If neither → use capability flags only
@@ -132,6 +137,8 @@ pi-swarm runs on pi-coding-agent, which has a dynamic tool set varying by instal
 5. `allowBashWrite: false` keeps `bash` but instructs read-only via system prompt (recommended to add a read-only rule to the prompt body as well)
 
 **Tool names** are pi tool identifiers as registered with `pi.registerTool()`. Common native tools include: `read`, `edit`, `bash`, `write`, `search`, `think`, `web_fetch`, `batch_web_fetch`, `agent_browser`, `mcp`, `workflow`. pi-swarm registers: `Swarm`, `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus`. The exact set varies by installation — capability flags are the portable choice.
+
+**System-level restrictions**: pi-swarm's own tools (`Swarm`, `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus`) are hard-blocked at the subagent spawner level via `FORBIDDEN_SUBAGENT_TOOLS`. No subagent can access these tools regardless of profile configuration — this prevents recursive sub-sub-agent spawning.
 
 #### Resolution Priority
 
@@ -144,6 +151,25 @@ When the same agent name exists in multiple locations, the first match wins:
 4. Built-in profiles           ← explore, plan, general, review
 5. Fallback: general
 ```
+
+#### Auto-Routing (Pattern A)
+
+When neither `profile` nor `agentType` is specified, the Swarm tool automatically routes each item to the best matching file-based agent:
+
+1. **Pattern matching** — items matching `matchPatterns` globs (e.g. `*.rs`, `*.tsx`) route to the agent with the longest matching pattern
+2. **Keyword matching** — items containing `matchKeywords` (case-insensitive) route to the first agent with a matching keyword
+3. **Fallback** — items that match no agent use the `general` profile
+
+This happens per-item, so a single Swarm call can use different agents for different items:
+
+```
+/swarm items: ["review src/auth.rs", "test login flow", "write docs"]
+  → review src/auth.rs  uses dev-agent   (pattern: *.rs)
+  → test login flow     uses swarm-tester (keyword: test)
+  → write docs          uses general      (no match → fallback)
+```
+
+To see which agents are available and their match rules, check the tool description when calling Swarm — available agents are listed dynamically at session start.
 
 #### `agentType` vs `profile`
 
@@ -191,11 +217,11 @@ Default max concurrency: **5**. Adjust in `.pi/settings.json` (project) or `~/.p
 }
 ```
 
-| Setting          | Default   | Description                                              |
-| ---------------- | --------- | -------------------------------------------------------- |
-| `maxConcurrency` | 5         | Max parallel subagents                                   |
-| `smallModel`     | (inherit) | Lightweight model for explore profile and simple tasks   |
-| `subagents`      | (none)    | User-defined custom agent profiles (name → config map)   |
+| Setting          | Default   | Description                                            |
+| ---------------- | --------- | ------------------------------------------------------ |
+| `maxConcurrency` | 5         | Max parallel subagents                                 |
+| `smallModel`     | (inherit) | Lightweight model for explore profile and simple tasks |
+| `subagents`      | (none)    | User-defined custom agent profiles (name → config map) |
 
 ## Supported Platforms
 

@@ -6,11 +6,11 @@
 
 **pi-swarm** is a unified multi-agent extension for pi-coding-agent with three operational modes:
 
-| Mode             | Command              | Trigger                                | Pattern                                                        |
-| ---------------- | -------------------- | -------------------------------------- | -------------------------------------------------------------- |
-| **Swarm**        | `/swarm <task>`      | User or LLM calls `Swarm`              | Parallel, item-template, homogeneous agents                    |
-| **Team**         | `/swarm-team <task>` | User or LLM calls `Swarm` (mailbox: true) | Collaborative, role-based, mailbox communication            |
-| **Coordinator**  | `SwarmCoordinator`    | LLM calls `SwarmCoordinator`           | Non-blocking, multi-turn orchestration with messaging          |
+| Mode            | Command              | Trigger                                   | Pattern                                               |
+| --------------- | -------------------- | ----------------------------------------- | ----------------------------------------------------- |
+| **Swarm**       | `/swarm <task>`      | User or LLM calls `Swarm`                 | Parallel, item-template, homogeneous agents           |
+| **Team**        | `/swarm-team <task>` | User or LLM calls `Swarm` (mailbox: true) | Collaborative, role-based, mailbox communication      |
+| **Coordinator** | `SwarmCoordinator`   | LLM calls `SwarmCoordinator`              | Non-blocking, multi-turn orchestration with messaging |
 
 All three modes share the same underlying infrastructure: subagent spawning (`pi --print`), concurrency control, rate-limit handling, and TUI progress rendering.
 
@@ -20,12 +20,12 @@ All three modes share the same underlying infrastructure: subagent spawning (`pi
 
 Built-in and user-defined profiles control agent capabilities via capability-based flags (not hardcoded tool names):
 
-| Profile   | Write | Bash Write | Model        | Output     |
-| --------- | ----- | ---------- | ------------ | ---------- |
-| `general` | Yes   | Yes        | Inherit      | Free       |
-| `explore` | No    | No         | Small        | Structured |
-| `plan`    | No    | No         | Inherit      | Structured |
-| `review`  | No    | No         | Inherit      | Structured |
+| Profile   | Write | Bash Write | Model   | Output     |
+| --------- | ----- | ---------- | ------- | ---------- |
+| `general` | Yes   | Yes        | Inherit | Free       |
+| `explore` | No    | No         | Small   | Structured |
+| `plan`    | No    | No         | Inherit | Structured |
+| `review`  | No    | No         | Inherit | Structured |
 
 Custom profiles are defined in `.pi/settings.json` under `pi-swarm.subagents` and override built-in profiles by name.
 
@@ -536,35 +536,43 @@ line (activated / deactivated / ended) in the transcript.
 
 ## 9. Design Decisions (Confirmed)
 
-| Decision                  | Choice                                                              |
-| ------------------------- | ------------------------------------------------------------------- |
-| Model selection           | Optional per-agent; passed via settings; defaults to parent model   |
-| Parameter passing         | All agents receive parent config + task instructions                |
-| Context isolation         | Each agent runs in independent `pi --print` process                 |
-| Tool whitelist            | All tools available by default                                      |
-| Persistence               | Durable file-based state; resume incomplete runs; disband completed |
-| Inter-agent communication | Mailbox pattern: JSONL files in `.pi/swarm/mailbox/`                |
-| Agent profiles            | Capability-based (allowWrite / allowBashWrite). Not hardcoded tool names. |
+| Decision                  | Choice                                                                                   |
+| ------------------------- | ---------------------------------------------------------------------------------------- |
+| Model selection           | Optional per-agent; passed via settings; defaults to parent model                        |
+| Parameter passing         | All agents receive parent config + task instructions                                     |
+| Context isolation         | Each agent runs in independent `pi --print` process                                      |
+| Tool whitelist            | All tools available by default                                                           |
+| Persistence               | Durable file-based state; resume incomplete runs; disband completed                      |
+| Inter-agent communication | Mailbox pattern: JSONL files in `.pi/swarm/mailbox/`                                     |
+| Agent profiles            | Capability-based (allowWrite / allowBashWrite). Not hardcoded tool names.                |
 | Coordinator mode          | Non-blocking swarm via `runAsync()`. Main agent stays active, orchestrates via messages. |
-| Language                  | 100% English in all code, comments, docs, commits                   |
+| Language                  | 100% English in all code, comments, docs, commits                                        |
 
 ---
 
 ## 10. Named Subagents from Files (Phase 8)
 
 ### Goal
+
 Allow users to define reusable agent configurations as Markdown files in `~/.pi/agents/` or `.pi/agents/`, referenceable by name via `agentType` in Swarm/Coordinator tools.
 
 ### Files Changed
 
-| File | Change |
-|------|--------|
-| `src/shared/agents.ts` | **(NEW)** File scanning, frontmatter parsing, AgentProfile conversion |
-| `src/shared/types.ts` | Add `disallowedTools` to `AgentProfile`; add `AgentFileDefinition` type |
-| `src/shared/profiles.ts` | Integrate file agents into `resolveProfile()` chain; handle `disallowedTools` |
-| `src/swarm/tool.ts` | Add `agentType` parameter (mutually exclusive with `profile`) |
-| `src/swarm/coordinator.ts` | Add `agentType` parameter (mutually exclusive with `profile`) |
-| `README.md` | Document agent file format with examples |
+| File                       | Change                                                                        |
+| -------------------------- | ----------------------------------------------------------------------------- |
+| `src/shared/agents.ts`     | **(NEW)** File scanning, frontmatter parsing, AgentProfile conversion         |
+| `src/shared/types.ts`      | Add `disallowedTools` to `AgentProfile`; add `AgentFileDefinition` type       |
+| `src/shared/profiles.ts`   | Integrate file agents into `resolveProfile()` chain; handle `disallowedTools` |
+| `src/swarm/tool.ts`        | Add `agentType` parameter (mutually exclusive with `profile`)                 |
+| `src/swarm/coordinator.ts` | Add `agentType` parameter (mutually exclusive with `profile`)                 |
+| `README.md`                | Document agent file format with examples                                      |
+| `src/shared/types.ts`      | Add `AgentMatchRule`, `match` to `AgentFileDefinition`/`AgentProfile`         |
+| `src/shared/agents.ts`     | Add `matchItemToAgent()`, `buildAgentListing()`, `matchGlobPattern()`         |
+| `src/shared/pi-invoke.ts`  | Add `FORBIDDEN_SUBAGENT_TOOLS` system-level restriction                       |
+| `src/shared/profiles.ts`   | `resolveProfileTools()` never returns `undefined` (security fix)              |
+| `src/swarm/tool.ts`        | Dynamic description with agent listing; per-item auto-routing                 |
+| `src/swarm/coordinator.ts` | Same as tool.ts                                                               |
+| `tests/agents.test.ts`     | +6 routing tests (pattern, keyword, priority, edge cases)                     |
 
 ### Phase 8 Implementation Steps
 
@@ -575,3 +583,7 @@ Allow users to define reusable agent configurations as Markdown files in `~/.pi/
 - [x] Step 5: Update `src/swarm/coordinator.ts` — add `agentType` parameter
 - [x] Step 6: Tests — file loading, parsing, allowlist/denylist, resolution priority (28 new tests)
 - [x] Step 7: README documentation — format reference, examples, permission model explanation
+- [x] Step 8: Auto-routing — `matchItemToAgent()` with pattern + keyword matching, `AgentMatchRule` type
+- [x] Step 9: System-level tool restriction — `FORBIDDEN_SUBAGENT_TOOLS` in `buildSubagentArgs()`
+- [x] Step 10: Dynamic tool description — `buildAgentListing()` + `buildSwarmDescription()` at registration time
+- [x] Step 11: Security fix — `resolveProfileTools()` always returns explicit list (never `undefined`)

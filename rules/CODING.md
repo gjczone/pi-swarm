@@ -8,14 +8,14 @@ TypeScript coding rules for pi-swarm.
 
 Layer dependency chain: `tui/` + `state/` → `swarm/` + `team/` → `shared/` → `index.ts`
 
-| Layer        | May import from                                          | Must NOT import from              |
-| ------------ | -------------------------------------------------------- | --------------------------------- |
-| `shared/`    | Node.js stdlib (`node:*`)                                | `swarm/`, `team/`, `tui/`, `state/`, `@earendil-works/pi-*` packages |
-| `tui/`       | `shared/`, `@earendil-works/pi-tui`                      | `swarm/`, `team/`                 |
-| `state/`     | `shared/`, Node.js stdlib only                           | `swarm/`, `team/`, `tui/`         |
-| `swarm/`     | `shared/`, `tui/`, `state/`, `@earendil-works/pi-*`     | —                                 |
-| `team/`      | `shared/`, `tui/`, `state/`, `@earendil-works/pi-*`     | —                                 |
-| `index.ts`   | All layers                                               | —                                 |
+| Layer      | May import from                                     | Must NOT import from                                                 |
+| ---------- | --------------------------------------------------- | -------------------------------------------------------------------- |
+| `shared/`  | Node.js stdlib (`node:*`)                           | `swarm/`, `team/`, `tui/`, `state/`, `@earendil-works/pi-*` packages |
+| `tui/`     | `shared/`, `@earendil-works/pi-tui`                 | `swarm/`, `team/`                                                    |
+| `state/`   | `shared/`, Node.js stdlib only                      | `swarm/`, `team/`, `tui/`                                            |
+| `swarm/`   | `shared/`, `tui/`, `state/`, `@earendil-works/pi-*` | —                                                                    |
+| `team/`    | `shared/`, `tui/`, `state/`, `@earendil-works/pi-*` | —                                                                    |
+| `index.ts` | All layers                                          | —                                                                    |
 
 Evidence: `PLAN.md` layer dependency section; confirmed by grep — zero `@earendil-works/pi-tui` imports in `src/shared/`, zero `../swarm/` or `../team/` imports in `src/tui/` or `src/state/`.
 

@@ -12,6 +12,7 @@ import {
   loadFileAgents,
   listFileAgents,
   clearFileAgentsCache,
+  matchItemToAgent,
 } from "../src/shared/agents.js";
 import { resolveProfile, resolveProfileTools } from "../src/shared/profiles.js";
 import type { AgentProfile } from "../src/shared/types.js";
@@ -509,7 +510,7 @@ describe("resolveProfile with file agents", () => {
 // ---------------------------------------------------------------------------
 
 describe("resolveProfileTools with allowlist/denylist", () => {
-  it("returns undefined for full-access profile with no restrictions", () => {
+  it("returns all native tools for full-access profile with no restrictions", () => {
     const profile: AgentProfile = {
       name: "general",
       description: "Full access",
@@ -519,7 +520,12 @@ describe("resolveProfileTools with allowlist/denylist", () => {
       outputFormat: "free",
       systemPrompt: "",
     };
-    expect(resolveProfileTools(profile)).toBeUndefined();
+    expect(resolveProfileTools(profile)).toEqual([
+      "read",
+      "bash",
+      "edit",
+      "write",
+    ]);
   });
 
   it("filters by capability when allowWrite is false", () => {
@@ -621,5 +627,189 @@ describe("resolveProfileTools with allowlist/denylist", () => {
     };
     const tools = resolveProfileTools(profile);
     expect(tools).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Tests: item-to-agent routing
+// ---------------------------------------------------------------------------
+
+describe("matchItemToAgent", () => {
+  it("matches by extension pattern", () => {
+    const agents = new Map<string, AgentProfile>([
+      [
+        "ts-agent",
+        {
+          name: "ts-agent",
+          description: "TS agent",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["*.ts", "*.tsx"] },
+        },
+      ],
+      [
+        "rs-agent",
+        {
+          name: "rs-agent",
+          description: "Rust agent",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["*.rs"] },
+        },
+      ],
+    ]);
+
+    expect(matchItemToAgent("src/app.ts", agents)?.name).toBe("ts-agent");
+    expect(matchItemToAgent("src/app.tsx", agents)?.name).toBe("ts-agent");
+    expect(matchItemToAgent("src/lib.rs", agents)?.name).toBe("rs-agent");
+    expect(matchItemToAgent("src/app.js", agents)).toBeUndefined(); // no .js match
+  });
+
+  it("matches by keyword (case-insensitive)", () => {
+    const agents = new Map<string, AgentProfile>([
+      [
+        "audit-agent",
+        {
+          name: "audit-agent",
+          description: "Audit agent",
+          allowWrite: false,
+          allowBashWrite: false,
+          model: "small",
+          outputFormat: "structured",
+          systemPrompt: "",
+          match: { keywords: ["audit", "security"] },
+        },
+      ],
+      [
+        "build-agent",
+        {
+          name: "build-agent",
+          description: "Build agent",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { keywords: ["build", "compile"] },
+        },
+      ],
+    ]);
+
+    expect(matchItemToAgent("Audit the auth module", agents)?.name).toBe(
+      "audit-agent",
+    );
+    expect(matchItemToAgent("security review db schema", agents)?.name).toBe(
+      "audit-agent",
+    );
+    expect(matchItemToAgent("Build the frontend", agents)?.name).toBe(
+      "build-agent",
+    );
+    expect(matchItemToAgent("compile rust binary", agents)?.name).toBe(
+      "build-agent",
+    );
+  });
+
+  it("pattern match takes priority over keyword match", () => {
+    const agents = new Map<string, AgentProfile>([
+      [
+        "rust-dev",
+        {
+          name: "rust-dev",
+          description: "Rust dev",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: {
+            patterns: ["*.rs"],
+            keywords: ["build"],
+          },
+        },
+      ],
+      [
+        "build-tool",
+        {
+          name: "build-tool",
+          description: "Build tool",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { keywords: ["build"] },
+        },
+      ],
+    ]);
+
+    // "build" matches both, but rust-dev comes first due to pattern match priority
+    const result = matchItemToAgent("build src/main.rs", agents);
+    expect(result?.name).toBe("rust-dev");
+  });
+
+  it("returns undefined when agents map is empty", () => {
+    expect(matchItemToAgent("test item", new Map())).toBeUndefined();
+    expect(matchItemToAgent("test item", undefined)).toBeUndefined();
+  });
+
+  it("returns undefined when no match rules match", () => {
+    const agents = new Map<string, AgentProfile>([
+      [
+        "rust-agent",
+        {
+          name: "rust-agent",
+          description: "Rust",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["*.rs"] },
+        },
+      ],
+    ]);
+
+    expect(matchItemToAgent("review the python code", agents)).toBeUndefined();
+  });
+
+  it("skips agents without match rules", () => {
+    const agents = new Map<string, AgentProfile>([
+      [
+        "no-match",
+        {
+          name: "no-match",
+          description: "No match rules",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          // no match field
+        },
+      ],
+      [
+        "has-match",
+        {
+          name: "has-match",
+          description: "Has match",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { keywords: ["typescript"] },
+        },
+      ],
+    ]);
+
+    expect(matchItemToAgent("typescript code review", agents)?.name).toBe(
+      "has-match",
+    );
   });
 });

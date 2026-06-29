@@ -439,6 +439,25 @@ export interface SubagentBatchLauncher {
 export type AgentOutputFormat = "free" | "structured";
 
 /**
+ * Match rules for automatic item-to-agent routing.
+ *
+ * When Swarm tool is called without explicit profile or agentType,
+ * these rules determine which file-based agent should handle each item.
+ */
+export interface AgentMatchRule {
+  /**
+   * Glob patterns for file extension / path matching.
+   * Example: ["*.rs", "*.rlib"] matches Rust files.
+   */
+  readonly patterns?: readonly string[];
+  /**
+   * Keywords for content-based matching (case-insensitive).
+   * Example: ["rust", "memory safety"] matches items mentioning Rust.
+   */
+  readonly keywords?: readonly string[];
+}
+
+/**
  * Source of a file-based agent definition.
  */
 export type FileAgentSource = "user" | "project";
@@ -457,6 +476,8 @@ export interface AgentFileDefinition {
   readonly tools?: string[];
   /** Tool denylist — subtracts from resolved tool set. */
   readonly disallowedTools?: string[];
+  /** Match rules for automatic item-to-agent routing. */
+  readonly match?: AgentMatchRule;
   /** Prompt body (Markdown body content). */
   readonly prompt: string;
   /** Source directory ("user" for ~/.pi/agents/, "project" for .pi/agents/). */
@@ -481,6 +502,8 @@ export interface AgentProfile {
   readonly tools?: readonly string[];
   /** Tool denylist (optional). Subtracts from resolved tool set. */
   readonly disallowedTools?: readonly string[];
+  /** Match rules for automatic item-to-agent routing. */
+  readonly match?: AgentMatchRule;
 }
 
 /** Built-in profile name type. */

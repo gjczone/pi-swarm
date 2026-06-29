@@ -9,6 +9,31 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 
+// ---------------------------------------------------------------------------
+// System-level subagent tool restrictions
+// ---------------------------------------------------------------------------
+
+/**
+ * pi-swarm tools that are FORBIDDEN in any subagent.
+ *
+ * Subagents run as pi --print child processes. If they had access to
+ * Swarm/SwarmCoordinator, they could spawn sub-sub-agents, creating
+ * unbounded recursion. This is a system-level constraint enforced
+ * at arg-build time — not a profile setting.
+ *
+ * Blocked tools:
+ * - Swarm / SwarmCoordinator — recursive spawning
+ * - SendMessage — would let subagents impersonate coordinator
+ * - TaskStop / SwarmStatus — subagents should not manage other agents
+ */
+const FORBIDDEN_SUBAGENT_TOOLS = new Set([
+  "Swarm",
+  "SwarmCoordinator",
+  "SendMessage",
+  "TaskStop",
+  "SwarmStatus",
+]);
+
 /**
  * Resolve the command and arguments needed to invoke pi as a child process.
  * When running inside pi, reuses the current executable and script.
@@ -58,7 +83,12 @@ export function buildSubagentArgs(opts: {
   }
 
   if (opts.tools && opts.tools.length > 0) {
-    args.push("--tools", opts.tools.join(","));
+    // System-level restriction: strip pi-swarm tools from subagent tool lists.
+    // This prevents subagents from spawning sub-sub-agents regardless of profile config.
+    const filtered = opts.tools.filter((t) => !FORBIDDEN_SUBAGENT_TOOLS.has(t));
+    if (filtered.length > 0) {
+      args.push("--tools", filtered.join(","));
+    }
   }
 
   if (opts.maxTurns !== undefined) {
