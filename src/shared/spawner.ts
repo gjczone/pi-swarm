@@ -185,9 +185,15 @@ async function runSubagentProcess(
   // 仅当显式设置 useWorktree: false 时禁用
   // 传递 mailboxPath 以符号链接 mailbox 到 worktree 中，支持实时消息传递
   if (opts.useWorktree !== false && isGitRepository(repoCwd)) {
-    worktree = createWorktree(repoCwd, agentId, opts.mailboxPath);
-    if (worktree) {
-      cwd = worktree.path;
+    try {
+      worktree = createWorktree(repoCwd, agentId, opts.mailboxPath);
+      if (worktree) {
+        cwd = worktree.path;
+      }
+    } catch (err) {
+      console.error(
+        `[pi-swarm] WARNING: Worktree creation failed: ${err instanceof Error ? err.message : String(err)}. Running without isolation.`,
+      );
     }
   }
 
@@ -273,6 +279,12 @@ async function runSubagentProcess(
     logStream = createWriteStream(opts.outputLogPath, {
       flags: "a",
       encoding: "utf-8",
+    });
+    logStream.on("error", (err) => {
+      console.error(
+        `[pi-swarm] Log stream error for agent ${agentId}:`,
+        err.message,
+      );
     });
     const worktreeInfo = worktree
       ? `Worktree: ${worktree.path}\nBranch: ${worktree.branch}`
@@ -507,6 +519,10 @@ async function runSubagentProcess(
       if (cleanupResult.hasChanges && cleanupResult.branch) {
         worktreeBranch = cleanupResult.branch;
         finalResult += `\n\n---\nChanges committed to branch \`${cleanupResult.branch}\`.`;
+      } else if (cleanupResult.hasChanges && cleanupResult.commitSha) {
+        finalResult += `\n\n---\nChanges committed at commit \`${cleanupResult.commitSha}\` but branch creation failed.`;
+      } else if (cleanupResult.hasChanges && cleanupResult.error) {
+        finalResult += `\n\n---\nChanges detected but commit failed: ${cleanupResult.error}`;
       }
     }
 
