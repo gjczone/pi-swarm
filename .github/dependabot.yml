@@ -3,13 +3,39 @@ updates:
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
-      interval: "weekly"
-    open-pull-requests-limit: 5
-    labels:
-      - "dependencies"
+      interval: weekly
+    open-pull-requests-limit: 10
+    groups:
+      typescript:
+        patterns:
+          - "typescript"
+          - "@types/*"
+      test:
+        patterns:
+          - "vitest"
+          - "@vitest/*"
+      runtime:
+        patterns:
+          - "typebox"
+          - "zod"
+      dev:
+        patterns:
+          - "eslint*"
+          - "prettier*"
+          - "tsup"
+      major-deps:
+        patterns:
+          - "*"
+        update-types:
+          - "minor"
+          - "patch"
 
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
-      interval: "weekly"
+      interval: weekly
     open-pull-requests-limit: 3
+    groups:
+      actions:
+        patterns:
+          - "*"
