@@ -30,6 +30,7 @@ import type {
 } from "./types.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { updateHeartbeat, writeAtomic } from "../state/persistence.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -168,6 +169,9 @@ export class SubagentBatchController<T> {
   private coordResolve?: (results: Array<SubagentResult<T>>) => void;
   private coordReject?: (error: unknown) => void;
   private coordStarted = false;
+
+  // Heartbeat tracking (#107): throttled to avoid excessive disk I/O
+  private lastHeartbeatUpdate = 0;
 
   constructor(
     private readonly launcher: SubagentBatchLauncher,
@@ -806,7 +810,35 @@ export class SubagentBatchController<T> {
     return false;
   }
 
+  /**
+   * Update the run manifest's heartbeat timestamp, throttled to 30s intervals.
+   *
+   * Business (#107): Without periodic heartbeat updates, recoverRuns falls
+   * back to startedAt for staleness detection, causing long-running swarms
+   * to be falsely marked abandoned after the 30-minute threshold.
+   */
+  private updateHeartbeatIfNeeded(): void {
+    const now = Date.now();
+    if (now - this.lastHeartbeatUpdate < 30_000) return;
+    this.lastHeartbeatUpdate = now;
+
+    const firstTask = this.states[0]?.task;
+    const swarmRoot = firstTask?.swarmRoot;
+    const runId = this.coordRunId ?? firstTask?.runId;
+    if (!swarmRoot || !runId) return;
+
+    try {
+      updateHeartbeat(swarmRoot, runId);
+    } catch {
+      // Best effort — heartbeat failure is non-fatal
+    }
+  }
+
   private emitProgress(): void {
+    // Update heartbeat to prevent stale-run false positives (#107).
+    // Throttled to at most once every 30s to avoid excessive disk I/O.
+    this.updateHeartbeatIfNeeded();
+
     if (!this.onProgress) return;
 
     let completed = 0;
@@ -971,6 +1003,32 @@ export class SubagentBatchController<T> {
       attempt.cleanup();
     }
     this.active.clear();
+
+    // Populate results for all unfinished tasks (#105).
+    // Without this, getResults() filters out undefined slots, hiding tasks
+    // that were still running or pending when the batch failed. Coordinator
+    // mode callers need a full results array to make post-failure decisions.
+    const errorMsg = error instanceof Error ? error.message : String(error);
+    for (let i = 0; i < this.states.length; i += 1) {
+      if (this.results[i] !== undefined) continue;
+      const state = this.states[i]!;
+      if (state.started || state.agentId !== undefined) {
+        this.results[i] = {
+          task: state.task,
+          agentId: state.agentId,
+          status: "aborted",
+          state: "started",
+          error: errorMsg,
+        };
+      } else {
+        this.results[i] = {
+          task: state.task,
+          status: "aborted",
+          state: "not_started",
+          error: errorMsg,
+        };
+      }
+    }
 
     // Emit final snapshot so the TUI reflects the failed state
     this.emitProgress();
@@ -1138,7 +1196,14 @@ export class SubagentBatchController<T> {
         timestamp: new Date().toISOString(),
       }) + "\n";
 
-    fs.appendFileSync(inboxPath, line, "utf-8");
+    // Atomic read-modify-write via writeAtomic (#106c)
+    let existing = "";
+    try {
+      existing = fs.readFileSync(inboxPath, "utf-8");
+    } catch {
+      // File doesn't exist yet — start with empty content
+    }
+    writeAtomic(inboxPath, existing + line);
   }
 }
 

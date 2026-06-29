@@ -74,7 +74,8 @@ describe("renderSwarmResults", () => {
     const xml = renderSwarmResults(results);
 
     expect(xml).toContain("completed: 1, failed: 1");
-    expect(xml).toContain("<resume_hint>");
+    // #114: resume_hint is no longer emitted (tool schema has no resume_agent_ids)
+    expect(xml).not.toContain("<resume_hint>");
     expect(xml).toContain('outcome="failed"');
     expect(xml).toContain("File not found");
   });
@@ -158,5 +159,31 @@ describe("renderSwarmResults", () => {
     expect(xml).toContain("<agent_swarm_result>");
     expect(xml).toContain("<summary></summary>");
     expect(xml).toContain("</agent_swarm_result>");
+  });
+
+  it("#114 never emits resume_hint even for non-completed results with agent ids", () => {
+    // The tool schema has additionalProperties: false and no resume_agent_ids
+    // parameter, so a resume_hint instructing the LLM to call AgentSwarm with
+    // resume_agent_ids is misleading and must not be emitted.
+    const results: SwarmRunResult[] = [
+      {
+        spec: makeSpawnSpec(1, "a"),
+        agentId: "a1",
+        status: "failed",
+        error: "boom",
+      },
+      {
+        spec: makeSpawnSpec(2, "b"),
+        agentId: "a2",
+        status: "aborted",
+        state: "started",
+        error: "Cancelled by user.",
+      },
+    ];
+
+    const xml = renderSwarmResults(results);
+
+    expect(xml).not.toContain("<resume_hint>");
+    expect(xml).not.toContain("resume_agent_ids");
   });
 });
