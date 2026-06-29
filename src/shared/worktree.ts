@@ -17,12 +17,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import {
-  existsSync,
-  mkdirSync,
-  symlinkSync,
-  statSync,
-} from "node:fs";
+import { existsSync, mkdirSync, symlinkSync, statSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 

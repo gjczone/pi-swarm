@@ -14,9 +14,7 @@
  * - Intervene when agents complete (via events)
  */
 
-import type {
-  ExtensionAPI,
-} from "@earendil-works/pi-coding-agent";
+import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
   SubagentBatchController,
