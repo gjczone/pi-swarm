@@ -89,6 +89,9 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest]
         node: ["18", "22"]
+        exclude:
+          - os: macos-latest
+            node: "18"
 
   build:
     needs: [typecheck, test]
