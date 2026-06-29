@@ -19,6 +19,8 @@ Layer dependency chain: `tui/` + `state/` → `swarm/` + `team/` → `shared/` �
 
 Evidence: `PLAN.md` layer dependency section; confirmed by grep — zero `@earendil-works/pi-tui` imports in `src/shared/`, zero `../swarm/` or `../team/` imports in `src/tui/` or `src/state/`.
 
+`shared/` also contains `src/shared/agents.ts` (file-based agent loader, frontmatter parser, item-to-agent router) and `src/shared/pi-invoke.ts` (pi CLI invocation, system-level tool restriction) — both follow the same rule: zero pi or tui imports.
+
 `shared/` is pure logic and Node.js stdlib. `tui/` and `state/` are peer layers; neither depends on the other.
 
 ---
@@ -38,7 +40,7 @@ export default function (pi: ExtensionAPI): void {
 }
 ```
 
-Evidence: `grep "export function register" src/` → 4 register functions across `swarm/tool.ts`, `team/tool.ts`, `swarm/command.ts`, `team/command.ts`. All called in `src/index.ts`.
+Evidence: `grep "export function register" src/` → 5 register functions across `swarm/tool.ts`, `swarm/coordinator.ts`, `swarm/command.ts`, `team/command.ts`. Also `registerAgentInManifest` in `state/persistence.ts`. All called in `src/index.ts`.
 
 ---
 
