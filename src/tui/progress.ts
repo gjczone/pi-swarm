@@ -1,12 +1,15 @@
 /**
- * tui/progress — AgentSwarm live progress panel (minimal).
+ * tui/progress — AgentSwarm live progress panel.
  *
- * Grid layout with braille progress bars and scrolling model output.
- * - Multiple agents: grid cells with ID + braille bar + model text
- * - Single agent: compact status line with spinner + text
- * - No token/in/out display — replaced by scrolling model output
+ * Vertical panel layout with fixed-width tool-call-based braille progress
+ * bars and inline activity text.  Each agent renders as a single line:
+ *   001 [braille bar] read: src/lib.rs lines 42-99
+ * Bar width is fixed (5 cells) so tool labels align across agents.
  *
- * Architecture reference: AgentSwarm pattern.
+ * Progress is driven by actual tool calls / activity events (progressTick),
+ * not wall-clock time.  An agent that makes more progress fills faster.
+ *
+ * For 5+ agents, switches to a 2-column compact grid (3-cell bars).
  */
 
 import type { Component } from "@earendil-works/pi-tui";
@@ -30,26 +33,20 @@ const BRAILLE_LEVELS = [
   "\u28FF",
 ] as const;
 
-const BRAILLE_EMPTY = "\u2800"; // truly empty braille cell (no dots)
-const BRAILLE_SPINNER = [
-  "\u28BF",
-  "\u28FB",
-  "\u28FD",
-  "\u28FE",
-  "\u28F7",
-  "\u28EF",
-  "\u28DF",
-  "\u287F",
-] as const;
+const BRAILLE_EMPTY = "\u28C0"; // baseline empty (bottom dots), so bar track is always visible
 
-const FRAME_INTERVAL_MS = 80;
 const DEBOUNCE_MS = 75;
 const POLL_MS = 800;
 const MAX_VISIBLE_MEMBERS = 20;
-const CELL_GAP = "  ";
-const BRAILLE_BAR_MIN_WIDTH = 2;
-const BRAILLE_BAR_MAX_WIDTH = 5;
 const ID_WIDTH = 3;
+
+// Fixed-width braille bar — all agents share the same width so labels align.
+// Vertical mode: 5 cells, grid mode: 3 cells.
+const FIXED_BAR_CELLS = 5;
+const GRID_BAR_CELLS = 3;
+
+// Layout: agents shown vertically when count <= this
+const VERTICAL_LAYOUT_MAX = 4;
 
 // ---------------------------------------------------------------------------
 // Types
@@ -75,6 +72,7 @@ export interface MemberStatus {
   activity?: string;
   usage?: SubagentUsage;
   progressTick?: number;
+  startedAt?: number;
 }
 
 export interface SwarmProgressState {
@@ -115,6 +113,7 @@ export function snapshotToProgressState(
       activity: m.activity,
       usage: m.usage,
       progressTick: m.progressTick,
+      startedAt: m.startedAt,
     })),
     totalUsage: snapshot.totalUsage,
     startedAt: snapshot.startedAt ?? Date.now(),
@@ -143,15 +142,12 @@ function mapMemberPhase(phase: BatchMemberStatus["phase"]): MemberPhase {
 export class AgentSwarmProgressComponent implements Component {
   private state_: SwarmProgressState | null = null;
   private onRequestRender: (() => void) | undefined;
-  private animationFrame: ReturnType<typeof setInterval> | undefined;
-  private frameIndex = 0;
   private pollTimer: ReturnType<typeof setTimeout> | undefined;
   private debounceTimer: ReturnType<typeof setTimeout> | undefined;
 
   constructor(onRequestRender?: () => void) {
     this.onRequestRender = onRequestRender;
     this.startPolling();
-    this.startAnimation();
   }
 
   // -------------------------------------------------------------------
@@ -203,31 +199,28 @@ export class AgentSwarmProgressComponent implements Component {
 
     const lines: string[] = [];
 
-    // Layout: header → grid → status line
+    // Header: ─ Agent Swarm ─ <title> ──────────
     lines.push(this.renderHeader(safeWidth, state));
     lines.push("");
 
-    if (state.members.length === 1) {
-      // Single agent: compact line, no grid
-      const row = this.renderSingleAgent(state.members[0]!, safeWidth - 2);
-      lines.push(row);
-    } else {
-      // Multiple agents: grid layout
-      const gridLines = this.renderGrid(safeWidth - 2, state);
-      lines.push(...gridLines);
-    }
+    // Agent panels (vertical or compact grid)
+    const memberLines = this.renderAgentPanels(safeWidth - 2, state);
+    lines.push(...memberLines);
 
     lines.push("");
+
     // Bottom separator
     const sepWidth = safeWidth - 2;
-    lines.push(truncateText(repeatStr("─", sepWidth), sepWidth));
+    lines.push(truncateText(repeatStr("\u2500", sepWidth), sepWidth));
+
+    // Status line: Working...  N/M (P%)  elapsed
     lines.push(this.renderStatusLine(safeWidth, state));
 
     return lines;
   }
 
   // -------------------------------------------------------------------
-  // Kimi-code style header: ─ Agent Swarm ─ description ──────
+  // Header: ─ Agent Swarm ─ <desc> ──────────
   // -------------------------------------------------------------------
 
   private renderHeader(width: number, state: SwarmProgressState): string {
@@ -235,14 +228,14 @@ export class AgentSwarmProgressComponent implements Component {
     const desc = state.title ?? "";
     const mailboxInfo =
       state.mailboxCount && state.mailboxCount > 0
-        ? ` │ Mailbox: ${state.mailboxCount}`
+        ? ` | Mailbox: ${state.mailboxCount}`
         : "";
-    // ─ Agent Swarm ─ <desc> ──────  or  ─ Swarm Team ─ <desc> ─ Mailbox: 3
-    const prefix = `─ ${mode}`;
-    const content = desc ? ` ─ ${desc}` : "";
+    const prefix = `\u2500 ${mode}`;
+    const content = desc ? ` \u2500 ${desc}` : "";
     const label = `${prefix}${content}${mailboxInfo}`;
     const suffixLen = Math.max(0, width - visibleLen(label) - 2);
-    const suffix = suffixLen > 0 ? ` ─${repeatStr("─", suffixLen)}` : "";
+    const suffix =
+      suffixLen > 0 ? ` \u2500${repeatStr("\u2500", suffixLen)}` : "";
     return truncateText(`${label}${suffix}`, width);
   }
 
@@ -263,89 +256,49 @@ export class AgentSwarmProgressComponent implements Component {
   }
 
   // -------------------------------------------------------------------
-  // Single agent mode
+  // Agent panel layout selection
   // -------------------------------------------------------------------
 
-  private renderSingleAgent(member: MemberStatus, width: number): string {
-    const spinner =
-      member.phase === "working" || member.phase === "prompting"
-        ? BRAILLE_SPINNER[this.frameIndex % BRAILLE_SPINNER.length]
-        : member.phase === "completed"
-          ? "\u2713"
-          : member.phase === "failed"
-            ? "\u2717"
-            : "\u25CB";
-
-    const item = member.item ?? `#${String(member.index).padStart(2, "0")}`;
-    const itemTrunc = truncateText(item, Math.max(4, Math.floor(width * 0.4)));
-
-    let suffix = "";
-    const remaining = Math.max(
-      0,
-      width - visibleLen(`${spinner} ${itemTrunc}`) - 2,
-    );
-    if (member.phase === "working" && member.activity && remaining > 4) {
-      suffix = ` ${truncateText(member.activity, Math.min(remaining - 1, width - 10))}`;
-    } else if (member.phase === "completed") {
-      suffix = " ok";
-    } else if (member.phase === "failed" && member.error && remaining > 4) {
-      suffix = ` ${truncateText(member.error, Math.min(remaining - 1, 30))}`;
-    }
-
-    // No braille bar for single agent — just spinner + item + scrolling text
-    return truncateText(`${spinner} ${itemTrunc}${suffix}`, width);
-  }
-
-  // -------------------------------------------------------------------
-  // Grid layout (multiple agents)
-  // -------------------------------------------------------------------
-
-  private renderGrid(width: number, state: SwarmProgressState): string[] {
+  /**
+   * Render all agents.  Uses vertical panels for small counts
+   * and a compact 2-column grid for larger batches.
+   */
+  private renderAgentPanels(
+    width: number,
+    state: SwarmProgressState,
+  ): string[] {
     const count = Math.min(state.members.length, MAX_VISIBLE_MEMBERS);
     if (count <= 0) return [];
 
-    // Calculate grid dimensions
-    const gapWidth = visibleLen(CELL_GAP);
-    const minLabelWidth = 8;
-    const estCellWidth = ID_WIDTH + BRAILLE_BAR_MIN_WIDTH + minLabelWidth;
-    const columns = Math.max(
-      1,
-      Math.min(
-        count,
-        Math.floor((width + gapWidth) / (estCellWidth + gapWidth)),
-      ),
-    );
-    const rows = Math.ceil(count / columns);
-    const actualCellWidth = Math.floor(
-      (width - gapWidth * (columns - 1)) / columns,
-    );
-    // Bar gets what's left after ID + minimum label; cap to keep label readable
-    const barCells = Math.max(
-      BRAILLE_BAR_MIN_WIDTH,
-      Math.min(
-        BRAILLE_BAR_MAX_WIDTH,
-        actualCellWidth - ID_WIDTH - minLabelWidth,
-      ),
-    );
-    const leftPad = Math.floor(
-      (width - (actualCellWidth * columns + gapWidth * (columns - 1))) / 2,
-    );
+    if (count <= VERTICAL_LAYOUT_MAX) {
+      return this.renderVerticalPanels(width, state);
+    }
+    return this.renderCompactGrid(width, state);
+  }
 
+  // -------------------------------------------------------------------
+  // Vertical panel layout (1-4 agents)
+  //
+  // Each agent is a single line with live activity inline:
+  //   001 [▓▓▓▓▓░░░] read: src/lib.rs lines 42-99
+  //   (blank line between agents)
+  // -------------------------------------------------------------------
+
+  private renderVerticalPanels(
+    width: number,
+    state: SwarmProgressState,
+  ): string[] {
+    const count = Math.min(state.members.length, MAX_VISIBLE_MEMBERS);
     const lines: string[] = [];
-    for (let row = 0; row < rows; row++) {
-      let line = " ".repeat(Math.max(0, leftPad));
-      for (let col = 0; col < columns; col++) {
-        const idx = row * columns + col;
-        const member = state.members[idx];
-        if (!member) continue;
-        const cell = this.renderCell(member, actualCellWidth, barCells);
-        line += cell;
-        if (col < columns - 1) line += CELL_GAP;
+
+    for (let i = 0; i < count; i++) {
+      const member = state.members[i]!;
+      lines.push(this.renderAgentLine(member, width));
+      if (i < count - 1) {
+        lines.push(""); // blank line separator between agents
       }
-      lines.push(truncateText(line, width));
     }
 
-    // Extra info line for truncated members
     if (state.members.length > MAX_VISIBLE_MEMBERS) {
       lines.push(`  ... ${state.members.length - MAX_VISIBLE_MEMBERS} more`);
     }
@@ -353,32 +306,124 @@ export class AgentSwarmProgressComponent implements Component {
     return lines;
   }
 
-  private renderCell(
-    member: MemberStatus,
-    cellWidth: number,
-    barCells: number,
-  ): string {
+  /**
+   * Render one agent as a single line with fixed-width progress bar.
+   *
+   * Format: `001 [braille bar] read: src/lib.rs lines 42-99`
+   * Bar is always FIXED_BAR_CELLS (5) wide so tool labels align across agents.
+   *
+   * Progress is driven by progressTick (actual tool calls / activity events),
+   * not wall-clock time.  Each tick fills one level of the braille bar.
+   */
+  private renderAgentLine(member: MemberStatus, width: number): string {
     const id = String(member.index).padStart(ID_WIDTH, "0");
+
+    // Fixed bar width — ensures all agent labels align
+    const barCells = FIXED_BAR_CELLS;
+
+    // Label gets the remaining space after id + bar + fixed gaps
+    const labelWidth = Math.max(4, width - ID_WIDTH - barCells - 4);
     const bar = this.renderBrailleBar(member, barCells);
-    const label = this.renderCellLabel(
-      member,
-      Math.max(1, cellWidth - ID_WIDTH - barCells - 3),
-    );
-    return `${id} ${bar}${label ? " " + label : ""}`;
+    const label = this.renderCellLabel(member, labelWidth);
+
+    return truncateText(`${id} ${bar} ${label}`, width);
   }
+
+  // -------------------------------------------------------------------
+  // Compact grid layout (5+ agents)
+  //
+  // 2 columns, single-line cells:
+  //   001 [▓▓▓] task    002 [▓▓▓] task
+  //   003 [▓▓▓] task    004 [▓▓▓] task
+  // -------------------------------------------------------------------
+
+  private renderCompactGrid(
+    width: number,
+    state: SwarmProgressState,
+  ): string[] {
+    const cols = 2;
+    const count = Math.min(state.members.length, MAX_VISIBLE_MEMBERS);
+    const gap = 3; // spaces between columns
+    const cellWidth = Math.floor((width - gap) / cols);
+    const rows = Math.ceil(count / cols);
+
+    const lines: string[] = [];
+    for (let row = 0; row < rows; row++) {
+      let line = "";
+      for (let col = 0; col < cols; col++) {
+        const idx = row * cols + col;
+        if (idx >= count) break;
+
+        const member = state.members[idx]!;
+        const cw = col < cols - 1 ? cellWidth : width - line.length;
+        const cell = this.renderGridCell(member, cw);
+        line += cell;
+
+        if (col < cols - 1) {
+          // Pad to fill the remaining cell width + gap
+          const padLen = Math.max(0, cellWidth - visibleLen(cell) + gap);
+          line += " ".repeat(padLen);
+        }
+      }
+      lines.push(truncateText(line, width));
+    }
+
+    if (state.members.length > MAX_VISIBLE_MEMBERS) {
+      lines.push(`  ... ${state.members.length - MAX_VISIBLE_MEMBERS} more`);
+    }
+
+    return lines;
+  }
+
+  /**
+   * Compact single-line grid cell.
+   * Format: `001 [▓▓] label`
+   */
+  private renderGridCell(member: MemberStatus, width: number): string {
+    const id = String(member.index).padStart(ID_WIDTH, "0");
+
+    // Compact grid uses fewer bar cells
+    const barCells = GRID_BAR_CELLS;
+
+    const bar = this.renderBrailleBar(member, barCells);
+    const labelWidth = Math.max(2, width - ID_WIDTH - barCells - 4);
+    const label = this.renderCellLabel(member, labelWidth);
+
+    return `${id} ${bar} ${label}`;
+  }
+
+  // -------------------------------------------------------------------
+  // Braille progress bar
+  //
+  // Tool-call-based progress for working agents:
+  //   - Each progressTick (tool call / activity event) fills one level.
+  //   - Bar fills up as the agent works; capped at 85% so completed
+  //     agents (full bar) are visually distinguishable from working ones.
+  //   - Empty cells show the baseline character so the bar track is always visible.
+  //
+  // Completed agents: full bar
+  // Failed agents: half bar
+  // Queued/suspended: empty bar (baseline only)
+  // -------------------------------------------------------------------
 
   private renderBrailleBar(member: MemberStatus, width: number): string {
     if (width <= 0) return "";
     const capacity = width * BRAILLE_LEVELS.length;
-    const ticks =
-      member.phase === "completed"
-        ? capacity
-        : member.phase === "working"
-          ? Math.min(
-              capacity,
-              (member.progressTick ?? 0) + (this.frameIndex % 3),
-            )
-          : 0;
+
+    let ticks: number;
+
+    if (member.phase === "completed") {
+      ticks = capacity;
+    } else if (member.phase === "failed") {
+      ticks = Math.floor(capacity / 2);
+    } else if (member.phase === "working" || member.phase === "prompting") {
+      // Fill based on actual tool-call progress.
+      // Each tool execution or model output event increments progressTick by 1.
+      // Cap at 85% so "almost done" is visually distinct from "completed".
+      ticks = Math.min(member.progressTick ?? 0, Math.floor(capacity * 0.85));
+    } else {
+      ticks = 0;
+    }
 
     const fullBars = Math.floor(ticks / BRAILLE_LEVELS.length);
     const partial = ticks % BRAILLE_LEVELS.length;
@@ -387,7 +432,7 @@ export class AgentSwarmProgressComponent implements Component {
     let bar = "";
     for (let i = 0; i < width; i++) {
       if (i < fullBars) {
-        bar += BRAILLE_LEVELS[BRAILLE_LEVELS.length - 1]!; // Full █
+        bar += BRAILLE_LEVELS[BRAILLE_LEVELS.length - 1]!; // Full cell
       } else if (i === fullBars && partialChar) {
         bar += partialChar;
       } else {
@@ -397,18 +442,24 @@ export class AgentSwarmProgressComponent implements Component {
     return bar;
   }
 
+  // -------------------------------------------------------------------
+  // Cell label rendering
+  // -------------------------------------------------------------------
+
   private renderCellLabel(member: MemberStatus, width: number): string {
     if (width <= 0) return "";
 
-    // Show latest activity (model output or tool call) for running agents
     if (member.phase === "working" || member.phase === "prompting") {
-      const text = member.activity ?? member.item ?? "";
+      // Show tool: activity_text (scrolling model output / shell command)
+      const toolPart = member.currentTool ? `${member.currentTool}: ` : "";
+      const activityText = member.activity ?? member.item ?? "";
+      const text = toolPart + activityText;
       return truncateText(text, width);
     }
     if (member.phase === "completed") return truncateText("ok", width);
     if (member.phase === "failed" && member.error)
       return truncateText(member.error, Math.min(width, 20));
-    if (member.phase === "queued")
+    if (member.phase === "queued" || member.phase === "suspended")
       return truncateText(member.item ?? "...", width);
 
     return "";
@@ -437,19 +488,7 @@ export class AgentSwarmProgressComponent implements Component {
     }, POLL_MS);
   }
 
-  private startAnimation(): void {
-    this.animationFrame = setInterval(() => {
-      this.frameIndex = (this.frameIndex + 1) % BRAILLE_SPINNER.length;
-      const hasActive = this.state_?.active ?? 0 > 0;
-      if (hasActive) this.onRequestRender?.();
-    }, FRAME_INTERVAL_MS);
-  }
-
   private stopTimers(): void {
-    if (this.animationFrame !== undefined) {
-      clearInterval(this.animationFrame);
-      this.animationFrame = undefined;
-    }
     if (this.debounceTimer !== undefined) {
       clearTimeout(this.debounceTimer);
       this.debounceTimer = undefined;

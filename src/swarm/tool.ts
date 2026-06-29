@@ -37,7 +37,12 @@ import {
   registerAgentInManifest,
 } from "../state/persistence.js";
 import { mergeBranch, isGitRepository } from "../shared/worktree.js";
-import { resolveMailboxPaths, ensureMailbox } from "../team/mailbox.js";
+import {
+  resolveMailboxPaths,
+  ensureMailbox,
+  sendMessage,
+} from "../team/mailbox.js";
+import type { MailboxPaths } from "../team/mailbox.js";
 import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
@@ -193,10 +198,11 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
 
         // Set up mailbox when enabled
         let mailboxPath: string | undefined;
+        let mailboxPaths: MailboxPaths | undefined;
         if (mailbox) {
-          const paths = resolveMailboxPaths(swarmRoot, runId);
-          ensureMailbox(paths);
-          mailboxPath = paths.root;
+          mailboxPaths = resolveMailboxPaths(swarmRoot, runId);
+          ensureMailbox(mailboxPaths);
+          mailboxPath = mailboxPaths.root;
         }
 
         createManifest(swarmRoot, {
@@ -210,6 +216,7 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         runCreated = true;
 
         // Convert to queued tasks
+        const resolvedPaths = mailboxPaths;
         const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => ({
           kind: "spawn",
           data: spec,
@@ -228,6 +235,9 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           model: resolvedModel,
           mailboxPath,
           roleName: `agent-${idx + 1}`,
+          onMessage: resolvedPaths
+            ? (msg) => sendMessage(resolvedPaths, msg)
+            : undefined,
         }));
 
         // Run with controller

@@ -4,9 +4,6 @@
  * Entry point.  Registered as the default export.  Wires together
  * the AgentSwarm tool, /swarm command, swarm-mode state machine,
  * and TUI progress components.
- *
- * Credit: AgentSwarm architecture references MoonshotAI/kimi-code.
- * Team/mailbox patterns inspired by pi-crew.
  */
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";

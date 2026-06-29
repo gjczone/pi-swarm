@@ -13,7 +13,6 @@
  *   - Each worktree is created from HEAD in detached mode; changes are committed to a
  *     uniquely-named branch to avoid collisions.
  *
- * Reference implementation: gotgenes/pi-subagents-worktrees, pi-crew worktree-manager.
  */
 
 import { execFileSync, execSync } from "node:child_process";
