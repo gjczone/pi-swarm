@@ -462,7 +462,9 @@ export function matchItemToAgent(
 
   const itemLower = item.toLowerCase();
 
-  // Phase 1: pattern matching — find the most specific matching pattern
+  // Phase 1: pattern matching — find the most specific matching pattern.
+  // Longer pattern = higher specificity. On an equal-length tie, the
+  // later-inserted agent wins so project agents override user agents. (#112)
   let bestProfile: AgentProfile | undefined;
   let bestPatternLen = -1;
 
@@ -471,7 +473,7 @@ export function matchItemToAgent(
     if (!match || !match.patterns) continue;
 
     for (const pattern of match.patterns) {
-      if (pattern.length > bestPatternLen && matchGlobPattern(item, pattern)) {
+      if (pattern.length >= bestPatternLen && matchGlobPattern(item, pattern)) {
         bestProfile = profile;
         bestPatternLen = pattern.length;
       }
@@ -530,9 +532,28 @@ function matchGlobPattern(item: string, pattern: string): boolean {
     return false;
   }
 
-  // Multiple wildcards — fall back to simple suffix check for now
-  const lastPart = parts[parts.length - 1];
-  return lastPart ? item.endsWith(lastPart) : false;
+  // Multiple wildcards — compile to an anchored regex so each * maps to .*
+  // and literal segments are matched in order. The previous suffix-only
+  // fallback made patterns like `src/*.test.*` match nothing. (#111)
+  return globToRegex(pattern).test(item);
+}
+
+/**
+ * Compile a minimal glob pattern (only `*` wildcards) into an anchored regex.
+ * Each `*` becomes `.*`; all other characters are treated as literals.
+ * Used by matchGlobPattern for patterns with more than one wildcard.
+ */
+function globToRegex(pattern: string): RegExp {
+  let regex = "";
+  for (const ch of pattern) {
+    if (ch === "*") {
+      regex += ".*";
+    } else {
+      // Escape regex special characters so literal segments match verbatim
+      regex += ch.replace(/[.+^${}()|[\]\\]/g, "\\$&");
+    }
+  }
+  return new RegExp(`^${regex}$`);
 }
 
 // ---------------------------------------------------------------------------

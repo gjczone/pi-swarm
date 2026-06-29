@@ -812,4 +812,108 @@ describe("matchItemToAgent", () => {
       "has-match",
     );
   });
+
+  it("#111 matches multi-wildcard patterns via anchored regex", () => {
+    // The old suffix-only fallback made src/*.test.* match nothing.
+    // After the fix, multi-wildcard patterns compile to an anchored regex.
+    const agents = new Map<string, AgentProfile>([
+      [
+        "test-agent",
+        {
+          name: "test-agent",
+          description: "Test agent",
+          allowWrite: false,
+          allowBashWrite: false,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["src/*.test.*"] },
+        },
+      ],
+      [
+        "src-agent",
+        {
+          name: "src-agent",
+          description: "Src agent",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["src/*"] },
+        },
+      ],
+    ]);
+
+    // src/*.test.* is longer (more specific) than src/*, so test-agent wins
+    expect(matchItemToAgent("src/foo.test.ts", agents)?.name).toBe(
+      "test-agent",
+    );
+    expect(matchItemToAgent("src/foo.test.js", agents)?.name).toBe(
+      "test-agent",
+    );
+    // src/foo.ts matches only src/*
+    expect(matchItemToAgent("src/foo.ts", agents)?.name).toBe("src-agent");
+    expect(matchItemToAgent("src/app.ts", agents)?.name).toBe("src-agent");
+    // Non-matching path
+    expect(matchItemToAgent("docs/readme.md", agents)).toBeUndefined();
+  });
+
+  it("#111 matches patterns with leading and trailing wildcards", () => {
+    const agents = new Map<string, AgentProfile>([
+      [
+        "spec-agent",
+        {
+          name: "spec-agent",
+          description: "Spec agent",
+          allowWrite: false,
+          allowBashWrite: false,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["*.spec.*"] },
+        },
+      ],
+    ]);
+
+    expect(matchItemToAgent("foo.spec.ts", agents)?.name).toBe("spec-agent");
+    expect(matchItemToAgent("bar.spec.js", agents)?.name).toBe("spec-agent");
+    expect(matchItemToAgent("foo.ts", agents)).toBeUndefined();
+  });
+
+  it("#112 on equal-length pattern tie, the later-inserted agent wins (project overrides user)", () => {
+    // loadFileAgents inserts user agents before project agents.
+    // On an equal-length pattern tie, the project agent (inserted later)
+    // must override the user agent.
+    const agents = new Map<string, AgentProfile>([
+      [
+        "user-ts",
+        {
+          name: "user-ts",
+          description: "User TS agent",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["*.ts"] },
+        },
+      ],
+      [
+        "project-ts",
+        {
+          name: "project-ts",
+          description: "Project TS agent",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["*.ts"] },
+        },
+      ],
+    ]);
+
+    expect(matchItemToAgent("src/app.ts", agents)?.name).toBe("project-ts");
+  });
 });

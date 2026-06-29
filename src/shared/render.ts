@@ -31,33 +31,25 @@ interface SwarmRunResult {
  * Format:
  *   <agent_swarm_result>
  *   <summary>completed: N, failed: M</summary>
- *   <resume_hint>...</resume_hint>
  *   <subagent ... outcome="completed">result text</subagent>
  *   ...
  *   </agent_swarm_result>
+ *
+ * Note (#114): A <resume_hint> element was previously emitted when any result
+ * was non-completed, instructing the LLM to call AgentSwarm with
+ * resume_agent_ids. The AgentSwarm tool schema has additionalProperties: false
+ * and no resume_agent_ids parameter, so the hint was misleading and has been
+ * removed.
  */
 export function renderSwarmResults(results: readonly SwarmRunResult[]): string {
   const completed = results.filter((r) => r.status === "completed").length;
   const failed = results.filter((r) => r.status === "failed").length;
   const aborted = results.filter((r) => r.status === "aborted").length;
 
-  const shouldRenderResumeHint =
-    results.some((r) => r.status !== "completed") &&
-    results.some((r) => r.agentId !== undefined);
-
   const lines: string[] = [
     "<agent_swarm_result>",
     `<summary>${renderSwarmSummary(completed, failed, aborted)}</summary>`,
   ];
-
-  if (shouldRenderResumeHint) {
-    lines.push(
-      "<resume_hint>" +
-        "Call AgentSwarm with resume_agent_ids using the agent_id values " +
-        "in this result to continue unfinished work." +
-        "</resume_hint>",
-    );
-  }
 
   for (const result of results) {
     const agentId =

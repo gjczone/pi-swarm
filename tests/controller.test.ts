@@ -420,4 +420,38 @@ describe("SubagentBatchController", () => {
     expect(results[0]!.status).toBe("aborted");
     expect(results[0]!.result).toBe(resultAfterCancel);
   });
+
+  it("#105 fail() populates results for all tasks before rejecting", async () => {
+    // When fail() is called (non-user abort), it must populate this.results
+    // for every queued task — completed agents keep their result, active/pending
+    // agents are marked aborted — so coordinator getResults() returns a full
+    // array instead of filtering out undefined slots.
+    const ac = new AbortController();
+    const launcher = createMockLauncher({
+      "task-0": { delayMs: 10, result: "done-0" },
+      "task-1": { delayMs: 500, result: "done-1" },
+    });
+    const tasks = [makeTask(0), makeTask(1, { signal: ac.signal })];
+    const controller = new SubagentBatchController(launcher, tasks);
+    const handle = controller.runAsync("test-run-105");
+
+    // Let task-0 finish, then abort task-1's signal with a non-user reason.
+    // Non-user abort triggers handleBatchAbort -> fail().
+    await new Promise((r) => setTimeout(r, 80));
+    ac.abort(new Error("Simulated failure"));
+
+    await expect(handle.completion).rejects.toThrow("Simulated failure");
+
+    const results = handle.getResults();
+    expect(results).toHaveLength(2);
+    const r0 = results.find(
+      (r) => (r.task.data as { index: number }).index === 0,
+    );
+    const r1 = results.find(
+      (r) => (r.task.data as { index: number }).index === 1,
+    );
+    expect(r0?.status).toBe("completed");
+    expect(r1).toBeDefined();
+    expect(r1?.status).toBe("aborted");
+  });
 });

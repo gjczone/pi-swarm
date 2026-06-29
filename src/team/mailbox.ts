@@ -118,6 +118,17 @@ export function ensureMailbox(paths: MailboxPaths): void {
 /**
  * Send a message to the team outbox and the recipient's per-task inbox.
  * For broadcast messages, also deliver to all known role inboxes.
+ *
+ * Transactional guarantees (#108, #113):
+ *   - For direct messages, the recipient's task directory must already exist.
+ *     If it does not, sendMessage throws BEFORE writing to outbox or inbox,
+ *     leaving no partial state behind.
+ *   - No phantom task directories are created for unknown recipients.
+ *
+ * Broadcast error surfacing (#115):
+ *   - Per-recipient delivery failures during broadcast are surfaced to the
+ *     caller instead of being silently swallowed. If any recipient's inbox
+ *     cannot be written, sendMessage throws so the caller can retry or report.
  */
 export function sendMessage(
   paths: MailboxPaths,
@@ -126,36 +137,43 @@ export function sendMessage(
   ensureMailbox(paths);
   validateRecipient(message.to, "message.to");
 
-  // Append to team outbox
-  appendJsonLine(paths.outbox, message);
-  // Also append to team inbox for general reading
-  appendJsonLine(paths.inbox, message);
-
   if (message.to === "broadcast") {
+    // Append to team outbox and inbox first
+    appendJsonLine(paths.outbox, message);
+    appendJsonLine(paths.inbox, message);
+
     // Broadcast: deliver to all known task inboxes under the tasks directory.
     // Discovers recipients dynamically so it works for both team mode
     // (explorer, planner, ...) and swarm mode (agent-1, agent-2, ...).
+    // Per-recipient errors are surfaced, not swallowed (#115).
+    let entries: fs.Dirent[];
     try {
-      const entries = fs.readdirSync(paths.taskDir, { withFileTypes: true });
-      for (const entry of entries) {
-        if (!entry.isDirectory()) continue;
-        const taskId = entry.name;
-        if (!SAFE_RECIPIENT_PATTERN.test(taskId)) continue;
-        try {
-          const taskPaths = resolveTaskMailboxPaths(paths, taskId);
-          fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
-          appendJsonLine(taskPaths.inbox, message);
-        } catch {
-          // Best effort delivery per task
-        }
-      }
+      entries = fs.readdirSync(paths.taskDir, { withFileTypes: true });
     } catch {
-      // tasks directory might not exist yet — best effort
+      // tasks directory might not exist yet — no recipients to deliver to
+      return;
+    }
+    for (const entry of entries) {
+      if (!entry.isDirectory()) continue;
+      const taskId = entry.name;
+      if (!SAFE_RECIPIENT_PATTERN.test(taskId)) continue;
+      const taskPaths = resolveTaskMailboxPaths(paths, taskId);
+      fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
+      appendJsonLine(taskPaths.inbox, message);
     }
   } else {
-    // Direct message: deliver to specific role inbox
+    // Direct message: validate recipient exists BEFORE writing anything (#108, #113).
+    // This ensures no partial state (outbox/inbox writes) is left behind on failure.
+    const recipientDir = path.join(paths.taskDir, message.to);
+    if (!fs.existsSync(recipientDir)) {
+      throw new Error(
+        `Unknown recipient: "${message.to}" has no task directory`,
+      );
+    }
     const taskPaths = resolveTaskMailboxPaths(paths, message.to);
-    fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
+    // All validation passed — safe to write to outbox, inbox, and task inbox
+    appendJsonLine(paths.outbox, message);
+    appendJsonLine(paths.inbox, message);
     appendJsonLine(taskPaths.inbox, message);
   }
 }
@@ -266,9 +284,23 @@ export function updateDeliveryState(
 // Helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Append a JSON line to a JSONL file using atomic read-modify-write.
+ *
+ * Business: AGENTS.md invariant requires all JSON/JSONL mutations to use
+ * writeAtomic (temp-file + rename) to prevent partial writes. Since all
+ * mailbox writes originate from the parent process (no concurrent writers),
+ * a read-modify-write via writeAtomic is safe and crash-proof.
+ */
 function appendJsonLine(filePath: string, data: unknown): void {
   const line = JSON.stringify(data) + "\n";
-  fs.appendFileSync(filePath, line, "utf-8");
+  let existing = "";
+  try {
+    existing = fs.readFileSync(filePath, "utf-8");
+  } catch {
+    // File doesn't exist yet — start with empty content
+  }
+  writeAtomic(filePath, existing + line);
 }
 
 /**

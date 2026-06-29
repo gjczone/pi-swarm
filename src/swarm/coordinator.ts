@@ -112,7 +112,7 @@ function buildCoordinatorDescription(): string {
   return lines.join("\n");
 }
 
-interface ActiveCoordinatorRun {
+export interface ActiveCoordinatorRun {
   runId: string;
   handle: SwarmHandle<SwarmSpec>;
   results: Array<SubagentResult<SwarmSpec>>;
@@ -144,16 +144,26 @@ function getAgentInboxPath(
 }
 
 /**
- * Resolve an agent's display name to its agentId for a given run.
+ * Resolve an agent's display name (or raw agentId) to its canonical agentId
+ * for a given run.
+ *
+ * Business (#102): Returns undefined when no event matches the name or id.
+ * Previously this returned the input string unchanged, which caused callers
+ * to proceed with an invalid id and produce confusing downstream errors.
  */
-function resolveAgentId(
+export function resolveAgentId(
   run: ActiveCoordinatorRun,
   nameOrId: string,
 ): string | undefined {
+  // First pass: match by agentName
   for (const e of run.events) {
     if (e.agentName === nameOrId && e.agentId) return e.agentId;
   }
-  return nameOrId;
+  // Second pass: match by agentId directly (caller may have passed the id)
+  for (const e of run.events) {
+    if (e.agentId === nameOrId) return e.agentId;
+  }
+  return undefined;
 }
 
 function getRun(runId: string): ActiveCoordinatorRun {
@@ -166,14 +176,23 @@ function getRun(runId: string): ActiveCoordinatorRun {
   return run;
 }
 
-function runToSummary(run: ActiveCoordinatorRun): string {
+/**
+ * Produce a human-readable summary of a single coordinator run.
+ *
+ * Business (#104): Agent count is derived from unique agentIds in the event
+ * log, NOT from the raw count of agent_started events. This is because
+ * retries emit an additional agent_started event for the same agentId,
+ * which would inflate the total and produce a negative "still running" count.
+ */
+export function runToSummary(run: ActiveCoordinatorRun): string {
   const results = run.handle.getResults();
   const completed = results.filter((r) => r.status === "completed").length;
   const failed = results.filter((r) => r.status === "failed").length;
   const aborted = results.filter((r) => r.status === "aborted").length;
-  const total = run.events.filter(
-    (e) => e.eventType === "agent_started",
-  ).length;
+  const uniqueAgentIds = new Set(
+    run.events.filter((e) => e.agentId).map((e) => e.agentId as string),
+  );
+  const total = uniqueAgentIds.size;
   const stillRunning = total - completed - failed - aborted;
   const lines = [
     `Run: ${run.runId}`,
@@ -210,6 +229,31 @@ function runToSummary(run: ActiveCoordinatorRun): string {
   }
 
   return lines.join("\n");
+}
+
+/**
+ * Summarize one or more coordinator runs. When runId is provided, only that
+ * run is summarized; otherwise all runs are included.
+ *
+ * Business (#103): Previously the SwarmStatus handler ignored the runId
+ * parameter and always returned all runs. This helper centralizes the
+ * filtering logic and makes it testable.
+ */
+export function summarizeRuns(
+  runs: ActiveCoordinatorRun[],
+  runId?: string,
+): string {
+  if (runId) {
+    const run = runs.find((r) => r.runId === runId);
+    if (!run) {
+      return `Run "${runId}" not found. Available runs: ${runs.map((r) => r.runId).join(", ") || "(none)"}`;
+    }
+    return runToSummary(run);
+  }
+  if (runs.length === 0) {
+    return "No active coordinator runs.";
+  }
+  return runs.map(runToSummary).join("\n\n");
 }
 
 export function registerCoordinatorTools(pi: ExtensionAPI): void {
@@ -607,18 +651,10 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       },
       { additionalProperties: false },
     ),
-    execute: async (_toolCallId, _params) => {
-      if (activeRuns.size === 0) {
-        return {
-          content: [
-            { type: "text" as const, text: "No active coordinator runs." },
-          ],
-          details: undefined,
-        };
-      }
-
+    execute: async (_toolCallId, params) => {
+      const { runId } = params as { runId?: string };
       const allRuns = Array.from(activeRuns.values());
-      const summaries = allRuns.map(runToSummary).join("\n\n");
+      const summaries = summarizeRuns(allRuns, runId);
       return {
         content: [{ type: "text" as const, text: summaries }],
         details: undefined,
