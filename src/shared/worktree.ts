@@ -41,6 +41,8 @@ export interface WorktreeInfo {
 export interface WorktreeCleanupResult {
   hasChanges: boolean;
   branch?: string;
+  commitSha?: string;
+  error?: string;
 }
 
 export interface MergeResult {
@@ -232,8 +234,9 @@ export function createWorktree(
       repoCwd: cwd,
       mailboxLinkCreated,
     };
-  } catch {
-    return undefined;
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    throw new Error(`Failed to create worktree: ${message}`, { cause: err });
   }
 }
 
@@ -260,6 +263,7 @@ export function cleanupWorktree(
     return { hasChanges: false };
   }
 
+  let changesStaged = false;
   try {
     const status = execFileSync("git", ["status", "--porcelain"], {
       cwd: worktree.path,
@@ -280,6 +284,7 @@ export function cleanupWorktree(
       stdio: "pipe",
       timeout: 10000,
     });
+    changesStaged = true;
 
     // Commit in worktree
     const safeDesc = agentDescription.slice(0, 200);
@@ -319,12 +324,18 @@ export function cleanupWorktree(
           timeout: 5000,
         });
       } catch {
-        return { hasChanges: true }; // Commit exists but branch creation failed; user can find by SHA
+        return { hasChanges: true, commitSha }; // Commit exists but branch creation failed; user can find by SHA
       }
     }
 
     return { hasChanges: true, branch: branchName };
   } catch (err) {
+    if (changesStaged) {
+      console.error(
+        `[pi-swarm] Failed to commit changes for agent: ${err instanceof Error ? err.message : String(err)}. Worktree preserved at ${worktree.path} for manual recovery.`,
+      );
+      return { hasChanges: true, error: String(err) };
+    }
     try {
       removeWorktree(cwd, worktree.path);
     } catch {

@@ -147,7 +147,10 @@ export default function (pi: ExtensionAPI): void {
         const tools = pi.getActiveTools?.();
         return tools !== undefined && tools.length > 0;
       } catch {
-        return true;
+        console.error(
+          "[pi-swarm] Failed to check active model availability, assuming no model.",
+        );
+        return false;
       }
     },
   };
