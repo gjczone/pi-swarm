@@ -1,0 +1,74 @@
+{
+  "name": "@gjczone/pi-swarm",
+  "version": "0.8.1",
+  "description": "Agent Swarm & Team for pi-coding-agent. Single to 128 subagents: parallel swarm or collaborative team with mailbox. Live TUI, rate-limit retries, crash recovery. Ported from kimi-code, inspired by pi-crew.",
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist/**/*"
+  ],
+  "scripts": {
+    "prebuild": "rm -rf dist",
+    "build": "tsc",
+    "typecheck": "tsc --noEmit",
+    "dev": "tsc --watch",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "coverage": "vitest run --coverage",
+    "lint": "npx eslint src tests --quiet 2>/dev/null; true",
+    "knip": "npx knip --no-exit-code 2>/dev/null; true",
+    "circular": "npx dpdm --circular src/index.ts 2>/dev/null; true",
+    "ci": "npx prettier --check src tests && npm run typecheck && npm run lint && npm run knip && npm run circular && npm run coverage && npm run build && test -f dist/index.js && test -f dist/index.d.ts"
+  },
+  "keywords": [
+    "pi-package",
+    "pi-coding-agent",
+    "extension",
+    "swarm",
+    "agent-swarm",
+    "agent-team",
+    "subagent",
+    "multi-agent",
+    "parallel",
+    "team",
+    "mailbox"
+  ],
+  "pi": {
+    "extensions": [
+      "./dist"
+    ]
+  },
+  "author": "gjczone",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/gjczone/pi-swarm.git"
+  },
+  "dependencies": {
+    "@earendil-works/pi-tui": "*",
+    "typebox": "^1.0.0"
+  },
+  "peerDependencies": {
+    "@earendil-works/pi-coding-agent": "*"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "@types/node": "^26.0.1",
+    "@vitest/coverage-v8": "^4.1.9",
+    "dpdm": "^4.2.0",
+    "eslint": "^10.6.0",
+    "knip": "^6.23.0",
+    "prettier": "^3.8.3",
+    "typescript": "^6.0.0",
+    "typescript-eslint": "^8.62.0",
+    "vitest": "^4.0.0"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "os": [
+    "linux",
+    "darwin"
+  ]
+}

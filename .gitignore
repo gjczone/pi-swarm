@@ -1,0 +1,42 @@
+# Dependencies
+node_modules/
+
+# Build output
+dist/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+.env.local
+.env.*.local
+
+# Test coverage
+coverage/
+
+# pi runtime directory (generated at runtime)
+.pi/
+
+# Worktrees
+.worktrees/
+
+# Repo-inspect cache (generated analysis output)
+.inspect/
+
+# Debug logs
+*.log
+npm-debug.log*
+
+# TypeScript incremental
+*.tsbuildinfo
+.zcode
+.pi/swarm/state/

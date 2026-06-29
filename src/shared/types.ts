@@ -1,0 +1,544 @@
+/**
+ * pi-swarm — shared type definitions.
+ *
+ * All swarm and team modules import from here.
+ * No pi or tui imports — pure data types.
+ */
+
+// ---------------------------------------------------------------------------
+// Subagent lifecycle
+// ---------------------------------------------------------------------------
+
+/** Phase of a single subagent during execution. */
+export type SubagentPhase =
+  | "pending"
+  | "prompting"
+  | "working"
+  | "completed"
+  | "failed"
+  | "cancelled"
+  | "suspended";
+
+/** Terminal outcome of a subagent run. */
+export type SubagentOutcome = "completed" | "failed" | "aborted";
+
+/** State marker for whether a subagent was ever started. */
+export type SubagentStartState = "started" | "not_started";
+
+/**
+ * A single subagent's result after execution.
+ */
+export interface SubagentResult<T = unknown> {
+  /** The task that produced this result. */
+  readonly task: QueuedSubagentTask<T>;
+  /** Agent identifier assigned at spawn time. */
+  readonly agentId?: string;
+  /** Terminal outcome. */
+  readonly status: SubagentOutcome;
+  /** Whether this task was ever started. */
+  readonly state?: SubagentStartState;
+  /** Result text (for completed tasks). */
+  readonly result?: string;
+  /** Error message (for failed/aborted tasks). */
+  readonly error?: string;
+  /** Token usage for this subagent. */
+  readonly usage?: SubagentUsage;
+  /** Git worktree branch name (if worktree was used and changes committed). */
+  readonly worktreeBranch?: string;
+}
+
+// ---------------------------------------------------------------------------
+// Swarm-task-spec layer (carried by QueuedSubagentTask.data)
+// ---------------------------------------------------------------------------
+
+/** A new subagent spawned from a template item. */
+export interface SwarmSpawnSpec {
+  readonly kind: "spawn";
+  /** 1-based index in the swarm. */
+  readonly index: number;
+  /** The template item value. */
+  readonly item: string;
+  /** The concrete prompt (template with {{item}} replaced). */
+  readonly prompt: string;
+}
+
+/** A resumed subagent from a previous run. */
+export interface SwarmResumeSpec {
+  readonly kind: "resume";
+  /** 1-based index in the swarm. */
+  readonly index: number;
+  /** Existing agent id to resume. */
+  readonly agentId: string;
+  /** Original item value (if known). */
+  readonly item?: string;
+  /** Resume prompt. */
+  readonly prompt: string;
+}
+
+/** Union of all spec kinds tracked by the swarm tool. */
+export type SwarmSpec = SwarmSpawnSpec | SwarmResumeSpec;
+
+// ---------------------------------------------------------------------------
+// Team mode types
+// ---------------------------------------------------------------------------
+
+/** Predefined agent roles for team mode. */
+export type AgentRole =
+  | "explorer"
+  | "planner"
+  | "coder"
+  | "reviewer"
+  | "tester"
+  | "fixer";
+
+/** Configuration for a single role in a team run. */
+export interface AgentRoleConfig {
+  readonly role: AgentRole;
+  /** Model override for this role (optional). */
+  readonly model?: string;
+  /** Tool allowlist (default: all). */
+  readonly tools?: string[];
+  /** Role-specific system prompt addition. */
+  readonly systemPrompt?: string;
+}
+
+/** A team phase with role assignment. */
+export interface TeamPhase {
+  readonly name: string;
+  readonly role: AgentRole;
+  /** Phases that must complete before this one starts. */
+  readonly dependsOn?: string[];
+  /** Model tier override for this phase. */
+  readonly modelTier?: ModelTier;
+  /** Explicit model name override (takes precedence over tier). */
+  readonly model?: string;
+  /** Tool whitelist override for this phase. */
+  readonly tools?: string[];
+}
+
+/** A mailbox message for inter-agent communication. */
+export interface MailboxMessage {
+  readonly messageId: string;
+  readonly runId: string;
+  readonly timestamp: string;
+  readonly from: string;
+  readonly to: string;
+  readonly type: "task_assignment" | "task_result" | "handoff" | "state_sync";
+  readonly payload: Record<string, unknown>;
+}
+
+// ---------------------------------------------------------------------------
+// Envelope for external launcher abstraction
+// ---------------------------------------------------------------------------
+
+/** Options passed through to every subagent run. */
+export interface RunSubagentOptions {
+  readonly parentToolCallId: string;
+  readonly parentToolCallUuid?: string;
+  readonly prompt: string;
+  readonly description: string;
+  readonly swarmIndex?: number;
+  readonly runInBackground: boolean;
+  readonly signal: AbortSignal;
+  readonly onReady?: () => void;
+  readonly onUsage?: (usage: SubagentUsage) => void;
+  /** Callback for real-time tool/activity tracking. Called when the agent starts a new tool or activity. */
+  readonly onActivity?: (tool: string, activity: string) => void;
+  /** Callback for real-time messages sent by the agent via mailbox file writes. */
+  readonly onMessage?: (message: MailboxMessage) => void;
+  readonly suppressRateLimitFailureEvent?: boolean;
+  readonly timeout?: number;
+  readonly swarmRoot?: string;
+  readonly runId?: string;
+  readonly outputLogPath?: string;
+  readonly model?: string;
+  readonly tools?: string[];
+  readonly cwd?: string;
+  readonly useWorktree?: boolean;
+  /** Path to the shared mailbox root for real-time inter-agent communication. */
+  readonly mailboxPath?: string;
+  /** Role name for team agents (used to resolve mailbox paths). */
+  readonly roleName?: string;
+  /** Additional system prompt appended from agent profile. */
+  readonly additionalSystemPrompt?: string;
+  /** Human-readable name for this agent. */
+  readonly agentName?: string;
+  /** When set, the agent reads this file for incoming coordinator messages. */
+  readonly messageInboxPath?: string;
+}
+
+/** Model tier for cost-optimized routing. */
+export type ModelTier = "default" | "small";
+
+/** Roles that automatically use the small/fast model when configured. */
+export const SMALL_MODEL_ROLES: ReadonlySet<string> = new Set([
+  "explorer",
+  "tester",
+]);
+
+/** Options specific to spawning a NEW subagent. */
+export interface SpawnSubagentOptions extends RunSubagentOptions {
+  readonly profileName: string;
+  readonly swarmItem?: string;
+  readonly model?: string;
+  readonly tools?: string[];
+  readonly cwd?: string;
+  readonly useWorktree?: boolean;
+  readonly agentName?: string;
+}
+
+/** Result returned by the subagent launcher. */
+export interface SubagentCompletion {
+  readonly result: string;
+  readonly usage?: SubagentUsage;
+  readonly worktreeBranch?: string;
+}
+
+/** Handle to a running subagent. */
+export interface SubagentHandle {
+  readonly agentId: string;
+  readonly profileName: string;
+  readonly resumed: boolean;
+  readonly completion: Promise<SubagentCompletion>;
+}
+
+/** Token usage for a subagent. */
+export interface SubagentUsage {
+  readonly input: number;
+  readonly output: number;
+  readonly cacheRead: number;
+  readonly cacheWrite: number;
+  readonly totalTokens: number;
+}
+
+// ---------------------------------------------------------------------------
+// Queued-task protocol (shared between tool and controller)
+// ---------------------------------------------------------------------------
+
+/** Base fields every queued task carries. */
+export interface BaseQueuedSubagentTask<T = unknown> {
+  /** Caller-owned payload (SwarmSpec, team task, etc.). */
+  readonly data: T;
+  /** Subagent profile name. */
+  readonly profileName: string;
+  /** Human-readable agent name (derived from profile, item, or fallback). */
+  readonly agentName?: string;
+  /** Parent tool-call id for nesting. */
+  readonly parentToolCallId: string;
+  /** Parent tool-call uuid for event correlation. */
+  readonly parentToolCallUuid?: string;
+  /** Concrete prompt sent to the subagent. */
+  readonly prompt: string;
+  /** Human-readable description for logging/UI. */
+  readonly description: string;
+  /** 1-based position in the batch (optional). */
+  readonly swarmIndex?: number;
+  /** Item value the subagent works on (optional). */
+  readonly swarmItem?: string;
+  /** Whether the subagent runs in background. */
+  readonly runInBackground: boolean;
+  /** Timeout in ms (optional). */
+  readonly timeout?: number;
+  /** Abort signal for cancellation. */
+  readonly signal?: AbortSignal;
+  /** Model override for this subagent (optional). */
+  readonly model?: string;
+  /** Tool allowlist for this subagent (optional). */
+  readonly tools?: string[];
+  /** Working directory override (optional, defaults to process.cwd()). */
+  readonly cwd?: string;
+  /** Swarm root directory for state persistence (optional). */
+  readonly swarmRoot?: string;
+  /** Run ID this agent belongs to (optional). */
+  readonly runId?: string;
+  /** Path to write per-agent output log (optional). */
+  readonly outputLogPath?: string;
+  /** Whether to use git worktree isolation (default: true for git repos). */
+  readonly useWorktree?: boolean;
+  /** Callback for real-time token usage updates (optional). */
+  readonly onUsage?: (usage: SubagentUsage) => void;
+  /** Callback for real-time tool/activity tracking (optional). */
+  readonly onActivity?: (tool: string, activity: string) => void;
+  /** Callback for real-time messages via mailbox file writes (optional). */
+  readonly onMessage?: (message: MailboxMessage) => void;
+  /** Path to the shared mailbox root for real-time inter-agent communication (optional). */
+  readonly mailboxPath?: string;
+  /** Role name for team agents (optional, used for mailbox routing). */
+  readonly roleName?: string;
+  /** Additional system prompt content from profile (optional). */
+  readonly additionalSystemPrompt?: string;
+  /** Path to per-agent message inbox for coordinator SendMessage (optional). */
+  readonly messageInboxPath?: string;
+}
+
+/** A task that spawns a NEW subagent. */
+export interface SpawnQueuedSubagentTask<
+  T = unknown,
+> extends BaseQueuedSubagentTask<T> {
+  readonly kind: "spawn";
+}
+
+/** A task that RESUMES an existing subagent. */
+export interface ResumeQueuedSubagentTask<
+  T = unknown,
+> extends BaseQueuedSubagentTask<T> {
+  readonly kind: "resume";
+  readonly resumeAgentId: string;
+}
+
+/** Union of queued task kinds. */
+export type QueuedSubagentTask<T = unknown> =
+  | SpawnQueuedSubagentTask<T>
+  | ResumeQueuedSubagentTask<T>;
+
+// ---------------------------------------------------------------------------
+// Controller options
+// ---------------------------------------------------------------------------
+
+/** Options for the batch concurrency controller. */
+export interface SubagentBatchOptions {
+  /**
+   * Optional cap on concurrent subagents during the normal phase.
+   * `undefined` means no cap (legacy ramp behavior).
+   */
+  readonly maxConcurrency?: number;
+  /**
+   * Optional progress callback invoked when task states change.
+   * Receives a snapshot of the current batch progress.
+   */
+  readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Team progress types (for TUI dashboard)
+// ---------------------------------------------------------------------------
+
+/** Describes a dependency edge between phases. */
+export interface PhaseDependencyEdge {
+  readonly from: string;
+  readonly to: string;
+}
+
+/** Snapshot of team run progress for TUI display. */
+export interface TeamProgressSnapshot {
+  readonly title: string;
+  readonly goal: string;
+  readonly status: "running" | "completed" | "failed";
+  readonly totalPhases: number;
+  readonly completedPhases: number;
+  readonly failedPhases: number;
+  readonly currentPhase?: string;
+  readonly currentRole?: string;
+  readonly phases: ReadonlyArray<TeamPhaseStatus>;
+  readonly mailboxCount: number;
+  readonly startedAt: number;
+  readonly totalUsage: SubagentUsage;
+  /** Dependency edges between phases (from → to). */
+  readonly dependencyEdges?: ReadonlyArray<PhaseDependencyEdge>;
+}
+
+/** Per-phase status in a team progress snapshot. */
+export interface TeamPhaseStatus {
+  readonly name: string;
+  readonly role: AgentRole;
+  readonly status: "queued" | "running" | "completed" | "failed" | "skipped";
+  readonly error?: string;
+  readonly usage?: SubagentUsage;
+  /** Current tool being executed by the subagent in this phase. */
+  readonly currentTool?: string;
+  /** Current activity description for the subagent in this phase. */
+  readonly activity?: string;
+}
+
+/** Callback for team progress updates. */
+export type TeamProgressCallback = (snapshot: TeamProgressSnapshot) => void;
+
+/** Snapshot of batch progress for TUI display. */
+export interface BatchProgressSnapshot {
+  readonly total: number;
+  readonly completed: number;
+  readonly failed: number;
+  readonly active: number;
+  readonly queued: number;
+  readonly members: ReadonlyArray<BatchMemberStatus>;
+  readonly totalUsage: SubagentUsage;
+  readonly startedAt: number;
+  /** Estimated time remaining in ms (based on average task duration * remaining). */
+  readonly estimatedRemainingMs?: number;
+  /** Recent event log entries. */
+  readonly eventLog?: ReadonlyArray<ProgressEvent>;
+}
+
+/** A single progress event for the event log. */
+export interface ProgressEvent {
+  readonly id: number;
+  readonly agentId?: string;
+  readonly timestamp: number;
+  readonly type:
+    | "started"
+    | "completed"
+    | "failed"
+    | "tool_execution"
+    | "suspended"
+    | "phase_change";
+  readonly detail: string;
+}
+
+/** Per-member status in a progress snapshot. */
+export interface BatchMemberStatus {
+  readonly index: number;
+  readonly phase: "queued" | "working" | "completed" | "failed" | "suspended";
+  readonly name?: string;
+  readonly item?: string;
+  readonly error?: string;
+  readonly usage?: SubagentUsage;
+  /** Current tool being executed by this agent (e.g. "read", "edit", "bash"). */
+  readonly currentTool?: string;
+  /** Description of current agent activity (e.g. "editing src/auth.ts"). */
+  readonly activity?: string;
+  /** Cumulative progress tick count (incremented on each tool call / activity). */
+  readonly progressTick?: number;
+  /** Timestamp when this agent started working (ms since epoch). */
+  readonly startedAt?: number;
+}
+
+// ---------------------------------------------------------------------------
+// Suspended event (rate-limit signalling)
+// ---------------------------------------------------------------------------
+
+/** Emitted when a subagent is suspended due to rate limiting. */
+export interface SubagentSuspendedEvent {
+  readonly agentId: string;
+  readonly reason: string;
+}
+
+// ---------------------------------------------------------------------------
+// Launcher interface (abstracts spawn / resume / retry)
+// ---------------------------------------------------------------------------
+
+/**
+ * Interface the controller uses to launch subagents.
+ * Implementations can use pi --print, in-process SDK, or other backends.
+ */
+export interface SubagentBatchLauncher {
+  spawn(options: SpawnSubagentOptions): Promise<SubagentHandle>;
+  resume(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
+  retry(agentId: string, options: RunSubagentOptions): Promise<SubagentHandle>;
+  /**
+   * Optional callback invoked when a subagent is suspended due to
+   * rate limiting during the rate-limit phase.
+   */
+  suspended?: (event: SubagentSuspendedEvent) => void;
+}
+
+// ---------------------------------------------------------------------------
+// Agent Profiles (#99) & File-based Agents (#59)
+// ---------------------------------------------------------------------------
+
+/** Output format for agent results. */
+export type AgentOutputFormat = "free" | "structured";
+
+/**
+ * Match rules for automatic item-to-agent routing.
+ *
+ * When Swarm tool is called without explicit profile or agentType,
+ * these rules determine which file-based agent should handle each item.
+ */
+export interface AgentMatchRule {
+  /**
+   * Glob patterns for file extension / path matching.
+   * Example: ["*.rs", "*.rlib"] matches Rust files.
+   */
+  readonly patterns?: readonly string[];
+  /**
+   * Keywords for content-based matching (case-insensitive).
+   * Example: ["rust", "memory safety"] matches items mentioning Rust.
+   */
+  readonly keywords?: readonly string[];
+}
+
+/**
+ * Source of a file-based agent definition.
+ */
+export type FileAgentSource = "user" | "project";
+
+/**
+ * Parsed frontmatter from a file-based agent (.md) definition.
+ */
+export interface AgentFileDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly allowWrite?: boolean;
+  readonly allowBashWrite?: boolean;
+  readonly model?: string;
+  readonly outputFormat?: AgentOutputFormat;
+  /** Explicit tool allowlist — when set, ONLY these tools are available. */
+  readonly tools?: string[];
+  /** Tool denylist — subtracts from resolved tool set. */
+  readonly disallowedTools?: string[];
+  /** Match rules for automatic item-to-agent routing. */
+  readonly match?: AgentMatchRule;
+  /** Prompt body (Markdown body content). */
+  readonly prompt: string;
+  /** Source directory ("user" for ~/.pi/agents/, "project" for .pi/agents/). */
+  readonly source: FileAgentSource;
+  /** Original file path. */
+  readonly filePath: string;
+}
+
+/**
+ * Agent profile defining role-specific behavior, tool restrictions,
+ * model routing, and system prompt.
+ */
+export interface AgentProfile {
+  readonly name: string;
+  readonly description: string;
+  readonly allowWrite: boolean;
+  readonly allowBashWrite: boolean;
+  readonly model?: string | "inherit";
+  readonly outputFormat: AgentOutputFormat;
+  readonly systemPrompt: string;
+  /** Explicit tool allowlist (optional). When set, overrides default capability-based derivation. */
+  readonly tools?: readonly string[];
+  /** Tool denylist (optional). Subtracts from resolved tool set. */
+  readonly disallowedTools?: readonly string[];
+  /** Match rules for automatic item-to-agent routing. */
+  readonly match?: AgentMatchRule;
+}
+
+/** Built-in profile name type. */
+export type BuiltinProfileName = "explore" | "plan" | "general" | "review";
+
+// ---------------------------------------------------------------------------
+// Coordinator Mode (#98)
+// ---------------------------------------------------------------------------
+
+/** Event emitted by the controller when agent state changes in coordinator mode. */
+export interface SubagentEvent<T = unknown> {
+  readonly runId: string;
+  readonly agentId: string;
+  readonly agentName?: string;
+  readonly eventType: "agent_started" | "agent_completed";
+  readonly timestamp: number;
+  readonly result?: SubagentResult<T>;
+}
+
+/** Handle returned by runAsync() for coordinator mode. */
+export interface SwarmHandle<T = unknown> {
+  readonly runId: string;
+  /** Get all completed results so far (non-blocking). */
+  getResults(): Array<SubagentResult<T>>;
+  /** Send a message to a running agent (best-effort via file). */
+  sendMessage(agentId: string, message: string): void;
+  /** Gracefully stop a running agent. */
+  stopAgent(agentId: string): void;
+  /** Abort the entire swarm. */
+  abort(): void;
+  /** Promise that resolves when all agents complete. */
+  readonly completion: Promise<Array<SubagentResult<T>>>;
+}
+
+/** Options for coordinator mode run. */
+export interface CoordinatorOptions<T = unknown> {
+  readonly onEvent?: (event: SubagentEvent<T>) => void;
+}
