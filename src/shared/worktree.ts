@@ -15,18 +15,16 @@
  *
  */
 
-import { execFileSync, execSync } from "node:child_process";
+import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
   symlinkSync,
-  copyFileSync,
-  readdirSync,
   statSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
-import { join, dirname, basename } from "node:path";
+import { join, dirname } from "node:path";
 
 export interface WorktreeInfo {
   path: string;

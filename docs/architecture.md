@@ -6,10 +6,11 @@
 
 pi-swarm is a **subagent orchestration system** with two operational modes:
 
-| Mode      | Pattern                               | Trigger                                   | Communication      |
-| --------- | ------------------------------------- | ----------------------------------------- | ------------------ |
-| **Swarm** | Parallel, item-template, homogeneous  | `AgentSwarm` tool or `/swarm` command     | None (independent) |
-| **Team**  | Collaborative with mailbox   | `/swarm-team` command                    | JSONL mailbox      |
+| Mode            | Pattern                               | Trigger                                      | Communication       |
+| --------------- | ------------------------------------- | -------------------------------------------- | ------------------- |
+| **Swarm**       | Parallel, item-template, homogeneous  | `Swarm` tool or `/swarm` command              | None (independent)  |
+| **Team**        | Collaborative with mailbox, role-based | `Swarm` tool (mailbox: true) or `/swarm-team` | JSONL mailbox       |
+| **Coordinator** | Non-blocking, multi-turn orchestration | `SwarmCoordinator` tool                       | File-based inboxes  |
 
 The design follows these principles:
 
@@ -21,9 +22,13 @@ The design follows these principles:
 
 4. **Mailbox as the team primitive.** In mailbox mode, agents communicate by writing JSON messages to a shared mailbox directory. The spawner polls outbox files and delivers messages to recipient inboxes for inter-agent communication.
 
-5. **Zero runtime dependencies.** The only external packages are `typebox` (schema validation) and `@earendil-works/pi-tui` (rendering). All orchestration, state management, and process control are custom-built.
+5. **Capability-based profiles.** Agent profiles control behavior through boolean flags (`allowWrite`, `allowBashWrite`) rather than hardcoded tool name allowlists. This keeps profile definitions portable across tool ecosystems.
 
-6. **100% English.** All code, comments, JSDoc, commit messages, and documentation are written in English.
+6. **Non-blocking coordinator.** The coordinator mode returns a handle immediately, allowing the main agent to stay active and orchestrate subagents across multiple conversation turns.
+
+7. **Zero runtime dependencies.** The only external packages are `typebox` (schema validation) and `@earendil-works/pi-tui` (rendering). All orchestration, state management, and process control are custom-built.
+
+8. **100% English.** All code, comments, JSDoc, commit messages, and documentation are written in English.
 
 ---
 
@@ -36,13 +41,15 @@ src/
 │   ├── types.ts          # Pure data type definitions
 │   ├── pi-invoke.ts      # pi CLI invocation resolution
 │   ├── spawner.ts        # Child process management (spawn, event parsing, worktree, mailbox)
-│   ├── controller.ts     # SubagentBatch concurrency controller
+│   ├── controller.ts     # SubagentBatch concurrency controller (run + runAsync)
 │   ├── render.ts         # XML output formatter
-│   └── worktree.ts       # Git worktree isolation (create, cleanup, merge, prune)
+│   ├── worktree.ts       # Git worktree isolation (create, cleanup, merge, prune)
+│   └── profiles.ts       # Agent profile registry (built-in + user-defined), tool restrictions
 ├── swarm/                # Swarm mode (imports from shared/)
-│   ├── tool.ts           # AgentSwarm tool (pi.registerTool)
+│   ├── tool.ts           # Swarm tool (pi.registerTool, profile support)
 │   ├── command.ts        # /swarm slash command
-│   └── mode.ts           # SwarmMode lifecycle state machine
+│   ├── mode.ts           # SwarmMode lifecycle state machine
+│   └── coordinator.ts    # Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
 ├── team/                 # Team mode (imports from shared/)
 │   ├── command.ts        # /swarm-team slash command
 │   └── mailbox.ts        # JSONL inbox/outbox/delivery (atomic writes)
@@ -239,43 +246,74 @@ Produces the structured XML output that the parent LLM reads.
 - Resume hint only shown when there are failed tasks AND known agent IDs
 - Summary line uses comma-separated counts
 
+### 3.6 Agent Profiles (`shared/profiles.ts`)
+
+Provides a registry of agent profiles that control subagent capabilities, model routing, system prompts, and output formats.
+
+**Capability-based restrictions**: Profiles use boolean flags (`allowWrite`, `allowBashWrite`) rather than hardcoded tool name allowlists. This keeps profiles portable across tool ecosystems. `resolveProfileTools()` derives the native pi tool allowlist from these flags:
+
+- `allowWrite: false` → excludes `edit`, `write` tools
+- `allowBashWrite: false` → bash tool is allowed but a prompt injection instructs read-only usage
+
+**Built-in profiles**:
+
+| Profile   | `allowWrite` | `allowBashWrite` | Model        | Output Format |
+| --------- | ------------ | ---------------- | ------------ | ------------- |
+| `general` | true         | true             | inherit      | free          |
+| `explore` | false        | false            | small        | structured    |
+| `plan`    | false        | false            | inherit      | structured    |
+| `review`  | false        | false            | inherit      | structured    |
+
+**User-defined profiles**: Loaded from `.pi/settings.json` (project or global) under `pi-swarm.subagents`. Custom profiles override built-in profiles by name. Each custom profile supports `description`, `allowWrite`, `allowBashWrite`, `model`, `outputFormat`, and `systemPrompt`.
+
+**Profile resolution** (`resolveProfile()`):
+1. User-defined profiles (from `.pi/settings.json`)
+2. Built-in profiles (`explore`, `plan`, `general`, `review`)
+3. Fallback: `general` profile (full access)
+
+**Agent name derivation** (`deriveAgentName()`):
+1. Explicit profile name (unless it's `coder` or `subagent`)
+2. First colon- or dash-delimited segment of the item text (e.g., `"repo-inspect: ..."` → `"repo-inspect"`)
+3. Fallback: `agent-{index}`
+
+**Why capability-based profiles**: Hardcoded tool name allowlists break when tools are renamed or new tools are added. Boolean capability flags express intent ("this agent cannot modify files") without coupling to specific tool names.
+
 ---
 
 ## 4. Swarm Mode
 
-### 4.1 AgentSwarm Tool (`swarm/tool.ts`)
+### 4.1 Swarm Tool (`swarm/tool.ts`)
 
-Registered via `pi.registerTool("AgentSwarm", ...)` with a TypeBox parameter schema.
+Registered via `pi.registerTool("Swarm", ...)` with a TypeBox parameter schema.
 
 **Input parameters**:
 | Parameter | Required | Description |
 |-----------|----------|-------------|
-| `description` | Yes | Human-readable swarm description |
-| `subagent_type` | No | Profile name, defaults to "coder" |
-| `prompt_template` | Conditional | Required when `items` is provided; must contain `{{item}}` |
-| `items` | Conditional | At least 2 unless `resume_agent_ids` is provided |
-| `resume_agent_ids` | No | Map of agentId → resume prompt |
+| `description` | No | Human-readable swarm description |
+| `profile` | No | Agent profile name ("general", "explore", "plan", "review", or custom) |
+| `prompt_template` | Yes | Prompt template with `{{item}}` placeholder |
+| `items` | Yes | 1-20 items to parallelize across |
+| `model` | No | "small" for lightweight tasks, or explicit model ID |
+| `mailbox` | No | Enable inter-agent mailbox (default: false) |
 
 **Validation rules**:
 
-1. At least 2 items unless resume_agent_ids is provided
-2. Total (items + resume entries) ≤ 128
-3. prompt_template must contain `{{item}}` when items are provided
-4. No duplicate prompts across items (dedup check)
+1. `prompt_template` must contain `{{item}}` exactly once
+2. `items` must have 1-20 entries
+3. No duplicate prompts across items
 
 **Execution flow**:
 
 1. Parse and validate input
-2. Normalize profile name
-3. Create swarm specs (SpawnSpec for new items, ResumeSpec for resume entries)
-4. Convert specs to QueuedSubagentTask array
-5. Create SubagentBatchController with the real spawner launcher
-6. Call `controller.run()` — blocks until all tasks complete
-7. Convert results to SwarmRunResult array
-8. Render `<agent_swarm_result>` XML
-9. Return as tool result content
-
-**Why a dedicated `createAgentSwarmSpecs` function**: Keeps the validation logic testable in isolation. The function takes raw input and produces validated spec objects. The tool execution layer then converts specs to tasks and runs them.
+2. Resolve agent profile via `resolveProfile(profile)`
+3. Derive agent names via `deriveAgentName(profileName, item, index)`
+4. Create `SwarmSpawnSpec` array (one per item with `{{item}}` replaced)
+5. Convert specs to `QueuedSubagentTask` array with profile-derived fields (tools, model, system prompt)
+6. Create `SubagentBatchController` with the real spawner launcher
+7. Call `controller.run()` — blocks until all tasks complete
+8. Convert results to `SwarmRunResult` array
+9. Render `<agent_swarm_result>` XML
+10. Return as tool result content
 
 ### 4.2 Swarm Mode State Machine (`swarm/mode.ts`)
 
@@ -286,12 +324,12 @@ Tracks whether swarm mode is active and manages system reminders.
 |---------|--------|-----------|-------------------|
 | `manual` | `/swarm on` | No | Yes (enter + exit) |
 | `task` | `/swarm <task>` | Yes (after turn) | Yes (enter only) |
-| `tool` | LLM calls AgentSwarm | Yes (after tool returns) | No (silent) |
+| `tool` | LLM calls Swarm | Yes (after tool returns) | No (silent) |
 
 **System reminders**:
 
-- **Enter** (manual/task): "Swarm mode is now active. AgentSwarm is auto-approved..."
-- **Exit** (manual/task): "Swarm mode has been deactivated. AgentSwarm now requires permission..."
+- **Enter** (manual/task): "Swarm mode is now active. Swarm is auto-approved..."
+- **Exit** (manual/task): "Swarm mode has been deactivated. Swarm now requires permission..."
 - **Tool trigger**: No reminder injected (transient tool call)
 
 **Design rationale**: The "silent" tool trigger avoids polluting the conversation with swarm mode reminders when the LLM itself initiated the swarm. Manual and task triggers inject reminders because the user explicitly requested swarm mode and the LLM should know.
@@ -306,6 +344,42 @@ Supports four forms:
 - `/swarm <task>` — one-shot: enable + send task
 
 **Permission integration**: Swarm mode activates directly without prompting for permission mode switching. The `SwarmCommandHost` interface no longer requires `getPermissionMode()` or `setPermissionMode()`. The TUI permission prompt component remains available for future use.
+
+### 4.4 Coordinator Mode (`swarm/coordinator.ts`)
+
+The coordinator mode introduces non-blocking swarm orchestration. Unlike the blocking `Swarm` tool which waits for all agents to complete before returning, `SwarmCoordinator` returns immediately with a `runId`. The main agent stays active and can orchestrate agents across conversation turns.
+
+**Registered tools**:
+
+| Tool              | Description                                                   |
+| ----------------- | ------------------------------------------------------------- |
+| `SwarmCoordinator` | Launch a non-blocking swarm. Returns `runId`.                 |
+| `SendMessage`      | Send a message to a running agent (or `"broadcast"` to all). |
+| `TaskStop`         | Gracefully stop a running agent by name or ID.                |
+| `SwarmStatus`      | Check status and results of active coordinator runs.          |
+
+**SwarmCoordinator parameters**: `description`, `profile`, `prompt_template`, `items`, `model` — same as the blocking `Swarm` tool.
+
+**Controller integration**: `SubagentBatchController.runAsync()` launches agents in background and returns a `SwarmHandle`:
+
+```typescript
+interface SwarmHandle<T> {
+  readonly runId: string;
+  getResults(): Array<SubagentResult<T>>;  // non-blocking
+  sendMessage(agentId: string, message: string): void;
+  stopAgent(agentId: string): void;
+  abort(): void;
+  readonly completion: Promise<Array<SubagentResult<T>>>;
+}
+```
+
+**Message delivery**: When `SendMessage` is called, the message is written to a per-agent inbox file at `.pi/swarm/state/runs/{runId}/coord/inboxes/{agentId}.jsonl`. The subagent (via `pi --print`) reads this file during execution to receive coordinator instructions.
+
+**Lifecycle events**: `runAsync()` accepts a `CoordinatorOptions.onEvent` callback that fires on `agent_started` and `agent_completed` events. The coordinator uses this to track agent state and report status.
+
+**Active run tracking**: All active coordinator runs are stored in an in-memory `Map<runId, ActiveCoordinatorRun>`. Runs are cleaned up when the extension shuts down. Completed runs persist their state under `.pi/swarm/state/runs/{runId}/` for debugging.
+
+**Why non-blocking**: The blocking `Swarm` tool works well for simple parallel tasks, but for complex workflows where the main agent needs to react to subagent outputs mid-execution (e.g., fix-and-retry, dynamic reallocation), a non-blocking coordinator is essential. The main agent observes progress via `SwarmStatus` and intervenes via `SendMessage` and `TaskStop`.
 
 ---
 
@@ -504,7 +578,43 @@ AgentSwarm.execute()
      Returned to LLM as tool result
 ```
 
-### 8.2 Team / Mailbox Execution Flow
+### 8.2 Coordinator Mode Execution Flow
+
+```
+LLM calls SwarmCoordinator({ prompt_template, items, profile })
+  │
+  ▼
+SwarmCoordinator.execute()
+  │
+  ├─ resolveProfile(profile)           ← resolve agent profile
+  ├─ deriveAgentName()                  ← human-readable agent names
+  ├─ create SwarmSpawnSpec[]            ← template substitution
+  ├─ convert to QueuedSubagentTask[]    ← profile-derived fields
+  │
+  ├─ controller.runAsync(runId, opts)   ← non-blocking background launch
+  │     │
+  │     ├─ onEvent: agent_started       ← register in manifest
+  │     ├─ onEvent: agent_completed     ← accumulate results
+  │     └─ returns SwarmHandle           ← non-blocking access
+  │
+  ├─ store in activeRuns map             ← in-memory tracking
+  │
+  └─ return runId to LLM                ← immediate response
+
+  // Main agent orchestrates across turns:
+  SendMessage(runId, agentName, message)
+    → writes to .pi/swarm/state/runs/{runId}/coord/inboxes/{agentId}.jsonl
+    → agent reads file during execution
+
+  TaskStop(runId, agentName)
+    → handle.stopAgent(agentId)
+    → aborts running agent process
+
+  SwarmStatus()
+    → iterates activeRuns, reports per-agent completion status
+```
+
+### 8.3 Team / Mailbox Execution Flow
 
 ```
 User: /swarm-team Implement login with tests
@@ -537,8 +647,8 @@ Swarm results rendered as <agent_swarm_result> XML
 | **Two-phase concurrency**                             | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff. |
 | **XML output format**                                 | Uses `<agent_swarm_result>` XML. The parent LLM already knows how to parse this format from its training data. |
 | **Mailbox as JSONL files**                            | Simplicity, durability, auditability. Every message is a file that can be inspected with `cat` or `jq`. No message broker to install                                                                |
-| **Sequential team phases**                            | Team phases have semantic dependencies (plan before code). Parallel execution within a phase is possible (future work) but inter-phase parallelism would violate the dependency graph               |
-| **Default 5-phase team workflow**                     | Based on research of CrewAI's hierarchical model and common software development workflows. The explore → plan → implement → review → test pipeline mirrors real engineering processes              |
+| **Capability-based profiles**                         | `allowWrite`/`allowBashWrite` boolean flags instead of hardcoded tool names. Portable across tool ecosystems and resilient to tool renames.                                                          |
+| **Non-blocking coordinator**                          | `runAsync()` returns a handle immediately. Main agent orchestrates across turns via `SendMessage` and `TaskStop`. Suitable for dynamic workflows where the main agent reacts to subagent outputs.   |
 | **Atomic writes for state**                           | Crash safety. A partial write on crash should never corrupt the existing state                                                                                                                      |
 | **30-minute staleness threshold**                     | Long enough for a legitimate run, short enough to detect actual crashes. Pi's default subagent timeout is also 30 minutes                                                                           |
 | **Worktree isolation by default**                     | Parallel agents must not interfere with each other's file changes. Git worktrees provide clean filesystem isolation with zero config. Non-git repos fall back to cwd                                |
@@ -549,9 +659,10 @@ Swarm results rendered as <agent_swarm_result> XML
 
 ## 10. Future Work
 
-1. **Team supervisor and task graph**: Implement phase-based team orchestration with role agents, dependency DAG, and supervisor synthesis (design documented in PLAN.md).
+1. **Team supervisor and task graph**: Implement phase-based team orchestration with role agents, dependency DAG, and supervisor synthesis.
 2. **Parallel team sub-phases**: Within a single team phase, spawn multiple agents working on different files simultaneously, then aggregate results.
 3. **Heartbeat-based liveness**: Replace the 30-minute staleness threshold with active heartbeat updates from running agents.
 4. **Model fallback chain**: If the primary model is rate-limited, fall back to a cheaper model.
-5. **Dashboard TUI**: A `/swarm-status` command showing all active and recent runs.
+5. **Dashboard TUI**: A command showing all active and recent runs.
 6. **Run export/import**: Bundle a complete run (state + artifacts + events) for cross-machine sharing or debugging.
+7. **Coordinator result collection API**: Expose coordinator run results to the LLM as a structured tool output rather than requiring manual `SwarmStatus` polling.

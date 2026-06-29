@@ -60,7 +60,6 @@ const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
 // Constants
 // ---------------------------------------------------------------------------
 
-const DEFAULT_SUBAGENT_TYPE = "coder";
 const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes

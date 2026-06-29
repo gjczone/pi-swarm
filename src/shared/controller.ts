@@ -23,7 +23,6 @@ import type {
   BatchProgressSnapshot,
   BatchMemberStatus,
   SubagentUsage,
-  MailboxMessage,
   ProgressEvent,
   SubagentEvent,
   SwarmHandle,

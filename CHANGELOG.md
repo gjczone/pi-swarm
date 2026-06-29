@@ -5,6 +5,31 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.0] - 2026-06-29
+
+### Added
+
+- **Agent Profiles (#99)**: Four built-in profiles (`explore`, `plan`, `general`, `review`) with capability-based tool restrictions, model routing, structured system prompts, and output formats. User-defined custom profiles can be added via `.pi/settings.json` under `pi-swarm.subagents`. Profiles determine whether an agent can write files or run write-capable bash commands.
+- **Coordinator Mode (#98)**: Non-blocking swarm orchestration with four new tools:
+  - `SwarmCoordinator` — launch a swarm and return immediately with a `runId`, staying in control across conversation turns.
+  - `SendMessage` — send messages to running agents (or broadcast to all) via per-agent inbox files.
+  - `TaskStop` — gracefully stop individual agents by name or ID.
+  - `SwarmStatus` — check status and results of active coordinator runs.
+- **Agent name derivation**: `deriveAgentName()` produces human-readable agent names from profile name, item prefix (colon/dash-delimited), or index fallback (`agent-N`).
+- **Message inbox paths**: Coordinator agents read per-agent `messageInboxPath` files for incoming `SendMessage` deliveries during execution.
+
+### Changed
+
+- **Swarm tool** (`src/swarm/tool.ts`): Added `profile` parameter for agent profile selection. Each subagent now carries profile-derived behavior (tool restrictions, system prompt, model routing).
+- **Spawner** (`src/shared/spawner.ts`): Added `messageInboxPath`, `agentName`, and `additionalSystemPrompt` fields to `RunSubagentOptions`. Subagents now receive profile-specific system prompts and coordinator inbox paths.
+- **Controller** (`src/shared/controller.ts`): `runAsync()` method added for coordinator mode — runs agents in background and returns a `SwarmHandle` with `getResults()`, `sendMessage()`, `stopAgent()`, and `abort()`. Non-blocking operation with `onEvent` callback for lifecycle events.
+- **Types** (`src/shared/types.ts`): Added `AgentProfile`, `BuiltinProfileName`, `AgentOutputFormat`, `SwarmHandle`, `SubagentEvent`, `CoordinatorOptions`, and profile-related fields to `BaseQueuedSubagentTask` and `RunSubagentOptions`.
+- **Entry point** (`src/index.ts`): Imported and registered `registerCoordinatorTools()` for the four coordinator tools.
+
+### Dependencies
+
+- Added `prettier` as explicit devDependency (`^3.8.3`) to lock formatter version (#100).
+
 ## [0.7.2] - 2026-06-29
 
 ### Fixed

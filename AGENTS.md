@@ -190,7 +190,7 @@ If a tool errors or is unavailable, try once more, then work around it. But you 
 - **Type**: pi-coding-agent extension, auto-discovered via `pi.extensions: ["./dist"]` in `package.json`
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema); peer: `@earendil-works/pi-coding-agent`
 - **Test framework**: vitest — 57 tests, 6 test files, 0 failures
-- **Key risk areas**: concurrency controller (rate-limit capacity model), sub-agent process lifecycle (spawn/kill/abort), worktree isolation edge cases, mailbox atomic writes
+- **Key risk areas**: concurrency controller (rate-limit capacity model, runAsync coordinator), sub-agent process lifecycle (spawn/kill/abort), worktree isolation edge cases, mailbox atomic writes, profile resolution ordering
 
 ## Commands
 
@@ -211,8 +211,9 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 
 **Layer dependency**: `tui/` + `state/` → `swarm/` + `team/` → `shared/` → `index.ts`
 
-- `shared/` — no pi or tui imports. Pure logic, types, process management.
-- `swarm/` and `team/` — compose shared primitives, register pi tools/commands. Must not import from each other.
+- `shared/` — no pi or tui imports. Pure logic, types, process management, agent profiles.
+- `swarm/` — compose shared primitives, register pi tools/commands (Swarm, SwarmCoordinator, SendMessage, TaskStop, SwarmStatus). Must not import from `team/`.
+- `team/` — mailbox system and team command. Must not import from `swarm/`.
 - `tui/` — implements `Component` from `@earendil-works/pi-tui`.
 - `state/` — pure Node.js filesystem, no pi imports.
 - `index.ts` — wires everything via `pi.registerTool`, `pi.registerCommand`, `pi.on`.
@@ -229,7 +230,9 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 | TUI progress | Fixed-width tool-call-driven braille bars with baseline track, onProgress callback |
 | Swarm output format | `<agent_swarm_result>` XML |
 | Mailbox communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes and real-time polling |
-| Dual mode | `/swarm` (parallel, item-template) + `/swarm-team` (Swarm with mailbox enabled) |
+| Agent profiles | Capability-based (allowWrite / allowBashWrite). Four built-in + user-defined custom via settings |
+| Coordinator mode | Non-blocking swarm via `runAsync()` + `SwarmHandle`. Main agent orchestrates with SendMessage/TaskStop |
+| Triple mode | `/swarm` (blocking parallel), `/swarm-team` (mailbox collaborative), `SwarmCoordinator` (non-blocking orchestration) |
 
 ## Data & State Flows
 
@@ -265,15 +268,19 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - **Adding a TUI component**: Create `tui/<name>.ts` implementing `Component` from `@earendil-works/pi-tui`. Animation timers must accept a `requestRender` callback and call it on each tick.
 - **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed. Always use `writeAtomic` for JSON/JSONL writes.
 - **Adding per-agent output.log**: Configure `agentDir` in `resolveAgentStateDir` → write in `spawnSubagent` with header/raw output/footer
-- **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → add `getPhaseExecutionConfig()` to `supervisor.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask` → update `team/tool.ts` schema
+- **Adding a new agent profile**: Add built-in to `BUILTIN_PROFILES` in `shared/profiles.ts` → add to `BuiltinProfileName` type union in `types.ts` → document in README.md
+- **Adding a coordinator tool**: Create handler in `swarm/coordinator.ts` → register via `pi.registerTool` → update `index.ts` to import and call the registration function
+- **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask`
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update `PLAN.md` and `docs/architecture.md`
 
 ## First Places to Inspect
 
-- `src/shared/controller.ts` — concurrency controller (two-phase ramp-up / rate-limit)
+- `src/shared/controller.ts` — concurrency controller (two-phase ramp-up / rate-limit, runAsync)
 - `src/shared/spawner.ts` — sub-agent lifecycle: spawn, event parsing, worktree, mailbox polling
 - `src/shared/worktree.ts` — git worktree isolation (create, symlink, commit, cleanup)
-- `src/swarm/tool.ts` — AgentSwarm tool definition (output.log persistence, run manifests)
+- `src/shared/profiles.ts` — agent profile registry (built-in + user-defined), tool restrictions
+- `src/swarm/tool.ts` — Swarm tool definition (output.log persistence, run manifests, profile support)
+- `src/swarm/coordinator.ts` — Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
 - `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment
 - `src/team/command.ts` — /swarm-team slash command
 - `src/tui/progress.ts` — TUI braille progress panel (fixed-width baseline track)

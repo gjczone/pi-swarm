@@ -1,19 +1,33 @@
-# pi-swarm Implementation Plan (v2 — Dual Mode)
+# pi-swarm Implementation Plan (v3 — Triple Mode)
 
 ---
 
 ## 1. Product Vision
 
-**pi-swarm** is a unified multi-agent extension for pi-coding-agent with two operational modes:
+**pi-swarm** is a unified multi-agent extension for pi-coding-agent with three operational modes:
 
-| Mode      | Command              | Trigger                        | Pattern                                          |
-| --------- | -------------------- | ------------------------------ | ------------------------------------------------ |
-| **Swarm** | `/swarm <task>`      | User or LLM calls `AgentSwarm` | Parallel, item-template, homogeneous agents      |
-| **Team**  | `/swarm-team <task>` | User or LLM calls `SwarmTeam`  | Collaborative, role-based, mailbox communication |
+| Mode             | Command              | Trigger                                | Pattern                                                        |
+| ---------------- | -------------------- | -------------------------------------- | -------------------------------------------------------------- |
+| **Swarm**        | `/swarm <task>`      | User or LLM calls `Swarm`              | Parallel, item-template, homogeneous agents                    |
+| **Team**         | `/swarm-team <task>` | User or LLM calls `Swarm` (mailbox: true) | Collaborative, role-based, mailbox communication            |
+| **Coordinator**  | `SwarmCoordinator`    | LLM calls `SwarmCoordinator`           | Non-blocking, multi-turn orchestration with messaging          |
 
-Both modes share the same underlying infrastructure: subagent spawning (`pi --print`), concurrency control, rate-limit handling, and TUI progress rendering.
+All three modes share the same underlying infrastructure: subagent spawning (`pi --print`), concurrency control, rate-limit handling, and TUI progress rendering.
 
 **Long-term goal**: Replace both third-party `subagent` and `worktree` extensions as the unified sub-agent orchestration solution.
+
+### Agent Profiles
+
+Built-in and user-defined profiles control agent capabilities via capability-based flags (not hardcoded tool names):
+
+| Profile   | Write | Bash Write | Model        | Output     |
+| --------- | ----- | ---------- | ------------ | ---------- |
+| `general` | Yes   | Yes        | Inherit      | Free       |
+| `explore` | No    | No         | Small        | Structured |
+| `plan`    | No    | No         | Inherit      | Structured |
+| `review`  | No    | No         | Inherit      | Structured |
+
+Custom profiles are defined in `.pi/settings.json` under `pi-swarm.subagents` and override built-in profiles by name.
 
 ---
 
@@ -64,21 +78,23 @@ pi-swarm/
 ├── README.md
 ├── PLAN.md                       # This file
 ├── AGENTS.md
-├── LOCAL_CI.md
-├── OPS.md
+├── CHANGELOG.md
 └── src/
     ├── index.ts                  # Entry: default export, registers tools + commands + hooks
     ├── shared/
-    │   ├── types.ts              # Shared type definitions (messages, tasks, state)
+    │   ├── types.ts              # Shared type definitions (messages, tasks, state, profiles)
     │   ├── spawner.ts            # Sub-agent process spawner (pi --print)
-    │   ├── controller.ts         # Concurrency controller (ramp-up + rate-limit + abort)
-    │   └── render.ts             # Result rendering (XML for swarm, JSON for team)
+    │   ├── controller.ts         # Concurrency controller (ramp-up + rate-limit + abort, runAsync)
+    │   ├── render.ts             # Result rendering (XML for swarm, JSON for team)
+    │   ├── worktree.ts           # Git worktree isolation (create, cleanup, merge, prune)
+    │   ├── profiles.ts           # Agent profiles (built-in + user-defined)
+    │   └── pi-invoke.ts          # pi CLI invocation resolution
     ├── swarm/
-    │   ├── tool.ts               # AgentSwarm tool (parallel, item-template)
+    │   ├── tool.ts               # Swarm tool (parallel, item-template, profile support)
     │   ├── command.ts            # /swarm slash command
-    │   └── mode.ts               # SwarmMode state machine
+    │   ├── mode.ts               # SwarmMode state machine
+    │   └── coordinator.ts        # Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
     ├── team/
-    │   ├── tool.ts               # SwarmTeam tool (collaborative, mailbox-based)
     │   ├── command.ts            # /swarm-team slash command
     │   └── mailbox.ts            # Mailbox system (JSONL inbox/outbox/delivery)
     ├── tui/
@@ -97,6 +113,7 @@ Both Swarm and Team modes share:
 - **Controller** (`shared/controller.ts`): Two-phase ramp-up (5 + 1/700ms), rate-limit phase, abort handling
 - **Progress** (`tui/progress.ts`): Fixed-width tool-call-driven braille bars with baseline track
 - **Persistence** (`state/`): Durable file-based state for crash recovery
+- **Profiles** (`shared/profiles.ts`): Agent profile registry (built-in + user-defined), tool restriction derivation, model routing, name derivation
 
 ### 3.2 Mode: Swarm (Parallel)
 
@@ -174,9 +191,48 @@ User: /swarm-team Implement user authentication with tests
 - Task graph with dependencies: planner → coder → reviewer → tester
 - Supervisor monitors progress and can reassign/retry
 
+### 3.4 Mode: Coordinator (Non-blocking)
+
+```
+LLM calls SwarmCoordinator({ prompt_template, items })
+
+  ┌──────────────────────────────────────────────────────────┐
+  │                 Coordinator Controller                   │
+  │                                                          │
+  │  Returns immediately with runId.                         │
+  │  Main agent stays active across turns.                   │
+  │                                                          │
+  │  ┌──────────┐  ┌──────────┐  ┌──────────┐              │
+  │  │ Agent #1  │  │ Agent #2  │  │ Agent #3  │              │
+  │  │ explore   │  │ plan      │  │ general   │              │
+  │  │ inbox     │  │ inbox     │  │ inbox     │              │
+  │  └────┬─────┘  └────┬─────┘  └────┬─────┘              │
+  │       │             │             │                      │
+  │       ▼             ▼             ▼                      │
+  │  ┌──────────────────────────────────────────────────┐   │
+  │  │         SwarmHandle (per-agent inbox files)      │   │
+  │  │  getResults() | sendMessage() | stopAgent()     │   │
+  │  └──────────────────────────────────────────────────┘   │
+  └──────────────────────────────────────────────────────────┘
+
+  Main agent orchestrates:
+    SendMessage(runId, agentName, "Fix the type error in line 42")
+    TaskStop(runId, agentName)
+    SwarmStatus()  → { completed: 2, failed: 1, running: 0 }
+```
+
+**Key characteristics:**
+
+- Returns immediately with a runId — main agent stays in control
+- Agents run in background across conversation turns
+- Per-agent inbox files for SendMessage delivery
+- SwarmHandle provides non-blocking result access (`getResults()`)
+- Lifecycle events via `onEvent` callback (agent_started, agent_completed)
+- Suitable for use cases where the main agent needs to react to subagent progress or give dynamic instructions
+
 ---
 
-## 4. SwarmTeam Tool Design
+## 4. Agent Profiles Design
 
 ### 4.1 Input Schema
 
@@ -465,6 +521,17 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Recovery corrupt manifest preservation — preserve unreadable manifests for debugging
 - [x] Permission mode removal — swarm activates directly without permission prompts
 
+### Phase 7: Agent Profiles & Coordinator Mode
+
+- [x] Agent profile system (`shared/profiles.ts`) — 4 built-in profiles, user-defined custom profiles
+- [x] Profile resolution — `resolveProfile()`, `resolveProfileTools()`, `resolveProfileModel()`
+- [x] Agent name derivation — `deriveAgentName()` from profile/item/index fallback
+- [x] Coordinator mode (`swarm/coordinator.ts`) — `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus` tools
+- [x] Non-blocking `runAsync()` controller method — returns `SwarmHandle` with background execution
+- [x] Per-agent message inboxes for coordinator mode — file-based message delivery between main agent and subagents
+- [x] Swarm tool profile integration — profile parameter, tool restrictions, system prompt injection
+- [x] Spawner profile fields — `messageInboxPath`, `additionalSystemPrompt`, `agentName`
+
 ---
 
 ## 9. Design Decisions (Confirmed)
@@ -477,5 +544,6 @@ line (activated / deactivated / ended) in the transcript.
 | Tool whitelist            | All tools available by default                                      |
 | Persistence               | Durable file-based state; resume incomplete runs; disband completed |
 | Inter-agent communication | Mailbox pattern: JSONL files in `.pi/swarm/mailbox/`                |
-| Team supervision          | Supervisor agent decomposes goal, assigns to role agents, validates |
+| Agent profiles            | Capability-based (allowWrite / allowBashWrite). Not hardcoded tool names. |
+| Coordinator mode          | Non-blocking swarm via `runAsync()`. Main agent stays active, orchestrates via messages. |
 | Language                  | 100% English in all code, comments, docs, commits                   |

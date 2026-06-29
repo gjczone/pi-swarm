@@ -16,7 +16,6 @@
 
 import type {
   ExtensionAPI,
-  ExtensionContext,
 } from "@earendil-works/pi-coding-agent";
 import { Type } from "typebox";
 import {
@@ -49,7 +48,6 @@ import {
   readManifest,
   registerAgentInManifest,
 } from "../state/persistence.js";
-import { isGitRepository } from "../shared/worktree.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 
@@ -522,7 +520,7 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       },
       { additionalProperties: false },
     ),
-    execute: async (_toolCallId, params) => {
+    execute: async (_toolCallId, _params) => {
       if (activeRuns.size === 0) {
         return {
           content: [

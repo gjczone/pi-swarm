@@ -5,7 +5,7 @@
  * launcher that returns synthetic subagent handles.
  */
 
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { SubagentBatchController } from "../src/shared/controller.js";
 import type {
   QueuedSubagentTask,
@@ -346,8 +346,6 @@ describe("SubagentBatchController", () => {
 
   it("does not mutate results array after finish() resolves on cancel (#43)", async () => {
     const controller2 = new AbortController();
-    let resolveLateTask: ((value: SubagentCompletion) => void) | undefined;
-    let rejectLateTask: ((reason: Error) => void) | undefined;
 
     const launcher: SubagentBatchLauncher = {
       async spawn(opts: SpawnSubagentOptions): Promise<SubagentHandle> {

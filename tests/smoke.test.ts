@@ -8,7 +8,7 @@
 
 import { describe, it, expect, afterAll } from "vitest";
 import { SubagentBatchController } from "../src/shared/controller.js";
-import { renderSwarmResults, toSwarmRunResults } from "../src/shared/render.js";
+import { renderSwarmResults } from "../src/shared/render.js";
 import { resolveSwarmMaxConcurrency } from "../src/shared/controller.js";
 import {
   resolveSwarmRoot,
