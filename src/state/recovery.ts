@@ -204,12 +204,38 @@ export function getResumableAgents(
       "agents",
       agentId,
     );
-    if (fs.existsSync(statusDir)) {
-      // Agent has state on disk — it can be resumed
-      result.set(agentId, "resumable");
-    } else {
+    if (!fs.existsSync(statusDir)) {
       // Agent was never started
       result.set(agentId, "not_started");
+      continue;
+    }
+
+    const statusRecord = loadAgentStatus(swarmRoot, runId, agentId);
+    if (!statusRecord) {
+      // status.json missing or unreadable — treat as unknown, not resumable
+      result.set(agentId, "unknown");
+      continue;
+    }
+
+    const agentStatus = String(statusRecord.status ?? statusRecord.state ?? "");
+    // Non-terminal states — agent can be resumed
+    if (
+      agentStatus === "running" ||
+      agentStatus === "started" ||
+      agentStatus === "spawned" ||
+      agentStatus === "suspended"
+    ) {
+      result.set(agentId, "resumable");
+    } else if (
+      agentStatus === "completed" ||
+      agentStatus === "failed" ||
+      agentStatus === "aborted"
+    ) {
+      // Terminal states — agent should not be resumed
+      result.set(agentId, agentStatus);
+    } else {
+      // Unknown status — treat as not resumable
+      result.set(agentId, "unknown");
     }
   }
 
