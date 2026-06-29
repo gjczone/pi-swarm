@@ -244,7 +244,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - `TeamDashboardState` now tracks `currentRoles[]` (array) for multi-phase rendering support.
 
-
 ## [0.3.3] - 2026-06-24
 
 ### Fixed

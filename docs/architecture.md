@@ -6,11 +6,11 @@
 
 pi-swarm is a **subagent orchestration system** with two operational modes:
 
-| Mode            | Pattern                               | Trigger                                      | Communication       |
-| --------------- | ------------------------------------- | -------------------------------------------- | ------------------- |
-| **Swarm**       | Parallel, item-template, homogeneous  | `Swarm` tool or `/swarm` command              | None (independent)  |
-| **Team**        | Collaborative with mailbox, role-based | `Swarm` tool (mailbox: true) or `/swarm-team` | JSONL mailbox       |
-| **Coordinator** | Non-blocking, multi-turn orchestration | `SwarmCoordinator` tool                       | File-based inboxes  |
+| Mode            | Pattern                                | Trigger                                       | Communication      |
+| --------------- | -------------------------------------- | --------------------------------------------- | ------------------ |
+| **Swarm**       | Parallel, item-template, homogeneous   | `Swarm` tool or `/swarm` command              | None (independent) |
+| **Team**        | Collaborative with mailbox, role-based | `Swarm` tool (mailbox: true) or `/swarm-team` | JSONL mailbox      |
+| **Coordinator** | Non-blocking, multi-turn orchestration | `SwarmCoordinator` tool                       | File-based inboxes |
 
 The design follows these principles:
 
@@ -257,21 +257,23 @@ Provides a registry of agent profiles that control subagent capabilities, model 
 
 **Built-in profiles**:
 
-| Profile   | `allowWrite` | `allowBashWrite` | Model        | Output Format |
-| --------- | ------------ | ---------------- | ------------ | ------------- |
-| `general` | true         | true             | inherit      | free          |
-| `explore` | false        | false            | small        | structured    |
-| `plan`    | false        | false            | inherit      | structured    |
-| `review`  | false        | false            | inherit      | structured    |
+| Profile   | `allowWrite` | `allowBashWrite` | Model   | Output Format |
+| --------- | ------------ | ---------------- | ------- | ------------- |
+| `general` | true         | true             | inherit | free          |
+| `explore` | false        | false            | small   | structured    |
+| `plan`    | false        | false            | inherit | structured    |
+| `review`  | false        | false            | inherit | structured    |
 
 **User-defined profiles**: Loaded from `.pi/settings.json` (project or global) under `pi-swarm.subagents`. Custom profiles override built-in profiles by name. Each custom profile supports `description`, `allowWrite`, `allowBashWrite`, `model`, `outputFormat`, and `systemPrompt`.
 
 **Profile resolution** (`resolveProfile()`):
+
 1. User-defined profiles (from `.pi/settings.json`)
 2. Built-in profiles (`explore`, `plan`, `general`, `review`)
 3. Fallback: `general` profile (full access)
 
 **Agent name derivation** (`deriveAgentName()`):
+
 1. Explicit profile name (unless it's `coder` or `subagent`)
 2. First colon- or dash-delimited segment of the item text (e.g., `"repo-inspect: ..."` → `"repo-inspect"`)
 3. Fallback: `agent-{index}`
@@ -351,12 +353,12 @@ The coordinator mode introduces non-blocking swarm orchestration. Unlike the blo
 
 **Registered tools**:
 
-| Tool              | Description                                                   |
-| ----------------- | ------------------------------------------------------------- |
-| `SwarmCoordinator` | Launch a non-blocking swarm. Returns `runId`.                 |
+| Tool               | Description                                                  |
+| ------------------ | ------------------------------------------------------------ |
+| `SwarmCoordinator` | Launch a non-blocking swarm. Returns `runId`.                |
 | `SendMessage`      | Send a message to a running agent (or `"broadcast"` to all). |
-| `TaskStop`         | Gracefully stop a running agent by name or ID.                |
-| `SwarmStatus`      | Check status and results of active coordinator runs.          |
+| `TaskStop`         | Gracefully stop a running agent by name or ID.               |
+| `SwarmStatus`      | Check status and results of active coordinator runs.         |
 
 **SwarmCoordinator parameters**: `description`, `profile`, `prompt_template`, `items`, `model` — same as the blocking `Swarm` tool.
 
@@ -365,7 +367,7 @@ The coordinator mode introduces non-blocking swarm orchestration. Unlike the blo
 ```typescript
 interface SwarmHandle<T> {
   readonly runId: string;
-  getResults(): Array<SubagentResult<T>>;  // non-blocking
+  getResults(): Array<SubagentResult<T>>; // non-blocking
   sendMessage(agentId: string, message: string): void;
   stopAgent(agentId: string): void;
   abort(): void;
@@ -464,7 +466,7 @@ Swarm ended        (ended state — one-shot task completed)
 
 ### 6.3 Widget Wiring Pattern
 
-Both the Progress Panel and Swarm Markers are installed as extension widgets via `ctx.ui.setWidget(key, factory, options)`.  The `setWidget` factory receives `(tui: TUI, theme: Theme)` from the framework.  The `tui` reference MUST be captured and exposed to the component so that animation/poll timers can call `tui.requestRender()` after `invalidate()`.  Without this call the TUI framework has no trigger to redraw the widget.
+Both the Progress Panel and Swarm Markers are installed as extension widgets via `ctx.ui.setWidget(key, factory, options)`. The `setWidget` factory receives `(tui: TUI, theme: Theme)` from the framework. The `tui` reference MUST be captured and exposed to the component so that animation/poll timers can call `tui.requestRender()` after `invalidate()`. Without this call the TUI framework has no trigger to redraw the widget.
 
 ```
 setWidget(key, (tui, _theme) => {
@@ -641,19 +643,22 @@ Swarm results rendered as <agent_swarm_result> XML
 
 ## 9. Key Design Decisions & Rationale
 
-| Decision                                              | Rationale                                                                                                                                                                                           |
-| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **Out-of-process subagents** (`spawn` not in-process) | Crash isolation. A subagent that runs in-process can corrupt the parent's state. Process isolation prevents cross-contamination between agents. |
-| **Two-phase concurrency**                             | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff. |
-| **XML output format**                                 | Uses `<agent_swarm_result>` XML. The parent LLM already knows how to parse this format from its training data. |
-| **Mailbox as JSONL files**                            | Simplicity, durability, auditability. Every message is a file that can be inspected with `cat` or `jq`. No message broker to install                                                                |
-| **Capability-based profiles**                         | `allowWrite`/`allowBashWrite` boolean flags instead of hardcoded tool names. Portable across tool ecosystems and resilient to tool renames.                                                          |
-| **Non-blocking coordinator**                          | `runAsync()` returns a handle immediately. Main agent orchestrates across turns via `SendMessage` and `TaskStop`. Suitable for dynamic workflows where the main agent reacts to subagent outputs.   |
-| **Atomic writes for state**                           | Crash safety. A partial write on crash should never corrupt the existing state                                                                                                                      |
-| **30-minute staleness threshold**                     | Long enough for a legitimate run, short enough to detect actual crashes. Pi's default subagent timeout is also 30 minutes                                                                           |
-| **Worktree isolation by default**                     | Parallel agents must not interfere with each other's file changes. Git worktrees provide clean filesystem isolation with zero config. Non-git repos fall back to cwd                                |
-| **Real-time mailbox polling**                         | Agents need to communicate during execution, not just between phases. File polling at 800ms intervals balances responsiveness with IO overhead                                                       |
-| **100% English codebase**                             | Language rule for all repository artifacts. Only user-facing reports (like this one) use Chinese                                                                                                    |
+| Decision                                              | Rationale                                                                                                                                                                                                                                     |
+| ----------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **Out-of-process subagents** (`spawn` not in-process) | Crash isolation. A subagent that runs in-process can corrupt the parent's state. Process isolation prevents cross-contamination between agents.                                                                                               |
+| **Two-phase concurrency**                             | Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff.                                                                  |
+| **XML output format**                                 | Uses `<agent_swarm_result>` XML. The parent LLM already knows how to parse this format from its training data.                                                                                                                                |
+| **Mailbox as JSONL files**                            | Simplicity, durability, auditability. Every message is a file that can be inspected with `cat` or `jq`. No message broker to install                                                                                                          |
+| **Capability-based profiles**                         | `allowWrite`/`allowBashWrite` boolean flags instead of hardcoded tool names. Portable across tool ecosystems and resilient to tool renames.                                                                                                   |
+| **Auto-routing (matchItemToAgent)**                   | Items in a Swarm call are automatically routed to the best matching file-based agent by pattern (longest glob wins) then keyword (first match wins). Pattern takes priority — file extension is a stronger signal than free-text keywords.    |
+| **System-level tool restriction**                     | `FORBIDDEN_SUBAGENT_TOOLS` in `pi-invoke.ts` hard-blocks pi-swarm's own tools from subagent tool lists at arg-build time. `resolveProfileTools()` always returns explicit lists so the filter always applies.                                 |
+| **Dynamic tool description**                          | `buildAgentListing()` formats all available agents at registration time. `buildSwarmDescription()` generates the tool description with live agent listing — mirroring CCB's `AgentTool.prompt()`. LLM sees available agents at decision time. |
+| **Non-blocking coordinator**                          | `runAsync()` returns a handle immediately. Main agent orchestrates across turns via `SendMessage` and `TaskStop`. Suitable for dynamic workflows where the main agent reacts to subagent outputs.                                             |
+| **Atomic writes for state**                           | Crash safety. A partial write on crash should never corrupt the existing state                                                                                                                                                                |
+| **30-minute staleness threshold**                     | Long enough for a legitimate run, short enough to detect actual crashes. Pi's default subagent timeout is also 30 minutes                                                                                                                     |
+| **Worktree isolation by default**                     | Parallel agents must not interfere with each other's file changes. Git worktrees provide clean filesystem isolation with zero config. Non-git repos fall back to cwd                                                                          |
+| **Real-time mailbox polling**                         | Agents need to communicate during execution, not just between phases. File polling at 800ms intervals balances responsiveness with IO overhead                                                                                                |
+| **100% English codebase**                             | Language rule for all repository artifacts. Only user-facing reports (like this one) use Chinese                                                                                                                                              |
 
 ---
 

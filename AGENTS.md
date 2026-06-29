@@ -14,6 +14,7 @@
 
 **Opportunistic fixes — fix on sight, report in completion report:**
 When encountering a pre-existing issue that is unrelated to the current task, fix it immediately — without asking — if and only if ALL of the following are true:
+
 1. No refactoring involved (moving, renaming, restructuring code).
 2. No new dependencies required.
 3. The fix is self-contained and low-risk (a typo, a missing null check, an unused import, an empty catch block, an obvious off-by-one, a broken log message).
@@ -91,23 +92,29 @@ Trigger only when the task or milestone is fully completed:
 老板您好，已完成 [一句话总结]。
 
 **做了什么**
+
 - [业务层面]：[通俗说明变更内容和原因]
 
 **结果**
+
 - [什么变了]：[用户视角描述变更效果]
 - [影响范围]：[受影响的页面 / 功能 / 模块]
 
 **已确认**
+
 - [验证项 1]：[验证方式和结果]
 - [验证项 2]：[验证方式和结果]
 
 **顺手修了这些** _(非本次任务引入的遗留问题，已在本次一并修复)_
+
 - [文件 / 位置]：[问题描述，做了什么]
 
 **需要你决策**
+
 - [需人工判断的事项]：[为什么需要你决定]
 
 **待跟进** _(发现但未修复——改动太大或风险过高)_
+
 - #N：[简述] → [为何未在本次修复]
 ```
 
@@ -139,7 +146,7 @@ Trigger only when the task or milestone is fully completed:
 - **Python**: ALL operations MUST go through `uv`. **NEVER** invoke `python`, `pip`, `venv`, or `virtualenv` directly.
 - **JavaScript / TypeScript**: Use the package manager already present in the project (`npm`, `yarn`, or `pnpm` — determined by the lockfile). **NEVER** mix package managers in the same project.
 - When the project's toolchain is not covered above, check the project-level for toolchain rules before using any default.
-<general-project-rules>
+  <general-project-rules>
 
 # pi-swarm
 
@@ -155,33 +162,33 @@ You have access to pi-shazam — 7 code analysis tools. You WILL use every one o
 
 Here are the other 6 tools. You MUST call them. Memorize them. Use them or fail.
 
-| Tool | What it does | You MUST call it when |
-|------|-------------|----------------------|
-| `shazam_lookup` | Symbol/file details — hover info, type hierarchy, callers, callees | You need to understand any symbol or file |
-| `shazam_impact` | Blast radius — every file, symbol, and test affected by your change | BEFORE editing shared or exported modules. Do NOT guess what you'll break. |
-| `shazam_verify` | Post-edit gate — LSP diagnostics, graph analysis, PASS/WARN/FAIL | AFTER every write. Run it. Read the verdict. If it says FAIL or WARN, fix it NOW. |
-| `shazam_changes` | Git change summary with symbol-level detail and risk level | You edited things and need to know what actually changed |
-| `shazam_format` | Auto-fix formatting — supports multiple formatters | `shazam_verify` reports format errors |
-| `shazam_rename_symbol` | Cross-file symbol rename with atomic writes and safety gate | Renaming ANY symbol. Do NOT manually find-and-replace. |
+| Tool                   | What it does                                                        | You MUST call it when                                                             |
+| ---------------------- | ------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `shazam_lookup`        | Symbol/file details — hover info, type hierarchy, callers, callees  | You need to understand any symbol or file                                         |
+| `shazam_impact`        | Blast radius — every file, symbol, and test affected by your change | BEFORE editing shared or exported modules. Do NOT guess what you'll break.        |
+| `shazam_verify`        | Post-edit gate — LSP diagnostics, graph analysis, PASS/WARN/FAIL    | AFTER every write. Run it. Read the verdict. If it says FAIL or WARN, fix it NOW. |
+| `shazam_changes`       | Git change summary with symbol-level detail and risk level          | You edited things and need to know what actually changed                          |
+| `shazam_format`        | Auto-fix formatting — supports multiple formatters                  | `shazam_verify` reports format errors                                             |
+| `shazam_rename_symbol` | Cross-file symbol rename with atomic writes and safety gate         | Renaming ANY symbol. Do NOT manually find-and-replace.                            |
 
 If a tool errors or is unavailable, try once more, then work around it. But you MUST try it first. These tools are the difference between a working change and a broken build.
 
 ## When to Read Companion Files
 
-| File | Trigger |
-|------|---------|
-| `PLAN.md` | Any code change, new module, API design — architecture design, module specs, API contracts |
-| `README.md` | User onboarding, release announcements |
-| `CHANGELOG.md` | Before creating a release, before investigating regression |
-| `docs/architecture.md` | Understanding module interactions, data flows, design rationale |
+| File                   | Trigger                                                                                    |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| `PLAN.md`              | Any code change, new module, API design — architecture design, module specs, API contracts |
+| `README.md`            | User onboarding, release announcements                                                     |
+| `CHANGELOG.md`         | Before creating a release, before investigating regression                                 |
+| `docs/architecture.md` | Understanding module interactions, data flows, design rationale                            |
 
 ## When to Read Rules Files
 
-| File | Trigger |
-|------|---------|
-| `rules/CODING.md` | Before writing or modifying any source code |
+| File                    | Trigger                                                                                      |
+| ----------------------- | -------------------------------------------------------------------------------------------- |
+| `rules/CODING.md`       | Before writing or modifying any source code                                                  |
 | `rules/REVIEW-RULES.md` | Before performing a code review — NEVER submit findings that violate the DO NOT REPORT rules |
-| `rules/ARCHITECTURE.md` | Before modifying module structure or layer boundaries |
+| `rules/ARCHITECTURE.md` | Before modifying module structure or layer boundaries                                        |
 
 ## Project Snapshot
 
@@ -194,15 +201,15 @@ If a tool errors or is unavailable, try once more, then work around it. But you 
 
 ## Commands
 
-| Command | Purpose |
-|---------|---------|
-| `npm install` | Install dependencies |
-| `npm run build` | Compile TS → `dist/` |
-| `npm run typecheck` | `tsc --noEmit` — type validation |
-| `npm run dev` | `tsc --watch` — incremental compilation |
-| `npm test` | Run all tests via vitest |
-| `npm run ci` | typecheck + test + build + dist verify |
-| `bash scripts/ci.sh` | Full CI: typecheck, test, build, lint, verify |
+| Command                   | Purpose                                             |
+| ------------------------- | --------------------------------------------------- |
+| `npm install`             | Install dependencies                                |
+| `npm run build`           | Compile TS → `dist/`                                |
+| `npm run typecheck`       | `tsc --noEmit` — type validation                    |
+| `npm run dev`             | `tsc --watch` — incremental compilation             |
+| `npm test`                | Run all tests via vitest                            |
+| `npm run ci`              | typecheck + test + build + dist verify              |
+| `bash scripts/ci.sh`      | Full CI: typecheck, test, build, lint, verify       |
 | `bash scripts/release.sh` | Release checklist — run ALL items before publishing |
 
 Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent/extensions/pi-swarm`.
@@ -220,42 +227,42 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 
 ## Key Design Decisions
 
-| Decision | Choice |
-|----------|--------|
-| Sub-agent execution | Spawn `pi --print` child processes (JSON Lines event stream) |
-| Concurrency strategy | Two-phase: ramp-up (5 + 1/700ms) → rate-limit (capacity model) |
-| Rate-limit handling | Auto suspend + retry with exponential backoff (3s/6s/12s/…) |
-| Context isolation | Each sub-agent runs in a fresh pi process, no parent context sharing |
-| Persistence | Durable file-based state under `.pi/swarm/state/`; resume if not completed |
-| TUI progress | Fixed-width tool-call-driven braille bars with baseline track, onProgress callback |
-| Swarm output format | `<agent_swarm_result>` XML |
-| Mailbox communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes and real-time polling |
-| Agent profiles | Capability-based (allowWrite / allowBashWrite). Four built-in + user-defined custom via settings |
-| Coordinator mode | Non-blocking swarm via `runAsync()` + `SwarmHandle`. Main agent orchestrates with SendMessage/TaskStop |
-| Triple mode | `/swarm` (blocking parallel), `/swarm-team` (mailbox collaborative), `SwarmCoordinator` (non-blocking orchestration) |
+| Decision              | Choice                                                                                                               |
+| --------------------- | -------------------------------------------------------------------------------------------------------------------- |
+| Sub-agent execution   | Spawn `pi --print` child processes (JSON Lines event stream)                                                         |
+| Concurrency strategy  | Two-phase: ramp-up (5 + 1/700ms) → rate-limit (capacity model)                                                       |
+| Rate-limit handling   | Auto suspend + retry with exponential backoff (3s/6s/12s/…)                                                          |
+| Context isolation     | Each sub-agent runs in a fresh pi process, no parent context sharing                                                 |
+| Persistence           | Durable file-based state under `.pi/swarm/state/`; resume if not completed                                           |
+| TUI progress          | Fixed-width tool-call-driven braille bars with baseline track, onProgress callback                                   |
+| Swarm output format   | `<agent_swarm_result>` XML                                                                                           |
+| Mailbox communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes and real-time polling                                  |
+| Agent profiles        | Capability-based (allowWrite / allowBashWrite). Four built-in + user-defined custom via settings                     |
+| Coordinator mode      | Non-blocking swarm via `runAsync()` + `SwarmHandle`. Main agent orchestrates with SendMessage/TaskStop               |
+| Triple mode           | `/swarm` (blocking parallel), `/swarm-team` (mailbox collaborative), `SwarmCoordinator` (non-blocking orchestration) |
 
 ## Data & State Flows
 
-| State location | Purpose | Lifecycle |
-|---------------|---------|-----------|
-| `.pi/swarm/state/runs/<runId>/manifest.json` | Run metadata, agent list, start/end times | Created at run start, updated on completion |
-| `.pi/swarm/state/runs/<runId>/tasks.json` | Task queue with status per agent | Created at run start, updated per task completion |
-| `.pi/swarm/state/runs/<runId>/events.jsonl` | Append-only event log | Written throughout run, read for crash recovery |
-| `.pi/swarm/state/runs/<runId>/agents/<agentId>/status.json` | Per-agent status (running/completed/failed) | Created at agent spawn, updated on exit |
-| `.pi/swarm/state/runs/<runId>/agents/<agentId>/output.log` | Per-agent full stdout/stderr | Written during agent execution |
-| `.pi/swarm/state/runs/<runId>/mailbox/` | Team mailbox (inbox.jsonl, outbox.jsonl, delivery.json) | Created for team runs, polled at ~1.25Hz |
+| State location                                              | Purpose                                                 | Lifecycle                                         |
+| ----------------------------------------------------------- | ------------------------------------------------------- | ------------------------------------------------- |
+| `.pi/swarm/state/runs/<runId>/manifest.json`                | Run metadata, agent list, start/end times               | Created at run start, updated on completion       |
+| `.pi/swarm/state/runs/<runId>/tasks.json`                   | Task queue with status per agent                        | Created at run start, updated per task completion |
+| `.pi/swarm/state/runs/<runId>/events.jsonl`                 | Append-only event log                                   | Written throughout run, read for crash recovery   |
+| `.pi/swarm/state/runs/<runId>/agents/<agentId>/status.json` | Per-agent status (running/completed/failed)             | Created at agent spawn, updated on exit           |
+| `.pi/swarm/state/runs/<runId>/agents/<agentId>/output.log`  | Per-agent full stdout/stderr                            | Written during agent execution                    |
+| `.pi/swarm/state/runs/<runId>/mailbox/`                     | Team mailbox (inbox.jsonl, outbox.jsonl, delivery.json) | Created for team runs, polled at ~1.25Hz          |
 
 Crash recovery: `state/recovery.ts` detects stale runs (30min no heartbeat) on session start and marks them abandoned. Completed runs auto-deleted after 7 days. All JSON/JSONL mutations use `writeAtomic` (temp-file + rename) to prevent partial writes.
 
 ## Debugging Guide
 
-| Symptom | Likely cause | Check |
-|---------|-------------|-------|
-| Sub-agent spawns but produces no output | `pi --print` path resolution wrong | Inspect `pi-invoke.ts` resolution logic, verify pi CLI is on PATH |
-| Rate-limit errors cascade | Capacity model depleted | Check `controller.ts` rate-limit phase logic, verify backoff timing |
-| Run appears "stuck" | Dead agent process or starvation | Inspect `events.jsonl` for last event, check per-agent `status.json` |
-| Mailbox messages not delivered | Polling interval or symlink issue in worktree | Check mailbox directory exists, verify outbox polling at 800ms |
-| Build succeeds but extension not discovered | `dist/` not in `pi.extensions` array | Verify `package.json` has `"pi": { "extensions": ["./dist"] }` |
+| Symptom                                     | Likely cause                                  | Check                                                                |
+| ------------------------------------------- | --------------------------------------------- | -------------------------------------------------------------------- |
+| Sub-agent spawns but produces no output     | `pi --print` path resolution wrong            | Inspect `pi-invoke.ts` resolution logic, verify pi CLI is on PATH    |
+| Rate-limit errors cascade                   | Capacity model depleted                       | Check `controller.ts` rate-limit phase logic, verify backoff timing  |
+| Run appears "stuck"                         | Dead agent process or starvation              | Inspect `events.jsonl` for last event, check per-agent `status.json` |
+| Mailbox messages not delivered              | Polling interval or symlink issue in worktree | Check mailbox directory exists, verify outbox polling at 800ms       |
+| Build succeeds but extension not discovered | `dist/` not in `pi.extensions` array          | Verify `package.json` has `"pi": { "extensions": ["./dist"] }`       |
 
 Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swarm/state/runs/<runId>/agents/<agentId>/output.log` (per-agent output). Always `npm run build` before runtime debugging.
 
@@ -271,7 +278,9 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - **Adding per-agent output.log**: Configure `agentDir` in `resolveAgentStateDir` → write in `spawnSubagent` with header/raw output/footer
 - **Adding a new agent profile**: Add built-in to `BUILTIN_PROFILES` in `shared/profiles.ts` → add to `BuiltinProfileName` type union in `types.ts` → document in README.md
 - **Adding tool restrictions to a profile**: Set `tools` (allowlist) or `disallowedTools` (denylist) on `AgentProfile`. See `resolveProfileTools()` in `shared/profiles.ts`.
+- **Adding auto-routing rules to a file agent**: Add `matchPatterns` and `matchKeywords` frontmatter fields. See `matchItemToAgent()` in `shared/agents.ts`.
 - **Adding a coordinator tool**: Create handler in `swarm/coordinator.ts` → register via `pi.registerTool` → update `index.ts` to import and call the registration function
+- **Blocking a tool at system level**: Add to `FORBIDDEN_SUBAGENT_TOOLS` in `shared/pi-invoke.ts`. This prevents the tool from ever being passed to subagents.
 - **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask`
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update `PLAN.md` and `docs/architecture.md`
 
@@ -280,8 +289,9 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - `src/shared/controller.ts` — concurrency controller (two-phase ramp-up / rate-limit, runAsync)
 - `src/shared/spawner.ts` — sub-agent lifecycle: spawn, event parsing, worktree, mailbox polling
 - `src/shared/worktree.ts` — git worktree isolation (create, symlink, commit, cleanup)
-- `src/shared/agents.ts` — file-based agent loader: ~/.pi/agents/*.md scanning, frontmatter parsing, AgentProfile conversion
-- `src/shared/profiles.ts` — agent profile registry (built-in + file-based + user-defined), tool restrictions with allowlist/denylist
+- `src/shared/agents.ts` — file-based agent loader: ~/.pi/agents/\*.md scanning, frontmatter parsing, AgentProfile conversion, matchItemToAgent() routing, buildAgentListing()
+- `src/shared/profiles.ts` — agent profile registry (built-in + file-based + user-defined), tool restrictions with allowlist/denylist, resolveProfileTools()
+- `src/shared/pi-invoke.ts` — pi CLI invocation, buildSubagentArgs() with FORBIDDEN_SUBAGENT_TOOLS filtering
 - `src/swarm/tool.ts` — Swarm tool definition (output.log persistence, run manifests, profile support)
 - `src/swarm/coordinator.ts` — Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
 - `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment

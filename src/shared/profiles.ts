@@ -238,7 +238,10 @@ export function resolveProfileModel(
 
 /**
  * Derive tool restrictions for a profile.
- * Returns a list of allowed tools, or undefined for "all tools".
+ * Returns a list of allowed native tools.
+ * Never returns undefined — always passes an explicit list so
+ * buildSubagentArgs() can strip pi-swarm's own tools (Swarm, etc.)
+ * from the subagent's tool set at arg-build time.
  *
  * Resolution order:
  *   1. If profile.tools (explicit allowlist) is set → use that list exactly
@@ -282,20 +285,11 @@ export function resolveProfileTools(
     tools = tools.filter((t) => !deny.has(t));
   }
 
-  // Return undefined if all 4 native tools are available with no allowlist/denylist
-  // (optimization for spawner — no --tools flag = all tools available)
-  if (
-    !profile.tools &&
-    !profile.disallowedTools &&
-    tools.length === 4 &&
-    tools.includes("read") &&
-    tools.includes("bash") &&
-    tools.includes("edit") &&
-    tools.includes("write")
-  ) {
-    return undefined;
-  }
-  return tools.length === 0 ? [] : tools;
+  // Always return explicit list. Never return undefined — the caller needs
+  // an explicit --tools flag so buildSubagentArgs() can strip pi-swarm's
+  // own tools (Swarm, SwarmCoordinator, etc.) from subagent tool sets.
+  // Without --tools, subagents get ALL tools including swarm tools.
+  return tools;
 }
 
 /**

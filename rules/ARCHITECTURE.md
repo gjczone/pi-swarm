@@ -2,14 +2,14 @@
 
 ## Layer Boundaries
 
-| Layer | May import from | Must NOT import from |
-|-------|----------------|---------------------|
-| `shared/` | Node.js stdlib only | `swarm/`, `team/`, `tui/`, `state/` |
-| `swarm/` | `shared/` | `team/`, `tui/`, `state/` |
-| `team/` | `shared/` | `swarm/`, `tui/`, `state/` |
-| `tui/` | `shared/`, `@earendil-works/pi-tui` | `swarm/`, `team/`, `state/` |
-| `state/` | `shared/`, Node.js fs | `swarm/`, `team/`, `tui/` |
-| `index.ts` | All layers | None (entry point) |
+| Layer      | May import from                     | Must NOT import from                |
+| ---------- | ----------------------------------- | ----------------------------------- |
+| `shared/`  | Node.js stdlib only                 | `swarm/`, `team/`, `tui/`, `state/` |
+| `swarm/`   | `shared/`                           | `team/`, `tui/`, `state/`           |
+| `team/`    | `shared/`                           | `swarm/`, `tui/`, `state/`          |
+| `tui/`     | `shared/`, `@earendil-works/pi-tui` | `swarm/`, `team/`, `state/`         |
+| `state/`   | `shared/`, Node.js fs               | `swarm/`, `team/`, `tui/`           |
+| `index.ts` | All layers                          | None (entry point)                  |
 
 **Evidence**: Grepping `from "\.\."` across directories confirms zero cross-layer violations. No file in `shared/` imports from `swarm/`, `team/`, `tui/`, or `state/`. No file in `tui/` or `state/` imports from `swarm/` or `team/`.
 
@@ -33,18 +33,18 @@ Cross-layer communication goes through `index.ts` (tool registration, command ha
 
 ## Key Modules
 
-| Module | Role | Why it matters |
-|--------|------|----------------|
-| `shared/types.ts` | Type definitions, `SubagentBatchLauncher` interface | The single seam between the controller and the process-spawning backend. Tests inject mock launchers through this interface. |
-| `shared/controller.ts` | Two-phase concurrency controller | Most complex module. Ramp-up (5 + 1/700ms) → rate-limit phase with capacity model and exponential backoff. Must never block a test suite. |
-| `shared/spawner.ts` | Child process lifecycle | Manages spawn → event parsing → result extraction → worktree cleanup. The only module that calls `pi --print`. |
-| `team/mailbox.ts` | JSONL inter-agent messaging | All team agent communication flows through this. Atomic writes required — `writeAtomic` from `state/persistence.ts` is the only permitted write primitive. |
-| `team/task-graph.ts` | Phase DAG with dependency propagation | When a phase fails, all downstream phases are auto-skipped. Serialization must be round-trip safe (`toJSON` ↔ `fromJSON`). |
-| `index.ts` | Entry point, all registrations | The only file that imports from `@earendil-works/pi-coding-agent`. Every tool/command/hook is wired here via `pi.registerTool`, `pi.registerCommand`, `pi.on`. |
+| Module                 | Role                                                | Why it matters                                                                                                                                                 |
+| ---------------------- | --------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `shared/types.ts`      | Type definitions, `SubagentBatchLauncher` interface | The single seam between the controller and the process-spawning backend. Tests inject mock launchers through this interface.                                   |
+| `shared/controller.ts` | Two-phase concurrency controller                    | Most complex module. Ramp-up (5 + 1/700ms) → rate-limit phase with capacity model and exponential backoff. Must never block a test suite.                      |
+| `shared/spawner.ts`    | Child process lifecycle                             | Manages spawn → event parsing → result extraction → worktree cleanup. The only module that calls `pi --print`.                                                 |
+| `team/mailbox.ts`      | JSONL inter-agent messaging                         | All team agent communication flows through this. Atomic writes required — `writeAtomic` from `state/persistence.ts` is the only permitted write primitive.     |
+| `team/task-graph.ts`   | Phase DAG with dependency propagation               | When a phase fails, all downstream phases are auto-skipped. Serialization must be round-trip safe (`toJSON` ↔ `fromJSON`).                                     |
+| `index.ts`             | Entry point, all registrations                      | The only file that imports from `@earendil-works/pi-coding-agent`. Every tool/command/hook is wired here via `pi.registerTool`, `pi.registerCommand`, `pi.on`. |
 
 ## Architectural Decisions
 
-- **Out-of-process subagents via `spawn`, not in-process** — Crash isolation. A subagent crash never corrupts parent state. 
+- **Out-of-process subagents via `spawn`, not in-process** — Crash isolation. A subagent crash never corrupts parent state.
 - **Two-phase concurrency (normal → rate-limit)** — Rate limits are inevitable at scale. The normal phase maximizes throughput; the rate-limit phase prevents cascading failures with capacity tracking and exponential backoff (3s/6s/12s/…).
 - **File-based mailbox (JSONL), not a message broker** — Zero runtime dependencies. Every message is a file inspectable with `cat` or `jq`. JSONL supports append-only concurrent writes without file-level coordination.
 - **Atomic writes for all state mutations** — `writeAtomic` (temp-file + rename) is mandatory for every JSON/JSONL write. A crash mid-write leaves the original file intact. Direct `fs.writeFileSync` on state files is forbidden.
@@ -52,7 +52,7 @@ Cross-layer communication goes through `index.ts` (tool registration, command ha
 - **Worktree isolation by default for git repos** — Each subagent runs in a temporary git worktree under `/tmp/`. Non-git repos silently fall back to cwd. This prevents parallel agents from interfering with each other's file changes.
 - **30-minute staleness threshold for crash recovery** — Long enough for a legitimate run, short enough to detect actual crashes. Matches pi's default subagent timeout.
 
-## Named Subagents (~/.pi/agents/*.md) Design
+## Named Subagents (~/.pi/agents/\*.md) Design
 
 ### Motivation
 
@@ -90,26 +90,29 @@ outputFormat: structured
 You are a Rust code audit specialist operating in READ-ONLY mode.
 
 CRITICAL RULES:
+
 - Focus on memory safety, unsafe blocks, concurrency bugs
 
 ## REQUIRED OUTPUT FORMAT
 
 Scope: <summary>
 Findings:
-  - [P0/P1/P2/P3] <file:line> — <description>
+
+- [P0/P1/P2/P3] <file:line> — <description>
 ```
 
 ### Tool Permission Model (pi-swarm specific)
 
 pi-swarm runs on pi-coding-agent, which has a dynamic tool set varying by installation (community extensions, MCP servers, user-installed tools). The tool permission model uses **three layers**:
 
-| Layer | Mechanism | Scope | When to use |
-|---|---|---|---|
-| 1. Capability flags | `allowWrite`, `allowBashWrite` | Universal | **Default/recommended.** Works regardless of installed tools. |
-| 2. Tool allowlist | `tools: [...]` | Explicit | Power users who know their exact tool inventory. When set, ONLY listed tools are available. |
-| 3. Tool denylist | `disallowedTools: [...]` | Subtractive | Power users who want to block specific tools (e.g. prevent subagents from launching sub-sub-agents). |
+| Layer               | Mechanism                      | Scope       | When to use                                                                                          |
+| ------------------- | ------------------------------ | ----------- | ---------------------------------------------------------------------------------------------------- |
+| 1. Capability flags | `allowWrite`, `allowBashWrite` | Universal   | **Default/recommended.** Works regardless of installed tools.                                        |
+| 2. Tool allowlist   | `tools: [...]`                 | Explicit    | Power users who know their exact tool inventory. When set, ONLY listed tools are available.          |
+| 3. Tool denylist    | `disallowedTools: [...]`       | Subtractive | Power users who want to block specific tools (e.g. prevent subagents from launching sub-sub-agents). |
 
 **Resolution order**:
+
 1. If `tools` allowlist is set → use that exact list (capability flags still filter native tools)
 2. If `disallowedTools` is set → start from capability-derived tool set, subtract disallowed items
 3. If neither → use capability flags only (current default behavior)
@@ -162,3 +165,59 @@ All new code lives in `shared/` layer (pure Node.js, no pi/tui imports). `profil
 - Frontmatter `name` field overrides the filename-derived name (optional)
 - Reference via `agentType: "rust-audit"` in Swarm/Coordinator calls
 - `agentType` and `profile` are **mutually exclusive** in tool parameters
+
+## Auto-Routing (matchItemToAgent)
+
+When Swarm/Coordinator tools are called without explicit `profile` or `agentType`, each item is automatically routed to the best matching file-based agent:
+
+**Matching algorithm** (`src/shared/agents.ts` → `matchItemToAgent()`):
+
+1. **Pattern phase** — Scan all agents' `matchPatterns`. Pick the agent with the longest matching pattern (most specific). Pattern matching uses `matchGlobPattern()` — a minimal glob matcher supporting `*.ext`, `path/*.ext`, and `*`.
+2. **Keyword phase** — If no pattern matched, scan agents' `matchKeywords`. First case-insensitive substring match wins.
+3. **Fallback** — If no agent matched, use the `general` profile.
+
+Agent files declare match rules via frontmatter:
+
+```yaml
+matchPatterns:
+  - "*.rs"
+  - "*.rlib"
+matchKeywords:
+  - rust
+  - memory safety
+```
+
+**Design rationale**: Pattern matching is position-agnostic (item ends with `.rs`), keyword matching is substring-based. Patterns take priority because file extension is a stronger signal than free-text keywords.
+
+## System-Level Subagent Tool Restriction
+
+`src/shared/pi-invoke.ts` defines `FORBIDDEN_SUBAGENT_TOOLS` — a hardcoded set of pi-swarm's own tools that no subagent can access:
+
+```ts
+const FORBIDDEN_SUBAGENT_TOOLS = new Set([
+  "Swarm",
+  "SwarmCoordinator",
+  "SendMessage",
+  "TaskStop",
+  "SwarmStatus",
+]);
+```
+
+This is enforced in `buildSubagentArgs()` by filtering the tool list before passing `--tools` to the subagent process. Unlike profile-level `disallowedTools`, this is a **system-level constraint** — it cannot be bypassed by any profile configuration.
+
+**Why not rely on profile denylist?** Because `resolveProfileTools()` previously returned `undefined` for full-access profiles, meaning no `--tools` flag was passed and the subagent inherited ALL tools. The `resolveProfileTools()` function now always returns an explicit tool list, ensuring the filter always applies.
+
+## Dynamic Tool Description
+
+`src/shared/agents.ts` → `buildAgentListing()` formats all available agents (built-in profiles + file agents) into a human-readable listing. Both `tool.ts` and `coordinator.ts` call this at registration time to generate dynamic tool descriptions showing available agents:
+
+```
+  Built-in profiles (use via profile param):
+    explore      Read-only fast search specialist. No file modifications. [tools: read, bash]
+    general      General-purpose coder. Full read/write access. [tools: read, edit, bash, write]
+
+  File-based agents (use via agentType param):
+    swarm-tester General-purpose test agent [pattern: *.test.ts, *.spec.ts; kw: test, verify]
+```
+
+This mirrors CCB's `AgentTool.prompt()` approach — LLM sees available agents at decision time.

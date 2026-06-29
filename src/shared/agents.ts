@@ -29,6 +29,7 @@ import type {
   AgentProfile,
   FileAgentSource,
   AgentOutputFormat,
+  AgentMatchRule,
 } from "./types.js";
 
 // ---------------------------------------------------------------------------
@@ -278,6 +279,17 @@ function parseAgentFile(
   const allowBashWrite =
     typeof fm["allowBashWrite"] === "boolean" ? fm["allowBashWrite"] : true;
 
+  // Match rules for automatic routing
+  const matchPatterns = parseStringArray(fm["matchPatterns"]);
+  const matchKeywords = parseStringArray(fm["matchKeywords"]);
+  const match: AgentMatchRule | undefined =
+    matchPatterns.length > 0 || matchKeywords.length > 0
+      ? {
+          patterns: matchPatterns.length > 0 ? matchPatterns : undefined,
+          keywords: matchKeywords.length > 0 ? matchKeywords : undefined,
+        }
+      : undefined;
+
   return {
     name,
     description,
@@ -285,6 +297,7 @@ function parseAgentFile(
     allowBashWrite,
     model,
     outputFormat,
+    match,
     tools: tools.length > 0 ? tools : undefined,
     disallowedTools: disallowedTools.length > 0 ? disallowedTools : undefined,
     prompt: body,
@@ -381,6 +394,7 @@ function convertToProfile(def: AgentFileDefinition): AgentProfile {
     systemPrompt: def.prompt,
     tools: def.tools,
     disallowedTools: def.disallowedTools,
+    match: def.match,
   };
 }
 
@@ -423,6 +437,169 @@ export function listFileAgents(
   return agents.filter(
     (a) => a.source === "project" || !projectNames.has(a.name),
   );
+}
+
+// ---------------------------------------------------------------------------
+// Item-to-agent routing
+// ---------------------------------------------------------------------------
+
+/**
+ * Match a Swarm item to the most suitable file-based agent.
+ *
+ * Matching phases (ordered by specificity):
+ *   1. Pattern match — across ALL agents, pick the one with the longest
+ *      (most specific) matching pattern. Longer pattern = higher specificity,
+ *      so `*.test.ts` beats `*.ts`.
+ *   2. Keyword match — if no pattern matched, first keyword match wins.
+ *
+ * Returns the matched AgentProfile, or undefined if no match found.
+ */
+export function matchItemToAgent(
+  item: string,
+  agents: Map<string, AgentProfile> | undefined,
+): AgentProfile | undefined {
+  if (!agents || agents.size === 0) return undefined;
+
+  const itemLower = item.toLowerCase();
+
+  // Phase 1: pattern matching — find the most specific matching pattern
+  let bestProfile: AgentProfile | undefined;
+  let bestPatternLen = -1;
+
+  for (const [, profile] of agents) {
+    const match = profile.match;
+    if (!match || !match.patterns) continue;
+
+    for (const pattern of match.patterns) {
+      if (pattern.length > bestPatternLen && matchGlobPattern(item, pattern)) {
+        bestProfile = profile;
+        bestPatternLen = pattern.length;
+      }
+    }
+  }
+
+  if (bestProfile) return bestProfile;
+
+  // Phase 2: keyword matching (case-insensitive substring) — first match wins
+  for (const [, profile] of agents) {
+    const match = profile.match;
+    if (!match || !match.keywords) continue;
+
+    for (const kw of match.keywords) {
+      if (itemLower.includes(kw.toLowerCase())) {
+        return profile;
+      }
+    }
+  }
+
+  return undefined;
+}
+
+/**
+ * Minimal glob pattern matcher.
+ *
+ * Supports:
+ *   - `*.ext` — matches any path ending with `.ext`
+ *   - `path/*.ext` — matches paths under `path/` with `.ext`
+ *   - `*` — matches everything
+ *
+ * Does NOT support `**`, `{a,b}`, `?`, or bracket expressions.
+ */
+function matchGlobPattern(item: string, pattern: string): boolean {
+  if (pattern === "*") return true;
+
+  // Simple wildcard: split on * and check prefix/suffix
+  const parts = pattern.split("*");
+  if (parts.length === 1) {
+    // No wildcard — exact suffix match
+    return item.endsWith(pattern);
+  }
+
+  if (parts.length === 2) {
+    // One wildcard: prefix*suffix
+    const [prefix, suffix] = parts;
+    const prefixOk = !prefix || item.startsWith(prefix);
+    const suffixOk = !suffix || item.endsWith(suffix);
+    if (prefixOk && suffixOk) {
+      // Ensure the wildcard matches at least something between prefix and suffix
+      if (prefix && suffix) {
+        return item.length >= prefix.length + suffix.length;
+      }
+      return true;
+    }
+    return false;
+  }
+
+  // Multiple wildcards — fall back to simple suffix check for now
+  const lastPart = parts[parts.length - 1];
+  return lastPart ? item.endsWith(lastPart) : false;
+}
+
+// ---------------------------------------------------------------------------
+// Agent listing (for LLM-facing tool descriptions)
+// ---------------------------------------------------------------------------
+
+/**
+ * Match summary for display in agent listing.
+ */
+function formatMatchSummary(match: AgentMatchRule | undefined): string {
+  if (!match) return "";
+  const parts: string[] = [];
+  if (match.patterns && match.patterns.length > 0) {
+    parts.push("pattern: " + match.patterns.slice(0, 3).join(", "));
+    if (match.patterns.length > 3) parts[parts.length - 1] += "...";
+  }
+  if (match.keywords && match.keywords.length > 0) {
+    parts.push("kw: " + match.keywords.slice(0, 3).join(", "));
+    if (match.keywords.length > 3) parts[parts.length - 1] += "...";
+  }
+  return parts.length > 0 ? " [" + parts.join("; ") + "]" : "";
+}
+
+/**
+ * Build a formatted listing of all available agents for inclusion in
+ * the Swarm tool description, similar to CCB's AgentTool.prompt().
+ *
+ * Groups agents into:
+ *   1. Built-in profiles (accessible via `profile` parameter)
+ *   2. File-based agents (accessible via `agentType` parameter)
+ *
+ * Each entry shows agentType/name, description, and match rules.
+ */
+export function buildAgentListing(
+  fileAgents: Map<string, AgentProfile> | undefined,
+  builtinProfiles?: Record<string, AgentProfile>,
+): string {
+  const lines: string[] = [];
+
+  // Built-in profiles
+  if (builtinProfiles) {
+    const entries = Object.entries(builtinProfiles);
+    if (entries.length > 0) {
+      lines.push("  Built-in profiles (use via profile param):");
+      for (const [, p] of entries) {
+        const toolHint = p.allowWrite
+          ? "read, edit, bash, write"
+          : "read, bash";
+        lines.push(
+          `    ${p.name.padEnd(12)} ${p.description} [tools: ${toolHint}]`,
+        );
+      }
+      lines.push("");
+    }
+  }
+
+  // File-based agents
+  if (fileAgents && fileAgents.size > 0) {
+    lines.push("  File-based agents (use via agentType param):");
+    for (const [, p] of fileAgents) {
+      const matchStr = formatMatchSummary(p.match);
+      lines.push(`    ${p.name.padEnd(18)} ${p.description}${matchStr}`);
+    }
+    lines.push("");
+  }
+
+  return lines.join("\n");
 }
 
 // ---------------------------------------------------------------------------

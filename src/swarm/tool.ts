@@ -33,7 +33,14 @@ import {
   resolveProfile,
   resolveProfileTools,
   deriveAgentName,
+  getBuiltinProfiles,
 } from "../shared/profiles.js";
+import {
+  loadFileAgents,
+  matchItemToAgent,
+  buildAgentListing,
+  clearFileAgentsCache,
+} from "../shared/agents.js";
 import {
   resolveSwarmRoot,
   createManifest,
@@ -64,60 +71,93 @@ const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
-const AGENT_SWARM_DESCRIPTION = [
-  "Launch 1-20 subagents in parallel, with optional inter-agent mailbox.",
-  "",
-  "YOU (the assistant) decide whether to enable mailbox based on the task:",
-  "- Simple parallel work (review files, fix independent bugs, investigate):",
-  "  mailbox: false (default). Items are independent.",
-  "- Collaborative workflows (agents need to share findings between phases):",
-  "  mailbox: true. Agents communicate via shared inbox/outbox.",
-  "",
-  "Agent profiles (profile / agentType parameters — mutually exclusive):",
-  "- profile: Use a built-in profile or settings.json custom profile.",
-  '  "general" (default): Full access, balanced toolset, free-form output.',
-  '  "explore": Read-only search specialist. No write tools. Use for investigation.',
-  '  "plan": Planning specialist. No bash write. Produces structured plans.',
-  '  "review": Code review specialist. No write tools. Produces structured findings.',
-  "- agentType: Reference a file-based agent from ~/.pi/agents/<name>.md or .pi/agents/<name>.md.",
-  "  File agents bundle a system prompt, tool permissions, and model routing in one discoverable file.",
-  "  Use 'profile' OR 'agentType', not both.",
-  "",
-  "How to use:",
-  "1. Analyze the task. Decompose it into 1-20 items.",
-  "2. Choose agent configuration: profile (built-in/settings) or agentType (file-based).",
-  "3. Decide: do agents need to communicate?",
-  "   - No -> mailbox: false (default)",
-  "   - Yes -> mailbox: true",
-  "4. Write a prompt_template with {{item}} placeholder.",
-  "   Include context from the user's task and the specific item.",
-  "5. Use 1 item for a single isolated agent, 2-6 for typical parallel work.",
-  "6. The tool handles concurrency, rate limits, and error recovery.",
-  "7. Read the results from the tool output.",
-  "",
-  "Each subagent runs in a clean workspace with project rules (AGENTS.md) loaded.",
-  "With mailbox, subagents get inbox/outbox and send messages during execution.",
-  "Without mailbox, subagents are fully independent and do not communicate.",
-  "",
-  "Best for: code review, bug fixing, file editing, investigation, refactoring,",
-  " multi-step research, phased implementation.",
-  "",
-  'Optional: set model to "small" for simple/exploratory subagent tasks.',
-  'The tool auto-resolves "small" from your settings (pi-swarm.smallModel).',
-  "Only use small model for straightforward execution or exploration.",
-  "Do NOT use small model for review, planning, or complex analysis.",
-  "Default: inherit parent session model (omit model param).",
-].join("\n");
-
 // ---------------------------------------------------------------------------
 // Registration
 // ---------------------------------------------------------------------------
 
+/** Build the Swarm tool description dynamically, including available agents. */
+function buildSwarmDescription(): string {
+  clearFileAgentsCache();
+  const fileAgents = loadFileAgents(process.cwd());
+  const builtinProfiles = getBuiltinProfiles();
+  const agentListing = buildAgentListing(fileAgents, builtinProfiles);
+  const hasFileAgents = fileAgents && fileAgents.size > 0;
+
+  const lines: string[] = [
+    "Launch 1-20 subagents in parallel, with optional inter-agent mailbox.",
+    "",
+    "YOU (the assistant) decide whether to enable mailbox based on the task:",
+    "- Simple parallel work (review files, fix independent bugs, investigate):",
+    "  mailbox: false (default). Items are independent.",
+    "- Collaborative workflows (agents need to share findings between phases):",
+    "  mailbox: true. Agents communicate via shared inbox/outbox.",
+    "",
+    "---",
+    "Agent configuration — pick ONE of these three patterns:",
+    "",
+    "  Pattern A — AUTO-ROUTING (recommended for mixed-item swarms):",
+    "    Omit both profile and agentType. Each item is automatically routed",
+    "    to the best matching file-based agent (by file extension, keywords),",
+    "    falling back to 'general' for unmatched items.",
+    "",
+    "  Pattern B — UNIFORM PROFILE (set profile):",
+    '    profile: "general" | "explore" | "plan" | "review"',
+    "    All items use the same built-in or custom profile. No auto-routing.",
+    "",
+    "  Pattern C — UNIFORM FILE AGENT (set agentType):",
+    "    agentType: <name from ~/.pi/agents/*.md or .pi/agents/*.md>",
+    "    All items use the same file-defined agent. No auto-routing.",
+    "",
+  ];
+
+  if (agentListing) {
+    lines.push(agentListing);
+  } else {
+    lines.push("  Available agent types:");
+    lines.push('    profile: "general" | "explore" | "plan" | "review"');
+    lines.push("");
+  }
+
+  if (!hasFileAgents) {
+    lines.push("  Tip: Define custom agents in ~/.pi/agents/<name>.md", "");
+  }
+
+  lines.push(
+    "How to use:",
+    "1. Analyze the task. Decompose it into 1-20 items.",
+    "2. Pick agent pattern (see above):",
+    "   - Items vary by type? Omit profile AND agentType to enable auto-routing.",
+    "   - All items are the same kind of work? Set profile.",
+    "   - You know the exact file agent to use? Set agentType.",
+    "3. Write a prompt_template with {{item}} placeholder.",
+    "4. Set mailbox: true if agents need to communicate; false (default) for independent work.",
+    "5. Use 1 item for single task, 2-6 for typical parallel work.",
+    "6. The tool handles concurrency, rate limits, and error recovery.",
+    "7. Read the results from the tool output.",
+    "",
+    "Each subagent runs in a clean workspace with project rules (AGENTS.md) loaded.",
+    "With mailbox, subagents get inbox/outbox and send messages during execution.",
+    "Without mailbox, subagents are fully independent and do not communicate.",
+    "",
+    "Best for: code review, bug fixing, file editing, investigation, refactoring,",
+    " multi-step research, phased implementation.",
+    "",
+    'Optional: set model to "small" for simple/exploratory subagent tasks.',
+    'The tool auto-resolves "small" from your settings (pi-swarm.smallModel).',
+    "Only use small model for straightforward execution or exploration.",
+    "Do NOT use small model for review, planning, or complex analysis.",
+    "Default: inherit parent session model (omit model param).",
+  );
+
+  return lines.join("\n");
+}
+
 export function registerAgentSwarmTool(pi: ExtensionAPI): void {
+  const description = buildSwarmDescription();
   pi.registerTool({
     name: "Swarm",
     label: "Swarm",
-    description: AGENT_SWARM_DESCRIPTION,
+    description,
     parameters: Type.Object(
       {
         description: Type.Optional(
@@ -129,7 +169,11 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         profile: Type.Optional(
           Type.String({
             description:
-              'Agent profile to use. Built-in: "general", "explore", "plan", "review". Custom: from .pi/settings.json pi-swarm.subagents. Mutually exclusive with agentType.',
+              'Built-in profile: "general", "explore", "plan", "review". ' +
+              "Custom: from .pi/settings.json pi-swarm.subagents. " +
+              "Mutually exclusive with agentType. " +
+              "When set, ALL items share this profile (disables auto-routing). " +
+              "Omit BOTH profile and agentType to enable auto-routing (each item matched individually).",
             examples: ["general", "explore", "review"],
           }),
         ),
@@ -137,7 +181,10 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           Type.String({
             description:
               "File-based agent name from ~/.pi/agents/<name>.md or .pi/agents/<name>.md. " +
-              "Mutually exclusive with profile. File agents define system prompt, tool permissions, and model in one file.",
+              "Mutually exclusive with profile. " +
+              "When set, ALL items use this agent (disables auto-routing). " +
+              "Omit BOTH profile and agentType to enable auto-routing (each item matched individually). " +
+              "File agents bundle system prompt, tool permissions, model, and optional match patterns/keywords.",
             examples: ["rust-audit", "vue-dev", "data-science"],
           }),
         ),
@@ -215,14 +262,23 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       const resolvedModel =
         model === "small" ? resolveSwarmSmallModel() : model;
 
-      // Resolve agent profile: agentType takes priority over profile for display,
-      // but both go through the same resolveProfile function.
+      // Resolve agent profile:
+      // - When profile OR agentType is specified → all items share one profile
+      // - When neither is specified → auto-route each item to the best matching agent
+      const useAutoRoute = !profile && !agentType;
       const profileSource = agentType ?? profile;
-      const agentProfile = resolveProfile(profileSource, process.cwd());
+      const agentProfile = useAutoRoute
+        ? resolveProfile(undefined, process.cwd()) // default general, overridden per-item
+        : resolveProfile(profileSource, process.cwd());
       const profileName = agentProfile.name;
       const profileModel =
         agentProfile.model === "inherit" ? undefined : agentProfile.model;
       const effectiveModel = profileModel ?? resolvedModel;
+
+      // Pre-load file agents for auto-routing (shared across all items)
+      const fileAgents = useAutoRoute
+        ? loadFileAgents(process.cwd())
+        : undefined;
 
       const ctx = ctxRaw as ExtensionContext;
       const progress = createProgressWidget(ctx);
@@ -283,10 +339,30 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         const resolvedPaths = mailboxPaths;
         const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => {
           const agentName = deriveAgentName(profileName, spec.item, idx + 1);
+
+          // Auto-route per item when no explicit profile/agentType
+          let itemProfile = agentProfile;
+          let itemProfileTools = profileTools;
+          let itemModel = effectiveModel;
+          let itemAdditionalPrompt = agentProfile.systemPrompt;
+
+          if (useAutoRoute && fileAgents) {
+            const matched = matchItemToAgent(spec.item, fileAgents);
+            if (matched) {
+              itemProfile = matched;
+              itemProfileTools = resolveProfileTools(matched);
+              // Resolve model: if matched agent has explicit model, use it; else inherit
+              const matchedModel =
+                matched.model === "inherit" ? undefined : matched.model;
+              itemModel = matchedModel ?? effectiveModel;
+              itemAdditionalPrompt = matched.systemPrompt;
+            }
+          }
+
           return {
             kind: "spawn",
             data: spec,
-            profileName,
+            profileName: itemProfile.name,
             agentName,
             parentToolCallId: toolCallId,
             prompt: spec.prompt,
@@ -299,9 +375,9 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
             swarmRoot,
             runId,
             useWorktree: true,
-            model: effectiveModel,
-            tools: profileTools,
-            additionalSystemPrompt: agentProfile.systemPrompt,
+            model: itemModel,
+            tools: itemProfileTools,
+            additionalSystemPrompt: itemAdditionalPrompt,
             mailboxPath,
             roleName: agentName,
             onMessage: resolvedPaths

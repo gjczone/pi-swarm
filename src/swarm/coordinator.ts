@@ -38,7 +38,14 @@ import {
   resolveProfile,
   resolveProfileTools,
   deriveAgentName,
+  getBuiltinProfiles,
 } from "../shared/profiles.js";
+import {
+  loadFileAgents,
+  matchItemToAgent,
+  buildAgentListing,
+  clearFileAgentsCache,
+} from "../shared/agents.js";
 import {
   resolveSwarmRoot,
   createManifest,
@@ -53,30 +60,57 @@ const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
-const COORDINATOR_DESCRIPTION = [
-  "Launch a non-blocking swarm of 1-20 subagents and stay in control across turns.",
-  "",
-  "Unlike the blocking Swarm tool, SwarmCoordinator returns immediately with a runId.",
-  "You (the main agent) remain active and can orchestrate agents while they run.",
-  "",
-  "After launching, you can:",
-  "- Send messages to running agents with SendMessage(runId, agentName, message)",
-  "- Stop individual agents with TaskStop(runId, agentName)",
-  "- Agents continue running across conversation turns until they complete or are stopped.",
-  "",
-  "Agent profiles (profile / agentType parameters — mutually exclusive):",
-  "- profile: Use a built-in or settings.json custom profile.",
-  '  "general" (default): Full read/write access.',
-  '  "explore": Read-only search. No file modifications.',
-  '  "plan": Read-only planner. Produces structured plans.',
-  '  "review": Read-only reviewer. Produces structured findings.',
-  "- agentType: Reference a file-based agent from ~/.pi/agents/<name>.md or .pi/agents/<name>.md.",
-  "  File agents bundle system prompt, tool permissions, and model in one file.",
-  "  Use 'profile' OR 'agentType', not both.",
-  "",
-  "Use this when you need to launch agents and then react to their progress",
-  "or give them additional instructions while they work.",
-].join("\n");
+/** Build the Coordinator tool description dynamically, including available agents. */
+function buildCoordinatorDescription(): string {
+  clearFileAgentsCache();
+  const fileAgents = loadFileAgents(process.cwd());
+  const builtinProfiles = getBuiltinProfiles();
+  const agentListing = buildAgentListing(fileAgents, builtinProfiles);
+  const hasFileAgents = fileAgents && fileAgents.size > 0;
+
+  const lines: string[] = [
+    "Launch a non-blocking swarm of 1-20 subagents and stay in control across turns.",
+    "",
+    "Unlike the blocking Swarm tool, SwarmCoordinator returns immediately with a runId.",
+    "You (the main agent) remain active and can orchestrate agents while they run.",
+    "",
+    "After launching, you can:",
+    "- Send messages to running agents with SendMessage(runId, agentName, message)",
+    "- Stop individual agents with TaskStop(runId, agentName)",
+    "- Agents continue running across conversation turns until they complete or are stopped.",
+    "",
+    "---",
+    "Agent configuration — pick ONE of these three patterns:",
+    "",
+    "  Pattern A — AUTO-ROUTING (recommended for mixed-item swarms):",
+    "    Omit both profile and agentType. Each item is automatically routed",
+    "    to the best matching file-based agent (by file extension, keywords),",
+    "    falling back to 'general' for unmatched items.",
+    "",
+    "  Pattern B — UNIFORM PROFILE (set profile):",
+    '    profile: "general" | "explore" | "plan" | "review"',
+    "    All items use the same built-in or custom profile. No auto-routing.",
+    "",
+    "  Pattern C — UNIFORM FILE AGENT (set agentType):",
+    "    agentType: <name from ~/.pi/agents/*.md or .pi/agents/*.md>",
+    "    All items use the same file-defined agent. No auto-routing.",
+    "",
+  ];
+
+  if (agentListing) {
+    lines.push(agentListing);
+  }
+  if (!hasFileAgents) {
+    lines.push("  Tip: Define custom agents in ~/.pi/agents/<name>.md", "");
+  }
+
+  lines.push(
+    "Use this when you need to launch agents and then react to their progress",
+    "or give them additional instructions while they work.",
+  );
+
+  return lines.join("\n");
+}
 
 interface ActiveCoordinatorRun {
   runId: string;
@@ -179,10 +213,11 @@ function runToSummary(run: ActiveCoordinatorRun): string {
 }
 
 export function registerCoordinatorTools(pi: ExtensionAPI): void {
+  const description = buildCoordinatorDescription();
   pi.registerTool({
     name: "SwarmCoordinator",
     label: "SwarmCoordinator",
-    description: COORDINATOR_DESCRIPTION,
+    description,
     parameters: Type.Object(
       {
         description: Type.Optional(
@@ -252,13 +287,21 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       const resolvedModel =
         model === "small" ? resolveSwarmSmallModel() : model;
 
+      const useAutoRoute = !profile && !agentType;
       const profileSource = agentType ?? profile;
-      const agentProfile = resolveProfile(profileSource, process.cwd());
+      const agentProfile = useAutoRoute
+        ? resolveProfile(undefined, process.cwd())
+        : resolveProfile(profileSource, process.cwd());
       const profileName = agentProfile.name;
       const profileModel =
         agentProfile.model === "inherit" ? undefined : agentProfile.model;
       const effectiveModel = profileModel ?? resolvedModel;
       const profileTools = resolveProfileTools(agentProfile);
+
+      // Pre-load file agents for auto-routing
+      const fileAgents = useAutoRoute
+        ? loadFileAgents(process.cwd())
+        : undefined;
 
       const swarmRoot =
         process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
@@ -301,10 +344,29 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         const agentName = deriveAgentName(profileName, spec.item, idx + 1);
         const agentId = `${runId}-${idx + 1}`;
         const messageInboxPath = getAgentInboxPath(swarmRoot, runId, agentId);
+
+        // Auto-route per item when no explicit profile/agentType
+        let itemProfile = agentProfile;
+        let itemProfileTools = profileTools;
+        let itemModel = effectiveModel;
+        let itemAdditionalPrompt = agentProfile.systemPrompt;
+
+        if (useAutoRoute && fileAgents) {
+          const matched = matchItemToAgent(spec.item, fileAgents);
+          if (matched) {
+            itemProfile = matched;
+            itemProfileTools = resolveProfileTools(matched);
+            const matchedModel =
+              matched.model === "inherit" ? undefined : matched.model;
+            itemModel = matchedModel ?? effectiveModel;
+            itemAdditionalPrompt = matched.systemPrompt;
+          }
+        }
+
         return {
           kind: "spawn",
           data: spec,
-          profileName,
+          profileName: itemProfile.name,
           agentName,
           parentToolCallId: toolCallId,
           prompt: spec.prompt,
@@ -317,9 +379,9 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           swarmRoot,
           runId,
           useWorktree: true,
-          model: effectiveModel,
-          tools: profileTools,
-          additionalSystemPrompt: agentProfile.systemPrompt,
+          model: itemModel,
+          tools: itemProfileTools,
+          additionalSystemPrompt: itemAdditionalPrompt,
           roleName: agentName,
           messageInboxPath,
         };
