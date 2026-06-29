@@ -7,6 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-06-29
+
+### Fixed
+
+- **Log WriteStream crash (P0, #79)**: Added error handler on logStream WriteStream to prevent unhandled 'error' event from crashing the parent process on disk failure.
+- **Mailbox TOCTOU race (P0, #80)**: Replaced read-filter-write ack pattern with append-only ack file (inboxAcks.jsonl). Acknowledged message IDs are appended to a separate file and filtered at read time, eliminating the race window.
+- **Worktree data loss on commit failure (P0, #81)**: cleanupWorktree now tracks a changesStaged flag. On commit failure after changes were staged, the worktree is preserved for manual recovery rather than force-removed.
+- **Dangling commit loss (#82)**: WorktreeCleanupResult now includes commitSha. When branch creation fails after a successful commit, the SHA is returned to the caller so the commit is not orphaned.
+- **rateLimitCapacity unbounded (#83)**: Capped rateLimitCapacity at maxConcurrency in initialization, capacity recovery, and the launch guard to respect user-set concurrency limits during rate-limit phase.
+- **Worktree failure silent fallback (#84)**: createWorktree now throws on failure in git repos. Spawner catches the error and logs a prominent warning instead of silently falling back to shared cwd.
+- **getResumableAgents marks completed agents as resumable (#85)**: Now reads status.json to check actual agent state. Only non-terminal states (running, started, spawned, suspended) are marked resumable.
+- **Corrupted JSONL lines silently dropped (#86)**: readJsonLines now logs warnings with file path and line preview for unparseable lines, plus a summary count at the end.
+- **prompt_template placeholder validation (#87)**: Added runtime check that prompt_template contains exactly one {{item}} occurrence before spawning agents.
+- **hasModel() false positive on error (#88)**: Changed catch block to return false (fail-closed) with a console.error log instead of true (fail-open).
+- **isUserCancellation too broad (#89)**: Removed "abort" from keyword matching. Consolidated failedAttemptOutcome to use isUserCancellation. Prevents ECONNABORTED and system errors from being misclassified as user interrupts.
+
+### Changed
+
+- **GitHub Actions CI test matrix**: Removed Node 18 (vitest v4/rolldown requires Node 20+). Test matrix is now [ubuntu-latest, macos-latest] x ["22"].
+
+### Dependencies
+
+- Bumped typebox from 1.3.0 to 1.3.1 (#78)
+- Bumped @earendil-works/pi-tui from 0.79.10 to 0.80.2 (#77)
+- Bumped github/codeql-action from v3 to v4 (#76)
+- Bumped actions/setup-node from v5 to v6 (#75)
+- Bumped actions/upload-artifact from v4 to v7 (#74)
+
 ## [0.6.0] - 2026-06-28
 
 ### Added
