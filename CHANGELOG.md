@@ -5,6 +5,50 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.0] - 2026-06-30
+
+### Fixed
+
+- **Mailbox outbox partial-line loss (#101)**: Added `readNewMailboxLines()` helper that
+  only advances read offset to the last `\n` boundary, holding back partial trailing
+  content mid-write so messages are not silently swallowed.
+- **Coordinator unknown agent crash (#102)**: `resolveAgentId()` now returns `undefined`
+  instead of the input string unchanged when no event matches, preventing confusing
+  downstream errors from invalid agent IDs.
+- **SwarmStatus runId ignored (#103)**: Handler now respects the `runId` parameter
+  instead of always returning all runs.
+- **Coordinator agent count inflation (#104)**: `runToSummary()` derives agent count
+  from unique agentIds, not raw `agent_started` event count (which retries inflate).
+- **Missing aborted results on batch failure (#105)**: Unfinished tasks now receive
+  aborted result entries instead of being absent from the results array, so callers
+  can make post-failure decisions.
+- **JSONL writes not atomic (#106)**: `appendEvent()` and coordinator inbox writes
+  now use atomic read-modify-write via `writeAtomic` instead of raw `appendFileSync`,
+  satisfying the crash-proof invariant for all JSON/JSONL mutations.
+- **Long-running swarm falsely marked abandoned (#107)**: Controller now calls
+  `updateHeartbeat()` (throttled at 30s) so swarms running past the 30-minute stale
+  threshold are not falsely recovered as abandoned.
+- **Worktree change-tracking race (#109)**: Changed `changesStaged` to `hadChanges` —
+  uncommitted changes discovered before staging now also preserve the worktree for
+  manual recovery if commit fails.
+- **Non-git .gitignore pollution (#110)**: Extracted `ensureGitignore()` into dedicated
+  `src/shared/gitignore.ts` with `isGitRepository()` guard — no longer writes .gitignore
+  in non-git directories.
+- **Multi-wildcard glob mismatch (#111)**: `matchGlobPattern()` now compiles to an
+  anchored regex for patterns with multiple `*` wildcards, replacing the broken
+  suffix-only fallback that caused `src/*.test.*` to match nothing.
+- **Agent pattern specificity tie-break (#112)**: Changed `>` to `>=` so on equal-length
+  pattern ties, later-inserted agents win (project agents override user agents).
+- **Misleading `<resume_hint>` in swarm output (#114)**: Removed from `renderSwarmResults()`
+  since AgentSwarm has `additionalProperties: false` and no `resume_agent_ids` parameter.
+
+### Changed
+
+- **Gitignore module extracted**: Inline `ensureGitignore()` code removed from `src/index.ts`
+  and extracted to `src/shared/gitignore.ts` (#110).
+- **Tests**: 40 new tests added (131 total, 13 test files), covering coordinator,
+  mailbox, mailbox-poll, persistence-state, worktree, gitignore, and agents.
+
 ## [0.8.1] - 2026-06-29
 
 ### Added
