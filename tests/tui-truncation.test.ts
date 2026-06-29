@@ -7,6 +7,7 @@
  */
 
 import { describe, it, expect } from "vitest";
+import { visibleWidth } from "@earendil-works/pi-tui";
 import { AgentSwarmProgressComponent } from "../src/tui/progress.js";
 import type { SwarmProgressState, MemberStatus } from "../src/tui/progress.js";
 
@@ -14,7 +15,7 @@ import type { SwarmProgressState, MemberStatus } from "../src/tui/progress.js";
 // Helpers
 // ---------------------------------------------------------------------------
 
-/** Verify every line returned by render is within the given width. */
+/** Verify every line returned by render fits within the given visible width. */
 function assertAllLinesWithinWidth(
   lines: string[],
   width: number,
@@ -22,9 +23,10 @@ function assertAllLinesWithinWidth(
 ): void {
   for (let i = 0; i < lines.length; i += 1) {
     const line = lines[i]!;
+    const vw = visibleWidth(line);
     expect(
-      line.length,
-      `${componentName} line ${i} (len=${line.length}) exceeds width=${width}: "${line.slice(0, 40)}..."`,
+      vw,
+      `${componentName} line ${i} (visibleWidth=${vw}) exceeds width=${width}: "${line.slice(0, 40)}..."`,
     ).toBeLessThanOrEqual(width);
   }
 }

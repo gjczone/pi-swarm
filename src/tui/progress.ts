@@ -13,6 +13,7 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth, visibleWidth } from "@earendil-works/pi-tui";
 import type {
   BatchProgressSnapshot,
   BatchMemberStatus,
@@ -211,7 +212,7 @@ export class AgentSwarmProgressComponent implements Component {
 
     // Bottom separator
     const sepWidth = safeWidth - 2;
-    lines.push(truncateText(repeatStr("\u2500", sepWidth), sepWidth));
+    lines.push(truncateToWidth(repeatStr("\u2500", sepWidth), sepWidth));
 
     // Status line: Working...  N/M (P%)  elapsed
     lines.push(this.renderStatusLine(safeWidth, state));
@@ -233,10 +234,10 @@ export class AgentSwarmProgressComponent implements Component {
     const prefix = `\u2500 ${mode}`;
     const content = desc ? ` \u2500 ${desc}` : "";
     const label = `${prefix}${content}${mailboxInfo}`;
-    const suffixLen = Math.max(0, width - visibleLen(label) - 2);
+    const suffixLen = Math.max(0, width - visibleWidth(label) - 2);
     const suffix =
       suffixLen > 0 ? ` \u2500${repeatStr("\u2500", suffixLen)}` : "";
-    return truncateText(`${label}${suffix}`, width);
+    return truncateToWidth(`${label}${suffix}`, width);
   }
 
   // -------------------------------------------------------------------
@@ -249,7 +250,7 @@ export class AgentSwarmProgressComponent implements Component {
     const pct = total > 0 ? Math.round((done / total) * 100) : 0;
     const elapsed = formatElapsed(Date.now() - state.startedAt);
     const label = state.active > 0 ? "Working..." : "Completed";
-    return truncateText(
+    return truncateToWidth(
       `${label}  ${done}/${total} (${pct}%)  ${elapsed}`,
       width,
     );
@@ -326,7 +327,7 @@ export class AgentSwarmProgressComponent implements Component {
     const bar = this.renderBrailleBar(member, barCells);
     const label = this.renderCellLabel(member, labelWidth);
 
-    return truncateText(`${id} ${bar} ${label}`, width);
+    return truncateToWidth(`${id} ${bar} ${label}`, width);
   }
 
   // -------------------------------------------------------------------
@@ -361,11 +362,11 @@ export class AgentSwarmProgressComponent implements Component {
 
         if (col < cols - 1) {
           // Pad to fill the remaining cell width + gap
-          const padLen = Math.max(0, cellWidth - visibleLen(cell) + gap);
+          const padLen = Math.max(0, cellWidth - visibleWidth(cell) + gap);
           line += " ".repeat(padLen);
         }
       }
-      lines.push(truncateText(line, width));
+      lines.push(truncateToWidth(line, width));
     }
 
     if (state.members.length > MAX_VISIBLE_MEMBERS) {
@@ -454,13 +455,13 @@ export class AgentSwarmProgressComponent implements Component {
       const toolPart = member.currentTool ? `${member.currentTool}: ` : "";
       const activityText = member.activity ?? member.item ?? "";
       const text = toolPart + activityText;
-      return truncateText(text, width);
+      return truncateToWidth(text, width);
     }
-    if (member.phase === "completed") return truncateText("ok", width);
+    if (member.phase === "completed") return truncateToWidth("ok", width);
     if (member.phase === "failed" && member.error)
-      return truncateText(member.error, Math.min(width, 20));
+      return truncateToWidth(member.error, Math.min(width, 20));
     if (member.phase === "queued" || member.phase === "suspended")
-      return truncateText(member.item ?? "...", width);
+      return truncateToWidth(member.item ?? "...", width);
 
     return "";
   }
@@ -518,15 +519,4 @@ function formatElapsed(ms: number): string {
   if (m < 60) return `${m}m ${s}s`;
   const h = Math.floor(m / 60);
   return `${h}h ${m % 60}m ${s}s`;
-}
-
-function visibleLen(text: string): number {
-  return text.replace(/\x1b\[[0-9;]*m/g, "").length;
-}
-
-function truncateText(text: string, maxLen: number): string {
-  if (maxLen <= 0) return "";
-  if (text.length <= maxLen) return text;
-  if (maxLen <= 1) return text.slice(0, 1);
-  return text.slice(0, maxLen - 1) + "\u2026";
 }

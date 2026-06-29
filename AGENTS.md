@@ -149,11 +149,11 @@ Goal: replace both the third-party `subagent` extension and `worktree`, becoming
 
 ## shazam Tools — USE THEM
 
-You have access to pi-shazam — 9 code analysis tools. You WILL use every one of them. They are NOT optional.
+You have access to pi-shazam — 7 code analysis tools. You WILL use every one of them. They are NOT optional.
 
 **`shazam_overview` is ALREADY in your context.** It was auto-injected before you started reading. READ it. The project structure, top files, and hotspots are right there above this section. If you can see the overview output in your context — Do NOT call `shazam_overview`. If you do NOT see it — call it immediately. It is the single most important tool. You cannot work blind.
 
-Here are the other 8 tools. You MUST call them. Memorize them. Use them or fail.
+Here are the other 6 tools. You MUST call them. Memorize them. Use them or fail.
 
 | Tool | What it does | You MUST call it when |
 |------|-------------|----------------------|
@@ -162,9 +162,7 @@ Here are the other 8 tools. You MUST call them. Memorize them. Use them or fail.
 | `shazam_verify` | Post-edit gate — LSP diagnostics, graph analysis, PASS/WARN/FAIL | AFTER every write. Run it. Read the verdict. If it says FAIL or WARN, fix it NOW. |
 | `shazam_changes` | Git change summary with symbol-level detail and risk level | You edited things and need to know what actually changed |
 | `shazam_format` | Auto-fix formatting — supports multiple formatters | `shazam_verify` reports format errors |
-| `shazam_find_tests` | Discover test files, test functions, where new tests belong | Adding tests or modifying code that has tests |
 | `shazam_rename_symbol` | Cross-file symbol rename with atomic writes and safety gate | Renaming ANY symbol. Do NOT manually find-and-replace. |
-| `shazam_safe_delete` | Check for zero incoming references before deletion | Removing any exported symbol. Do NOT delete blind. |
 
 If a tool errors or is unavailable, try once more, then work around it. But you MUST try it first. These tools are the difference between a working change and a broken build.
 

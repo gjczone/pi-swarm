@@ -5,6 +5,21 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.7.2] - 2026-06-29
+
+### Fixed
+
+- **TUI progress panel crash with CJK labels (#20)**: Replaced custom `truncateText` and `visibleLen` in `progress.ts` with pi-tui's `truncateToWidth` and `visibleWidth`, which correctly account for wide characters (CJK takes 2 terminal columns). Subagent labels containing Chinese/Japanese/Korean text no longer cause "Rendered line exceeds terminal width" crashes.
+- **`swarm-markers.ts` used local truncation**: Replaced local `truncateToWidth` with pi-tui's wide-char-aware implementation.
+
+### Changed
+
+- **AGENTS.md**: Updated shazam tool count from 9 to 7 (2 tools — `shazam_find_tests` and `shazam_safe_delete` — are not yet registered in pi-shazam).
+
+### Removed
+
+- Dead function `writeJsonLines` in `src/team/mailbox.ts` (zero callers).
+
 ## [0.7.1] - 2026-06-29
 
 ### Changed

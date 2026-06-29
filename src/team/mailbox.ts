@@ -355,8 +355,3 @@ function readJsonLines(filePath: string): MailboxMessage[] {
     return [];
   }
 }
-
-function writeJsonLines(filePath: string, messages: MailboxMessage[]): void {
-  const content = messages.map((m) => JSON.stringify(m)).join("\n");
-  writeAtomic(filePath, content + (content ? "\n" : ""));
-}

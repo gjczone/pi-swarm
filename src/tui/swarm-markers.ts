@@ -9,6 +9,7 @@
  */
 
 import type { Component } from "@earendil-works/pi-tui";
+import { truncateToWidth } from "@earendil-works/pi-tui";
 
 // ---------------------------------------------------------------------------
 // Types
@@ -61,14 +62,4 @@ function swarmMarkerLabel(state: SwarmModeMarkerState): string {
     case "ended":
       return "Swarm ended";
   }
-}
-
-/**
- * Truncate a string to fit within a given display width.
- * Simple implementation — the real pi-tui provides `truncateToWidth`
- * which handles wide characters and ANSI escapes.
- */
-function truncateToWidth(text: string, maxWidth: number): string {
-  if (text.length <= maxWidth) return text;
-  return text.slice(0, maxWidth - 1) + "\u2026"; // ellipsis
 }
