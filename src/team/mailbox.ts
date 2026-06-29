@@ -3,8 +3,6 @@
  *
  * Each team run has a shared mailbox directory under .pi/swarm/mailbox/
  * where agents write messages (outbox) and read messages (inbox).
- *
- * Inspired by pi-crew's mailbox system.
  */
 
 import * as fs from "node:fs";
@@ -134,23 +132,25 @@ export function sendMessage(
   appendJsonLine(paths.inbox, message);
 
   if (message.to === "broadcast") {
-    // Broadcast: deliver to all known role inboxes
-    const roles = [
-      "explorer",
-      "planner",
-      "coder",
-      "reviewer",
-      "tester",
-      "fixer",
-    ];
-    for (const role of roles) {
-      try {
-        const taskPaths = resolveTaskMailboxPaths(paths, role);
-        fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
-        appendJsonLine(taskPaths.inbox, message);
-      } catch {
-        // Best effort delivery per role
+    // Broadcast: deliver to all known task inboxes under the tasks directory.
+    // Discovers recipients dynamically so it works for both team mode
+    // (explorer, planner, ...) and swarm mode (agent-1, agent-2, ...).
+    try {
+      const entries = fs.readdirSync(paths.taskDir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        const taskId = entry.name;
+        if (!SAFE_RECIPIENT_PATTERN.test(taskId)) continue;
+        try {
+          const taskPaths = resolveTaskMailboxPaths(paths, taskId);
+          fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
+          appendJsonLine(taskPaths.inbox, message);
+        } catch {
+          // Best effort delivery per task
+        }
       }
+    } catch {
+      // tasks directory might not exist yet — best effort
     }
   } else {
     // Direct message: deliver to specific role inbox

@@ -377,6 +377,8 @@ export interface BatchMemberStatus {
   readonly activity?: string;
   /** Cumulative progress tick count (incremented on each tool call / activity). */
   readonly progressTick?: number;
+  /** Timestamp when this agent started working (ms since epoch). */
+  readonly startedAt?: number;
 }
 
 // ---------------------------------------------------------------------------

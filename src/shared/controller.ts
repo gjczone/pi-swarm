@@ -764,6 +764,7 @@ export class SubagentBatchController<T> {
         currentTool: state.currentTool,
         activity: state.activity,
         progressTick: state.progressTick,
+        startedAt: state.startedAt,
       });
     }
 

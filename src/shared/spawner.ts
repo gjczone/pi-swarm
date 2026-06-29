@@ -238,12 +238,14 @@ async function runSubagentProcess(
       `- Your outbox (write to send messages): ${outboxRel}`,
       "",
       "How to use:",
-      "1. Check your inbox file periodically for new messages from other agents or the supervisor.",
+      "1. Read your inbox for new messages: use the read tool to check your inbox file periodically.",
       "2. To send a message, append a single JSON line to your outbox file with format:",
       `   {"messageId":"msg-{random}","runId":"${opts.runId ?? ""}","timestamp":"{ISO8601}","from":"${roleName}","to":"{recipient}","type":"handoff","payload":{"content":"your message"}}`,
-      "3. Valid recipients: explorer, planner, coder, reviewer, tester, fixer, broadcast (sends to all).",
-      "4. Messages you write to outbox are delivered immediately to the recipient's inbox.",
+      `3. Valid recipients: other agent names (e.g. agent-1, agent-2, ...) or "broadcast" to send to all.`,
+      "   To discover available agents, list the mailbox tasks directory (parent of your inbox path).",
+      "4. Messages you write to your outbox are delivered immediately to the recipient's inbox.",
       "5. You do NOT need to wait for your phase to complete to send messages.",
+      "6. Read your inbox: use the read tool or bash cat to read your inbox file.",
       "",
     ].join("\n");
     finalPrompt = finalPrompt + mailboxAddendum;
