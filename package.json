@@ -1,6 +1,6 @@
 {
   "name": "@gjczone/pi-swarm",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "description": "Agent Swarm & Team for pi-coding-agent. Single to 128 subagents: parallel swarm or collaborative team with mailbox. Live TUI, rate-limit retries, crash recovery. Ported from kimi-code, inspired by pi-crew.",
   "type": "module",
   "main": "dist/index.js",
