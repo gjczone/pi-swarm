@@ -30,6 +30,11 @@ import type {
   SwarmSpec,
 } from "../shared/types.js";
 import {
+  resolveProfile,
+  resolveProfileTools,
+  deriveAgentName,
+} from "../shared/profiles.js";
+import {
   resolveSwarmRoot,
   createManifest,
   updateManifest,
@@ -69,16 +74,24 @@ const AGENT_SWARM_DESCRIPTION = [
   "- Collaborative workflows (agents need to share findings between phases):",
   "  mailbox: true. Agents communicate via shared inbox/outbox.",
   "",
+  "Agent profiles (profile parameter):",
+  '- "general" (default): Full access, balanced toolset, free-form output.',
+  '- "explore": Read-only search specialist. No write tools. Use for investigation.',
+  '- "plan": Planning specialist. No bash write. Produces structured plans.',
+  '- "review": Code review specialist. No write tools. Produces structured findings.',
+  "Custom profiles can be defined in .pi/settings.json under pi-swarm.profiles.",
+  "",
   "How to use:",
   "1. Analyze the task. Decompose it into 1-20 items.",
-  "2. Decide: do agents need to communicate?",
+  "2. Select the right profile for the work.",
+  "3. Decide: do agents need to communicate?",
   "   - No -> mailbox: false (default)",
   "   - Yes -> mailbox: true",
-  "3. Write a prompt_template with {{item}} placeholder.",
+  "4. Write a prompt_template with {{item}} placeholder.",
   "   Include context from the user's task and the specific item.",
-  "4. Use 1 item for a single isolated agent, 2-6 for typical parallel work.",
-  "5. The tool handles concurrency, rate limits, and error recovery.",
-  "6. Read the results from the tool output.",
+  "5. Use 1 item for a single isolated agent, 2-6 for typical parallel work.",
+  "6. The tool handles concurrency, rate limits, and error recovery.",
+  "7. Read the results from the tool output.",
   "",
   "Each subagent runs in a clean workspace with project rules (AGENTS.md) loaded.",
   "With mailbox, subagents get inbox/outbox and send messages during execution.",
@@ -109,6 +122,13 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
           Type.String({
             description: "Short description for the whole swarm (optional).",
             examples: ["Review source files for bugs"],
+          }),
+        ),
+        profile: Type.Optional(
+          Type.String({
+            description:
+              'Agent profile to use. Built-in profiles: "general" (default, full access), "explore" (read-only search), "plan" (structured planning), "review" (code review). Custom profiles loaded from .pi/settings.json.',
+            examples: ["general", "explore", "review"],
           }),
         ),
         prompt_template: Type.String({
@@ -149,17 +169,25 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const { description, prompt_template, items, model, mailbox } =
+      const { description, prompt_template, items, model, mailbox, profile } =
         params as {
           description?: string;
           prompt_template: string;
           items: string[];
           model?: string;
           mailbox?: boolean;
+          profile?: string;
         };
       // Resolve model: "small" keyword → lookup settings; explicit model ID → use as-is; undefined → inherit parent
       const resolvedModel =
         model === "small" ? resolveSwarmSmallModel() : model;
+
+      // Resolve agent profile
+      const agentProfile = resolveProfile(profile, process.cwd());
+      const profileName = agentProfile.name;
+      const profileModel =
+        agentProfile.model === "inherit" ? undefined : agentProfile.model;
+      const effectiveModel = profileModel ?? resolvedModel;
 
       const ctx = ctxRaw as ExtensionContext;
       const progress = createProgressWidget(ctx);
@@ -171,8 +199,6 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       let runCreated = false;
 
       try {
-        const profileName = DEFAULT_SUBAGENT_TYPE;
-
         // Validate prompt_template contains exactly one placeholder
         const placeholderCount =
           prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).length - 1;
@@ -215,30 +241,39 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         });
         runCreated = true;
 
+        // Resolve tool restrictions from profile
+        const profileTools = resolveProfileTools(agentProfile);
+
         // Convert to queued tasks
         const resolvedPaths = mailboxPaths;
-        const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => ({
-          kind: "spawn",
-          data: spec,
-          profileName: profileName,
-          parentToolCallId: toolCallId,
-          prompt: spec.prompt,
-          description: `${description ?? "Swarm"} #${spec.index} (${profileName})`,
-          swarmIndex: spec.index,
-          runInBackground: false,
-          swarmItem: spec.item,
-          signal,
-          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
-          swarmRoot,
-          runId,
-          useWorktree: true,
-          model: resolvedModel,
-          mailboxPath,
-          roleName: `agent-${idx + 1}`,
-          onMessage: resolvedPaths
-            ? (msg) => sendMessage(resolvedPaths, msg)
-            : undefined,
-        }));
+        const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => {
+          const agentName = deriveAgentName(profileName, spec.item, idx + 1);
+          return {
+            kind: "spawn",
+            data: spec,
+            profileName,
+            agentName,
+            parentToolCallId: toolCallId,
+            prompt: spec.prompt,
+            description: `${description ?? "Swarm"} #${spec.index} (${agentName})`,
+            swarmIndex: spec.index,
+            runInBackground: false,
+            swarmItem: spec.item,
+            signal,
+            timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+            swarmRoot,
+            runId,
+            useWorktree: true,
+            model: effectiveModel,
+            tools: profileTools,
+            additionalSystemPrompt: agentProfile.systemPrompt,
+            mailboxPath,
+            roleName: agentName,
+            onMessage: resolvedPaths
+              ? (msg) => sendMessage(resolvedPaths, msg)
+              : undefined,
+          };
+        });
 
         // Run with controller
         const maxConcurrency = resolveSwarmMaxConcurrency(process.cwd());

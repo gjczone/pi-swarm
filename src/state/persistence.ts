@@ -99,7 +99,7 @@ export function resolveAgentStateDir(
 
 export interface RunManifest {
   readonly runId: string;
-  readonly type: "swarm" | "team";
+  readonly type: "swarm" | "team" | "coordinator";
   status: "running" | "completed" | "failed" | "abandoned";
   goal?: string;
   startedAt: number;
