@@ -5,6 +5,37 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.8.1] - 2026-06-29
+
+### Added
+
+- **File-based Agent Definitions (#59)**: Reusable agent configurations as Markdown files
+  with YAML frontmatter in `~/.pi/agents/` (user-global) and `.pi/agents/` (project-scoped).
+  Each file defines one named agent with system prompt, capability flags (`allowWrite`,
+  `allowBashWrite`), optional tool allowlist/denylist, and model routing. Reference
+  via `agentType` parameter in Swarm/Coordinator tools.
+  - `src/shared/agents.ts` — NEW: file scanning, frontmatter parsing (zero dependencies),
+    AgentProfile conversion, caching
+  - `src/shared/profiles.ts` — MODIFIED: `resolveProfile()` chain extended with file
+    agents; `resolveProfileTools()` redesigned with allowlist/denylist support
+  - `src/shared/types.ts` — MODIFIED: added `AgentFileDefinition`, `FileAgentSource`,
+    `tools`/`disallowedTools` to `AgentProfile`
+  - `src/swarm/tool.ts` — MODIFIED: added `agentType` param (mutually exclusive with
+    `profile`)
+  - `src/swarm/coordinator.ts` — MODIFIED: added `agentType` param
+- **28 new tests** (`tests/agents.test.ts`) covering frontmatter parsing, agent file
+  loading, profile integration, and allowlist/denylist resolution
+
+### Documentation
+
+- `README.md` — Added file-based agent format reference, tool permission model
+  (capability flags / allowlist / denylist), resolution priority chart, `agentType`
+  vs `profile` comparison
+- `rules/ARCHITECTURE.md` — Added named subagent design doc with module architecture
+  diagram, permission model explanation, and resolution chain
+- `AGENTS.md`, `PLAN.md` — Updated Change Map, First Places to Inspect, and Phase 8
+  design notes
+
 ## [0.8.0] - 2026-06-29
 
 ### Added

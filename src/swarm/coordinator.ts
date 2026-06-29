@@ -64,11 +64,15 @@ const COORDINATOR_DESCRIPTION = [
   "- Stop individual agents with TaskStop(runId, agentName)",
   "- Agents continue running across conversation turns until they complete or are stopped.",
   "",
-  "Agent profiles:",
-  '- "general" (default): Full read/write access.',
-  '- "explore": Read-only search. No file modifications.',
-  '- "plan": Read-only planner. Produces structured plans.',
-  '- "review": Read-only reviewer. Produces structured findings.',
+  "Agent profiles (profile / agentType parameters — mutually exclusive):",
+  "- profile: Use a built-in or settings.json custom profile.",
+  '  "general" (default): Full read/write access.',
+  '  "explore": Read-only search. No file modifications.',
+  '  "plan": Read-only planner. Produces structured plans.',
+  '  "review": Read-only reviewer. Produces structured findings.',
+  "- agentType: Reference a file-based agent from ~/.pi/agents/<name>.md or .pi/agents/<name>.md.",
+  "  File agents bundle system prompt, tool permissions, and model in one file.",
+  "  Use 'profile' OR 'agentType', not both.",
   "",
   "Use this when you need to launch agents and then react to their progress",
   "or give them additional instructions while they work.",
@@ -189,7 +193,14 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         profile: Type.Optional(
           Type.String({
             description:
-              'Agent profile: "general" (default), "explore", "plan", "review", or custom.',
+              'Agent profile: "general", "explore", "plan", "review", or custom. Mutually exclusive with agentType.',
+          }),
+        ),
+        agentType: Type.Optional(
+          Type.String({
+            description:
+              "File-based agent name from ~/.pi/agents/<name>.md or .pi/agents/<name>.md. " +
+              "Mutually exclusive with profile.",
           }),
         ),
         prompt_template: Type.String({
@@ -214,19 +225,35 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       params: Record<string, unknown>,
       signal: AbortSignal | undefined,
     ) => {
-      const { description, prompt_template, items, model, profile } =
+      const { description, prompt_template, items, model, profile, agentType } =
         params as {
           description?: string;
           prompt_template: string;
           items: string[];
           model?: string;
           profile?: string;
+          agentType?: string;
         };
+
+      // Validate: profile and agentType are mutually exclusive
+      if (profile && agentType) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: profile and agentType are mutually exclusive. Use one or the other, not both.",
+            },
+          ],
+          isError: true,
+          details: undefined,
+        };
+      }
 
       const resolvedModel =
         model === "small" ? resolveSwarmSmallModel() : model;
 
-      const agentProfile = resolveProfile(profile, process.cwd());
+      const profileSource = agentType ?? profile;
+      const agentProfile = resolveProfile(profileSource, process.cwd());
       const profileName = agentProfile.name;
       const profileModel =
         agentProfile.model === "inherit" ? undefined : agentProfile.model;

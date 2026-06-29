@@ -547,3 +547,31 @@ line (activated / deactivated / ended) in the transcript.
 | Agent profiles            | Capability-based (allowWrite / allowBashWrite). Not hardcoded tool names. |
 | Coordinator mode          | Non-blocking swarm via `runAsync()`. Main agent stays active, orchestrates via messages. |
 | Language                  | 100% English in all code, comments, docs, commits                   |
+
+---
+
+## 10. Named Subagents from Files (Phase 8)
+
+### Goal
+Allow users to define reusable agent configurations as Markdown files in `~/.pi/agents/` or `.pi/agents/`, referenceable by name via `agentType` in Swarm/Coordinator tools.
+
+### Files Changed
+
+| File | Change |
+|------|--------|
+| `src/shared/agents.ts` | **(NEW)** File scanning, frontmatter parsing, AgentProfile conversion |
+| `src/shared/types.ts` | Add `disallowedTools` to `AgentProfile`; add `AgentFileDefinition` type |
+| `src/shared/profiles.ts` | Integrate file agents into `resolveProfile()` chain; handle `disallowedTools` |
+| `src/swarm/tool.ts` | Add `agentType` parameter (mutually exclusive with `profile`) |
+| `src/swarm/coordinator.ts` | Add `agentType` parameter (mutually exclusive with `profile`) |
+| `README.md` | Document agent file format with examples |
+
+### Phase 8 Implementation Steps
+
+- [x] Step 1: Add types — `disallowedTools` to `AgentProfile`, `AgentFileDefinition` interface
+- [x] Step 2: Create `src/shared/agents.ts` — directory scanning, frontmatter parsing, AgentProfile building
+- [x] Step 3: Modify `src/shared/profiles.ts` — integrate file agents, update `resolveProfileTools()` for allowlist/denylist
+- [x] Step 4: Update `src/swarm/tool.ts` — add `agentType` parameter
+- [x] Step 5: Update `src/swarm/coordinator.ts` — add `agentType` parameter
+- [x] Step 6: Tests — file loading, parsing, allowlist/denylist, resolution priority (28 new tests)
+- [x] Step 7: README documentation — format reference, examples, permission model explanation

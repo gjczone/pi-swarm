@@ -54,6 +54,101 @@ The `explore`, `plan`, and `review` profiles restrict agents to read-only operat
 }
 ```
 
+### File-based Agent Definitions
+
+For agent configurations that are self-documenting, shareable, and easy to manage, create `.md` files in `~/.pi/agents/` (user-global) or `.pi/agents/` (project-scoped).
+
+Each `.md` file defines one named agent — reference it with `agentType` in Swarm/Coordinator calls.
+
+#### Quick Example
+
+Save this as `~/.pi/agents/rust-audit.md`:
+
+```markdown
+---
+name: rust-audit
+description: Rust code audit specialist with memory safety analysis
+allowWrite: false
+allowBashWrite: false
+model: small
+outputFormat: structured
+disallowedTools:
+  - Swarm
+  - SwarmCoordinator
+---
+
+You are a Rust code audit specialist operating in READ-ONLY mode.
+
+Focus on:
+- Memory safety issues (unsafe blocks, raw pointers, lifetime violations)
+- Concurrency bugs (Send/Sync, data races, deadlocks)
+- Unsafe code blocks — verify each one has a proper safety comment
+- Common crate misuse
+
+## REQUIRED OUTPUT FORMAT
+
+Scope: <one-sentence summary>
+Findings:
+  - [P0/P1/P2/P3] <file:line> — <description>
+  (P0=memory safety, P1=likely bug, P2=should fix, P3=style/nit)
+```
+
+Then use it in any swarm call:
+
+```
+agentType: "rust-audit"
+```
+
+#### Reference
+
+| Frontmatter key    | Required | Type             | Description |
+|--------------------|----------|------------------|-------------|
+| `name`             | Yes*     | string           | Agent name. Defaults to filename if omitted. |
+| `description`      | Yes      | string           | One-line purpose. Shown in agent list and tool descriptions. |
+| `allowWrite`       | No       | boolean          | Whether agent can use edit/write tools. Default: `true`. |
+| `allowBashWrite`   | No       | boolean          | Whether agent can run write-mode bash commands. Default: `true`. |
+| `model`            | No       | string           | Model routing: `"small"` (auto-resolve), or explicit `"provider/modelId"`. Omit to inherit. |
+| `outputFormat`     | No       | `"free"` or `"structured"` | Agent output format. Default: `"free"`. |
+| `tools`            | No       | string[]         | **Explicit tool allowlist.** When set, ONLY these tools are available to the agent. |
+| `disallowedTools`  | No       | string[]         | **Tool denylist.** Subtracts from the resolved tool set. |
+
+The Markdown **body** (after `---`) becomes the agent's **system prompt**.
+
+#### Tool Permission Model
+
+pi-swarm runs on pi-coding-agent, which has a dynamic tool set varying by installation (community extensions, MCP servers, user-installed tools). The permission model uses three layers:
+
+| Layer | Mechanism | When to use |
+|-------|-----------|-------------|
+| **Capability flags** | `allowWrite`, `allowBashWrite` | **Default/recommended.** Works on any pi installation regardless of installed tools. |
+| **Tool allowlist** | `tools: [read, bash]` | Power users who know their exact tool inventory. When set, **only** listed tools are available. |
+| **Tool denylist** | `disallowedTools: [Swarm]` | Power users who want to block specific tools (e.g. prevent subagents from spawning sub-sub-agents). |
+
+**Resolution order**:
+1. If `tools` allowlist is set → use that exact list (capability flags still filter native tools)
+2. If `disallowedTools` is set → start from capability-derived tool set, subtract disallowed items
+3. If neither → use capability flags only
+4. `allowWrite: false` always removes `edit` and `write` from the resolved set
+5. `allowBashWrite: false` keeps `bash` but instructs read-only via system prompt (recommended to add a read-only rule to the prompt body as well)
+
+**Tool names** are pi tool identifiers as registered with `pi.registerTool()`. Common native tools include: `read`, `edit`, `bash`, `write`, `search`, `think`, `web_fetch`, `batch_web_fetch`, `agent_browser`, `mcp`, `workflow`. pi-swarm registers: `Swarm`, `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus`. The exact set varies by installation — capability flags are the portable choice.
+
+#### Resolution Priority
+
+When the same agent name exists in multiple locations, the first match wins:
+
+```
+1. .pi/agents/<name>.md       ← Project-scoped (highest priority)
+2. ~/.pi/agents/<name>.md     ← User-global
+3. pi-swarm.subagents in settings.json  ← Settings-defined
+4. Built-in profiles           ← explore, plan, general, review
+5. Fallback: general
+```
+
+#### `agentType` vs `profile`
+
+Both parameters go through the same `resolveProfile()` function. The `profile` parameter accepts built-in names (`"explore"`, `"plan"`, `"general"`, `"review"`) and settings.json custom profiles. The `agentType` parameter accepts file-based agent names. They are **mutually exclusive** — use one or the other, not both.
+
 ### Coordinator Mode — non-blocking swarm
 
 ```

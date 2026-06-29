@@ -73,16 +73,19 @@ const AGENT_SWARM_DESCRIPTION = [
   "- Collaborative workflows (agents need to share findings between phases):",
   "  mailbox: true. Agents communicate via shared inbox/outbox.",
   "",
-  "Agent profiles (profile parameter):",
-  '- "general" (default): Full access, balanced toolset, free-form output.',
-  '- "explore": Read-only search specialist. No write tools. Use for investigation.',
-  '- "plan": Planning specialist. No bash write. Produces structured plans.',
-  '- "review": Code review specialist. No write tools. Produces structured findings.',
-  "Custom profiles can be defined in .pi/settings.json under pi-swarm.profiles.",
+  "Agent profiles (profile / agentType parameters — mutually exclusive):",
+  "- profile: Use a built-in profile or settings.json custom profile.",
+  '  "general" (default): Full access, balanced toolset, free-form output.',
+  '  "explore": Read-only search specialist. No write tools. Use for investigation.',
+  '  "plan": Planning specialist. No bash write. Produces structured plans.',
+  '  "review": Code review specialist. No write tools. Produces structured findings.',
+  "- agentType: Reference a file-based agent from ~/.pi/agents/<name>.md or .pi/agents/<name>.md.",
+  "  File agents bundle a system prompt, tool permissions, and model routing in one discoverable file.",
+  "  Use 'profile' OR 'agentType', not both.",
   "",
   "How to use:",
   "1. Analyze the task. Decompose it into 1-20 items.",
-  "2. Select the right profile for the work.",
+  "2. Choose agent configuration: profile (built-in/settings) or agentType (file-based).",
   "3. Decide: do agents need to communicate?",
   "   - No -> mailbox: false (default)",
   "   - Yes -> mailbox: true",
@@ -126,8 +129,16 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         profile: Type.Optional(
           Type.String({
             description:
-              'Agent profile to use. Built-in profiles: "general" (default, full access), "explore" (read-only search), "plan" (structured planning), "review" (code review). Custom profiles loaded from .pi/settings.json.',
+              'Agent profile to use. Built-in: "general", "explore", "plan", "review". Custom: from .pi/settings.json pi-swarm.subagents. Mutually exclusive with agentType.',
             examples: ["general", "explore", "review"],
+          }),
+        ),
+        agentType: Type.Optional(
+          Type.String({
+            description:
+              "File-based agent name from ~/.pi/agents/<name>.md or .pi/agents/<name>.md. " +
+              "Mutually exclusive with profile. File agents define system prompt, tool permissions, and model in one file.",
+            examples: ["rust-audit", "vue-dev", "data-science"],
           }),
         ),
         prompt_template: Type.String({
@@ -168,21 +179,46 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       _onUpdate: unknown,
       ctxRaw: unknown,
     ) => {
-      const { description, prompt_template, items, model, mailbox, profile } =
-        params as {
-          description?: string;
-          prompt_template: string;
-          items: string[];
-          model?: string;
-          mailbox?: boolean;
-          profile?: string;
+      const {
+        description,
+        prompt_template,
+        items,
+        model,
+        mailbox,
+        profile,
+        agentType,
+      } = params as {
+        description?: string;
+        prompt_template: string;
+        items: string[];
+        model?: string;
+        mailbox?: boolean;
+        profile?: string;
+        agentType?: string;
+      };
+
+      // Validate: profile and agentType are mutually exclusive
+      if (profile && agentType) {
+        return {
+          content: [
+            {
+              type: "text" as const,
+              text: "Error: profile and agentType are mutually exclusive. Use one or the other, not both.",
+            },
+          ],
+          isError: true,
+          details: undefined,
         };
+      }
+
       // Resolve model: "small" keyword → lookup settings; explicit model ID → use as-is; undefined → inherit parent
       const resolvedModel =
         model === "small" ? resolveSwarmSmallModel() : model;
 
-      // Resolve agent profile
-      const agentProfile = resolveProfile(profile, process.cwd());
+      // Resolve agent profile: agentType takes priority over profile for display,
+      // but both go through the same resolveProfile function.
+      const profileSource = agentType ?? profile;
+      const agentProfile = resolveProfile(profileSource, process.cwd());
       const profileName = agentProfile.name;
       const profileModel =
         agentProfile.model === "inherit" ? undefined : agentProfile.model;

@@ -432,11 +432,38 @@ export interface SubagentBatchLauncher {
 }
 
 // ---------------------------------------------------------------------------
-// Agent Profiles (#99)
+// Agent Profiles (#99) & File-based Agents (#59)
 // ---------------------------------------------------------------------------
 
 /** Output format for agent results. */
 export type AgentOutputFormat = "free" | "structured";
+
+/**
+ * Source of a file-based agent definition.
+ */
+export type FileAgentSource = "user" | "project";
+
+/**
+ * Parsed frontmatter from a file-based agent (.md) definition.
+ */
+export interface AgentFileDefinition {
+  readonly name: string;
+  readonly description: string;
+  readonly allowWrite?: boolean;
+  readonly allowBashWrite?: boolean;
+  readonly model?: string;
+  readonly outputFormat?: AgentOutputFormat;
+  /** Explicit tool allowlist — when set, ONLY these tools are available. */
+  readonly tools?: string[];
+  /** Tool denylist — subtracts from resolved tool set. */
+  readonly disallowedTools?: string[];
+  /** Prompt body (Markdown body content). */
+  readonly prompt: string;
+  /** Source directory ("user" for ~/.pi/agents/, "project" for .pi/agents/). */
+  readonly source: FileAgentSource;
+  /** Original file path. */
+  readonly filePath: string;
+}
 
 /**
  * Agent profile defining role-specific behavior, tool restrictions,
@@ -450,6 +477,10 @@ export interface AgentProfile {
   readonly model?: string | "inherit";
   readonly outputFormat: AgentOutputFormat;
   readonly systemPrompt: string;
+  /** Explicit tool allowlist (optional). When set, overrides default capability-based derivation. */
+  readonly tools?: readonly string[];
+  /** Tool denylist (optional). Subtracts from resolved tool set. */
+  readonly disallowedTools?: readonly string[];
 }
 
 /** Built-in profile name type. */
