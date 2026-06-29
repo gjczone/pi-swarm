@@ -90,10 +90,7 @@ function isUserCancellation(reason?: unknown): boolean {
       ? reason.message.toLowerCase()
       : String(reason).toLowerCase();
   return (
-    msg.includes("user") ||
-    msg.includes("cancel") ||
-    msg.includes("interrupt") ||
-    msg.includes("abort")
+    msg.includes("user") || msg.includes("cancel") || msg.includes("interrupt")
   );
 }
 
@@ -327,7 +324,11 @@ export class SubagentBatchController<T> {
     const now = Date.now();
     this.recoverRateLimitCapacity(now);
 
-    if (this.active.size >= this.rateLimitCapacity) {
+    if (
+      this.active.size >= this.rateLimitCapacity ||
+      (this.maxConcurrency !== undefined &&
+        this.active.size >= this.maxConcurrency)
+    ) {
       this.scheduleRateLimitWakeup(this.nextRateLimitCapacityRecoveryAt(), now);
       return;
     }
@@ -611,11 +612,7 @@ export class SubagentBatchController<T> {
     error: unknown,
   ): SubagentResult<T> {
     const task = attempt.state.task;
-    const isAbort =
-      error instanceof Error &&
-      (error.message.includes("abort") ||
-        error.message.includes("cancel") ||
-        error.name === "AbortError");
+    const isAbort = isUserCancellation(error);
 
     const status: SubagentResult<T>["status"] = isAbort ? "aborted" : "failed";
 
@@ -648,7 +645,12 @@ export class SubagentBatchController<T> {
     // Use startedSuccessCount (count of agents that fully booted during
     // the normal phase) so capacity reflects true past throughput rather
     // than only currently-active attempts (which may already be finishing).
-    this.rateLimitCapacity = Math.max(1, this.startedSuccessCount);
+    this.rateLimitCapacity = Math.max(
+      1,
+      this.maxConcurrency !== undefined
+        ? Math.min(this.maxConcurrency, this.startedSuccessCount)
+        : this.startedSuccessCount,
+    );
     this.lastRateLimitAt = Date.now();
     this.globalRetryIntervalMs = RATE_LIMIT_RETRY_BASE_MS;
     this.nextRateLimitLaunchAt = Date.now() + RATE_LIMIT_RETRY_BASE_MS;
@@ -680,6 +682,12 @@ export class SubagentBatchController<T> {
 
     this.lastCapacityRecoveryAt = now;
     this.rateLimitCapacity += 1;
+    if (
+      this.maxConcurrency !== undefined &&
+      this.rateLimitCapacity > this.maxConcurrency
+    ) {
+      this.rateLimitCapacity = this.maxConcurrency;
+    }
   }
 
   // -----------------------------------------------------------------------
