@@ -189,7 +189,7 @@ If a tool errors or is unavailable, try once more, then work around it. But you 
 - **Runtime**: Node.js >= 18, npm package manager
 - **Type**: pi-coding-agent extension, auto-discovered via `pi.extensions: ["./dist"]` in `package.json`
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema); peer: `@earendil-works/pi-coding-agent`
-- **Test framework**: vitest — 57 tests, 6 test files, 0 failures
+- **Test framework**: vitest — 85 tests, 7 test files, 0 failures
 - **Key risk areas**: concurrency controller (rate-limit capacity model, runAsync coordinator), sub-agent process lifecycle (spawn/kill/abort), worktree isolation edge cases, mailbox atomic writes, profile resolution ordering
 
 ## Commands
@@ -262,6 +262,7 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 ## Change Map
 
 - **Adding a new shared utility**: Create `shared/<name>.ts` → export → import in consumers; must not import from `swarm/`, `team/`, `tui/`, or `state/`
+- **Adding a file-based agent format**: Create `.md` file in `~/.pi/agents/` or `.pi/agents/` with YAML frontmatter. See `src/shared/agents.ts` for parsing logic.
 - **Adding a new type**: Add to `shared/types.ts`; value exports use `import` (not `import type`) in consumers
 - **Adding a new tool**: Create `swarm/<name>.ts` or `team/<name>.ts` with `register*(pi: ExtensionAPI)` → import and call in `index.ts`
 - **Adding a new command**: Create handler in `swarm/command.ts` or `team/command.ts` → register with `pi.registerCommand` in `index.ts`
@@ -269,6 +270,7 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - **Adding persistence**: Add to `state/persistence.ts` → update `state/recovery.ts` if needed. Always use `writeAtomic` for JSON/JSONL writes.
 - **Adding per-agent output.log**: Configure `agentDir` in `resolveAgentStateDir` → write in `spawnSubagent` with header/raw output/footer
 - **Adding a new agent profile**: Add built-in to `BUILTIN_PROFILES` in `shared/profiles.ts` → add to `BuiltinProfileName` type union in `types.ts` → document in README.md
+- **Adding tool restrictions to a profile**: Set `tools` (allowlist) or `disallowedTools` (denylist) on `AgentProfile`. See `resolveProfileTools()` in `shared/profiles.ts`.
 - **Adding a coordinator tool**: Create handler in `swarm/coordinator.ts` → register via `pi.registerTool` → update `index.ts` to import and call the registration function
 - **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask`
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update `PLAN.md` and `docs/architecture.md`
@@ -278,7 +280,8 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - `src/shared/controller.ts` — concurrency controller (two-phase ramp-up / rate-limit, runAsync)
 - `src/shared/spawner.ts` — sub-agent lifecycle: spawn, event parsing, worktree, mailbox polling
 - `src/shared/worktree.ts` — git worktree isolation (create, symlink, commit, cleanup)
-- `src/shared/profiles.ts` — agent profile registry (built-in + user-defined), tool restrictions
+- `src/shared/agents.ts` — file-based agent loader: ~/.pi/agents/*.md scanning, frontmatter parsing, AgentProfile conversion
+- `src/shared/profiles.ts` — agent profile registry (built-in + file-based + user-defined), tool restrictions with allowlist/denylist
 - `src/swarm/tool.ts` — Swarm tool definition (output.log persistence, run manifests, profile support)
 - `src/swarm/coordinator.ts` — Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
 - `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment

@@ -11,6 +11,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentProfile, BuiltinProfileName } from "./types.js";
+import { loadFileAgents } from "./agents.js";
 
 // ---------------------------------------------------------------------------
 // Built-in profiles
@@ -181,21 +182,32 @@ function loadUserProfiles(cwd?: string): Record<string, AgentProfile> {
  * Resolve an agent profile by name.
  *
  * Lookup order:
- *   1. User-defined profiles (from .pi/settings.json)
- *   2. Built-in profiles (explore, plan, general, review)
- *   3. Fallback: general profile
+ *   1. Project-scoped file agent (.pi/agents/<name>.md)
+ *   2. User-global file agent (~/.pi/agents/<name>.md)
+ *   3. User-defined profiles (from .pi/settings.json pi-swarm.subagents)
+ *   4. Built-in profiles (explore, plan, general, review)
+ *   5. Fallback: general profile
  */
 export function resolveProfile(
   name: string | undefined,
   cwd?: string,
 ): AgentProfile {
-  const userProfiles = loadUserProfiles(cwd);
+  // 1. File-based agents (project-scoped first, then user-global)
   if (name) {
+    const fileAgents = loadFileAgents(cwd);
+    const fileAgent = fileAgents.get(name);
+    if (fileAgent) return fileAgent;
+
+    // 2. User-defined profiles from settings.json
+    const userProfiles = loadUserProfiles(cwd);
     const userProfile = userProfiles[name];
     if (userProfile) return userProfile;
+
+    // 3. Built-in profiles
     const builtinName = name as BuiltinProfileName;
     if (BUILTIN_PROFILES[builtinName]) return BUILTIN_PROFILES[builtinName];
   }
+  // 4. Fallback
   return DEFAULT_PROFILE;
 }
 
@@ -226,23 +238,64 @@ export function resolveProfileModel(
 
 /**
  * Derive tool restrictions for a profile.
- * Returns a list of allowed native pi tools based on capability flags.
+ * Returns a list of allowed tools, or undefined for "all tools".
  *
- * Capability-based filtering:
- * - allowWrite=false: exclude edit, write tools
- * - allowBashWrite=false: bash tool is allowed but prompt instructs read-only
+ * Resolution order:
+ *   1. If profile.tools (explicit allowlist) is set → use that list exactly
+ *      (capability flags still filter native tools from it)
+ *   2. If profile.disallowedTools is set → start from capability-derived base,
+ *      then subtract disallowed items
+ *   3. If neither → use capability flags only
  *
- * Since community tools vary by installation, we only restrict the
- * 4 native pi tools (read, edit, bash, write) by name.
+ * Capability flags:
+ * - allowWrite=false: remove edit, write from resolved set
+ * - allowBashWrite=false: keep bash but caller should add read-only prompt
+ *
+ * Since community tools vary by installation, capability flags are the
+ * recommended portable mechanism. Explicit tool lists are for power users.
  */
 export function resolveProfileTools(
   profile: AgentProfile,
 ): string[] | undefined {
-  const tools: string[] = ["read", "bash"];
-  if (profile.allowWrite) {
-    tools.push("edit", "write");
+  // Step 1: Determine the base tool set
+  let tools: string[];
+
+  if (profile.tools && profile.tools.length > 0) {
+    // Use explicit allowlist as starting point
+    tools = [...profile.tools];
+  } else {
+    // Derive from capability flags
+    tools = ["read", "bash"];
+    if (profile.allowWrite) {
+      tools.push("edit", "write");
+    }
   }
-  return tools.length === 4 ? undefined : tools;
+
+  // Step 2: Apply capability flags (always enforced)
+  if (!profile.allowWrite) {
+    tools = tools.filter((t) => t !== "edit" && t !== "write");
+  }
+
+  // Step 3: Apply denylist
+  if (profile.disallowedTools && profile.disallowedTools.length > 0) {
+    const deny = new Set(profile.disallowedTools);
+    tools = tools.filter((t) => !deny.has(t));
+  }
+
+  // Return undefined if all 4 native tools are available with no allowlist/denylist
+  // (optimization for spawner — no --tools flag = all tools available)
+  if (
+    !profile.tools &&
+    !profile.disallowedTools &&
+    tools.length === 4 &&
+    tools.includes("read") &&
+    tools.includes("bash") &&
+    tools.includes("edit") &&
+    tools.includes("write")
+  ) {
+    return undefined;
+  }
+  return tools.length === 0 ? [] : tools;
 }
 
 /**
