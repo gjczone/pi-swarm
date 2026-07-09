@@ -172,11 +172,12 @@ const PROJECT_CONTEXT_ENTRIES = [
  * Create a temporary worktree for a subagent.
  * Returns undefined if not in a git repo or worktree creation fails.
  *
- * 业务说明：为子 agent 创建临时 git worktree 实现目录隔离。
- * worktree 基于 HEAD 的 detached 状态创建，确保不污染主分支。
- * 同时符号链接项目上下文文件（AGENTS.md、.pi 等）和 mailbox 目录，
- * 这样子 agent 可以访问项目规则并实时读写 mailbox 消息。
- * 记录原始分支名和 HEAD SHA 用于后续合并。
+ * Business: create a temporary git worktree for sub-agents to provide
+ * directory isolation. The worktree is created at HEAD (detached) so the
+ * main branch is not polluted. Project context files (AGENTS.md, .pi,
+ * etc.) and the mailbox directory are symlinked so the sub-agent can
+ * access project rules and read/write mailbox messages in real time.
+ * The original branch name and HEAD SHA are recorded for later merge.
  */
 export function createWorktree(
   cwd: string,
@@ -283,8 +284,10 @@ export function createWorktree(
  * Note: This function does NOT merge back to the original branch.
  * Call mergeBranch() after all agents in a batch complete for safe merging.
  *
- * 业务说明：子 agent 完成后清理 worktree。有变更则提交到新分支，
- * 不自动合并——合并应在批处理完成后顺序执行以避免竞争条件。
+ * Business: clean up the worktree after a sub-agent finishes. If the
+ * worktree has changes, commit them to a new branch — do NOT auto-merge.
+ * Merges run sequentially after the batch completes to avoid race
+ * conditions.
  */
 export function cleanupWorktree(
   cwd: string,
@@ -394,8 +397,10 @@ export function cleanupWorktree(
  * Must be called when the working directory is clean (no parallel agents running).
  * Uses --no-ff --no-edit to create a merge commit preserving history.
  *
- * 业务说明：将子 agent 的分支合并到当前分支。必须在工作目录干净时调用
- * （所有并行 agent 完成后顺序执行）。冲突时返回错误信息并保留分支供手动解决。
+ * Business: merge a sub-agent's branch into the current branch. Must be
+ * called with a clean working tree (sequentially, after all parallel
+ * agents finish). On conflict, return the error and keep the branch for
+ * manual resolution.
  */
 export function mergeBranch(cwd: string, branchName: string): MergeResult {
   try {

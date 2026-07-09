@@ -151,9 +151,10 @@ export default function (pi: ExtensionAPI): void {
 
   // Register a renderer for swarm:marker custom messages so the
   // activated/deactivated/ended markers render as a labelled line in
-  // the conversation transcript. 业务说明：当 swarm 模式开启/关闭/结束时，
-  // 通过 sendMessage 发送 swarm:marker 消息；此处注册渲染器将其显示为
-  // 一行带标签的状态标记。
+  // the conversation transcript. Business: when swarm mode turns on, off,
+  // or ends, sendMessage emits a swarm:marker message; this handler
+  // registers a renderer that displays it as a single labeled status
+  // marker.
   pi.registerMessageRenderer<unknown>("swarm:marker", (message) => {
     const content = typeof message.content === "string" ? message.content : "";
     const state = resolveMarkerState(content);
