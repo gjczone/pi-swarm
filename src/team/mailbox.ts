@@ -8,7 +8,7 @@
 import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MailboxMessage } from "../shared/types.js";
-import { validateId, writeAtomic } from "../state/persistence.js";
+import { validateId } from "../state/persistence.js";
 import { appendLine } from "../shared/atomic-append.js";
 
 // ---------------------------------------------------------------------------

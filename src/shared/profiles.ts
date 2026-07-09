@@ -8,7 +8,6 @@
  * not hardcoded tool names), model routing, system prompts, and output format.
  */
 
-import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentProfile, BuiltinProfileName } from "./types.js";
 import { loadFileAgents } from "./agents.js";

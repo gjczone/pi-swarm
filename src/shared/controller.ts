@@ -28,9 +28,8 @@ import type {
   SwarmHandle,
   CoordinatorOptions,
 } from "./types.js";
-import * as fs from "node:fs";
 import * as path from "node:path";
-import { updateHeartbeat, writeAtomic } from "../state/persistence.js";
+import { updateHeartbeat } from "../state/persistence.js";
 import { appendLine } from "./atomic-append.js";
 import { readPiSettings } from "./pi-settings.js";
 

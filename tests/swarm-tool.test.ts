@@ -6,10 +6,7 @@
  */
 
 import { describe, it, expect } from "vitest";
-import {
-  createAgentSwarmSpecs,
-  MAX_AGENT_SWARM_SUBAGENTS,
-} from "../src/swarm/specs.js";
+import { createAgentSwarmSpecs } from "../src/swarm/specs.js";
 
 // ---------------------------------------------------------------------------
 // Tests
