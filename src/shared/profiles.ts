@@ -149,6 +149,7 @@ function loadUserProfiles(cwd?: string): Record<string, AgentProfile> {
 
     for (const [name, config] of Object.entries(subagents)) {
       if (!config || typeof config !== "object") continue;
+      if (profiles[name]) continue; // project-level profile takes precedence over global (#158)
       profiles[name] = {
         name,
         description: config.description ?? `Custom subagent: ${name}`,
