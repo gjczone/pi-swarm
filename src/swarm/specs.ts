@@ -75,10 +75,10 @@ export function createAgentSwarmSpecs(
 
   if (
     promptTemplate !== undefined &&
-    !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)
+    promptTemplate.split(PROMPT_TEMPLATE_PLACEHOLDER).length - 1 !== 1
   ) {
     throw new Error(
-      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder.`,
+      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder exactly once.`,
     );
   }
 

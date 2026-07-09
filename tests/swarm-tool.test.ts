@@ -89,6 +89,15 @@ describe("createAgentSwarmSpecs", () => {
     ).toThrow(/must include the {{item}} placeholder/);
   });
 
+  it("throws when prompt_template contains {{item}} more than once (#165)", () => {
+    expect(() =>
+      createAgentSwarmSpecs({
+        prompt_template: "Fix {{item}} in {{item}}",
+        items: ["a", "b"],
+      }),
+    ).toThrow(/exactly once/);
+  });
+
   it("throws on duplicate prompts", () => {
     expect(() =>
       createAgentSwarmSpecs({
