@@ -17,6 +17,7 @@
 
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { appendLine } from "../shared/atomic-append.js";
 
 // ---------------------------------------------------------------------------
 // Security: ID validation and path containment
@@ -242,10 +243,12 @@ export function loadTaskState(
 /**
  * Append an event to the run's event log.
  *
- * Business (#106p): Uses atomic read-modify-write via writeAtomic to satisfy
- * the AGENTS.md invariant that all JSON/JSONL mutations use writeAtomic.
- * All event appends originate from the parent process (no concurrent writers),
- * so read-modify-write is safe and crash-proof.
+ * #106p + #134: O_APPEND + fsync via `appendLine` replaces the previous
+ * read-modify-write path. Each line is durable on disk before the call
+ * returns, and a SIGKILL mid-call cannot leave a torn line (the OS
+ * guarantees O_APPEND is atomic for writes that fit in a single record).
+ * For a long-running run (1000+ events), the previous path read and
+ * rewrote the entire log on every append — this version is O(1).
  */
 export function appendEvent(
   swarmRoot: string,
@@ -255,14 +258,7 @@ export function appendEvent(
   const dir = resolveRunStateDir(swarmRoot, runId);
   fs.mkdirSync(dir, { recursive: true });
   const filePath = path.join(dir, "events.jsonl");
-  const line = JSON.stringify(event) + "\n";
-  let existing = "";
-  try {
-    existing = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    // File doesn't exist yet — start with empty content
-  }
-  writeAtomic(filePath, existing + line);
+  appendLine(filePath, JSON.stringify(event) + "\n");
 }
 
 /**

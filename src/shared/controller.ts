@@ -31,6 +31,7 @@ import type {
 import * as fs from "node:fs";
 import * as path from "node:path";
 import { updateHeartbeat, writeAtomic } from "../state/persistence.js";
+import { appendLine } from "./atomic-append.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -91,10 +92,17 @@ interface AttemptOutcome<T> extends SubagentResult<T> {
  * is invalid", "User aborted the request" from an unrelated framework) as
  * user cancellation, hiding real failures behind status "aborted".
  *
+ * #132: the marker is a `Symbol.for` value (not a string) so an unrelated
+ * library that happens to attach a string property with the same name
+ * cannot collide with this identity. The global symbol registry gives us
+ * a stable marker across module instantiations.
+ *
  * Identity is now determined by the marker property on the Error object.
  * Only errors created via `userCancellationReason()` carry the marker.
  */
-export const USER_CANCELLATION_MARKER = "__pi_swarm_user_cancellation__";
+export const USER_CANCELLATION_MARKER: unique symbol = Symbol.for(
+  "pi-swarm.user-cancellation",
+);
 
 /**
  * Check whether an abort reason indicates user cancellation
@@ -1233,14 +1241,9 @@ export class SubagentBatchController<T> {
         timestamp: new Date().toISOString(),
       }) + "\n";
 
-    // Atomic read-modify-write via writeAtomic (#106c)
-    let existing = "";
-    try {
-      existing = fs.readFileSync(inboxPath, "utf-8");
-    } catch {
-      // File doesn't exist yet — start with empty content
-    }
-    writeAtomic(inboxPath, existing + line);
+    // O_APPEND + fsync (#134) — same path as mailbox appends. Avoids the
+    // read-modify-write of the per-agent inbox on every coordinator message.
+    appendLine(inboxPath, line);
   }
 }
 

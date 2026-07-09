@@ -252,7 +252,7 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 | `.pi/swarm/state/runs/<runId>/agents/<agentId>/output.log`  | Per-agent full stdout/stderr                            | Written during agent execution                    |
 | `.pi/swarm/state/runs/<runId>/mailbox/`                     | Team mailbox (inbox.jsonl, outbox.jsonl, delivery.json) | Created for team runs, polled at ~1.25Hz          |
 
-Crash recovery: `state/recovery.ts` detects stale runs (30min no heartbeat) on session start and marks them abandoned. Completed runs auto-deleted after 7 days. All JSON/JSONL mutations use `writeAtomic` (temp-file + rename) to prevent partial writes.
+Crash recovery: `state/recovery.ts` detects stale runs (30min no heartbeat) on session start and marks them abandoned. Completed/failed/abandoned runs auto-deleted after the retention period (default 7 days; configurable via `pi-swarm.runRetentionMs` in `.pi/settings.json`, see `src/state/settings.ts`). All JSON/JSONL mutations use `writeAtomic` (temp-file + rename) to prevent partial writes, except JSONL appends (events.jsonl, mailbox.jsonl) which use O_APPEND + fsync — see `src/shared/atomic-append.ts`.
 
 ## Debugging Guide
 
