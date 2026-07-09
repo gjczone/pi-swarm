@@ -17,6 +17,15 @@ import { appendLine } from "../shared/atomic-append.js";
 
 const SAFE_RECIPIENT_PATTERN = /^[a-zA-Z0-9_-]+$/;
 
+/**
+ * #137: per-line log cap for corrupted JSONL entries. A file with many
+ * bad lines must not produce N log entries on every read (the inbox
+ * poller runs at ~1.25 Hz, so a million-line file would emit 1.25M
+ * lines per second). The first MAX_PER_LINE_LOGS occurrences are
+ * logged with full context; the remaining count is summarized.
+ */
+const MAX_PER_LINE_LOGS = 5;
+
 function validateRecipient(recipient: string, field: string): void {
   if (recipient === "broadcast") return;
   if (
@@ -336,18 +345,42 @@ function readAckIds(ackPath: string): Set<string> {
     const raw = fs.readFileSync(ackPath, "utf-8");
     if (!raw.trim()) return new Set();
     const ids = new Set<string>();
+    let corruptedCount = 0;
     for (const line of raw.trim().split("\n")) {
       const trimmed = line.trim();
       if (!trimmed) continue;
       try {
         const parsed = JSON.parse(trimmed) as { messageId?: string };
         if (parsed.messageId) ids.add(parsed.messageId);
-      } catch {
-        // Skip corrupted ack lines
+      } catch (err) {
+        // #137: count corruption and log per-line only for the first
+        // few occurrences to bound log volume on heavily corrupt files.
+        // The summary log after the loop records the total.
+        corruptedCount += 1;
+        if (corruptedCount <= MAX_PER_LINE_LOGS) {
+          console.error(
+            `[pi-swarm] readAckIds: corrupted JSONL line in ${ackPath}: ${(err as Error).message}. Line: ${trimmed.slice(0, 200)}.`,
+          );
+        }
       }
     }
+    if (corruptedCount > MAX_PER_LINE_LOGS) {
+      console.error(
+        `[pi-swarm] readAckIds: skipped ${corruptedCount} corrupted line(s) in ${ackPath} (logged first ${MAX_PER_LINE_LOGS})`,
+      );
+    }
     return ids;
-  } catch {
+  } catch (err) {
+    // #137: missing acks file is the common case (no messages ever
+    // acked, or compacted down to empty by compactAcks). Suppress the
+    // log for ENOENT to match the #135 sendMessage pattern; only treat
+    // other errors (EACCES, EIO, etc.) as a real fault.
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (code !== "ENOENT") {
+      console.error(
+        `[pi-swarm] readAckIds: failed to read acks file ${ackPath}: ${(err as Error).message}. Returning empty set.`,
+      );
+    }
     return new Set();
   }
 }
@@ -395,23 +428,35 @@ function readJsonLines(filePath: string): MailboxMessage[] {
       .map((line) => {
         try {
           return JSON.parse(line) as MailboxMessage;
-        } catch {
-          corruptedCount++;
-          console.error(
-            `[pi-swarm] Corrupted JSONL line in ${filePath}:`,
-            line.slice(0, 200),
-          );
+        } catch (err) {
+          corruptedCount += 1;
+          // #137: per-line log only for the first MAX_PER_LINE_LOGS
+          // occurrences to bound log volume; the summary below records
+          // the total. The full parse error is included for diagnosis.
+          if (corruptedCount <= MAX_PER_LINE_LOGS) {
+            console.error(
+              `[pi-swarm] readJsonLines: corrupted JSONL line in ${filePath}: ${(err as Error).message}. Line: ${line.slice(0, 200)}.`,
+            );
+          }
           return null;
         }
       })
       .filter((m): m is MailboxMessage => m !== null);
     if (corruptedCount > 0) {
       console.error(
-        `[pi-swarm] Skipped ${corruptedCount} corrupted line(s) in ${filePath}`,
+        `[pi-swarm] readJsonLines: skipped ${corruptedCount} corrupted line(s) in ${filePath}${corruptedCount > MAX_PER_LINE_LOGS ? ` (logged first ${MAX_PER_LINE_LOGS})` : ""}`,
       );
     }
     return messages;
-  } catch {
+  } catch (err) {
+    // #137: missing or unreadable JSONL file. Missing is the common
+    // case (no messages ever written) but a real I/O fault must be
+    // visible. Log unconditionally here because JSONL files (inbox,
+    // outbox) ARE created by ensureMailbox, so a missing file is
+    // genuinely anomalous — unlike the ack file (#137 outer catch).
+    console.error(
+      `[pi-swarm] readJsonLines: failed to read JSONL file ${filePath}: ${(err as Error).message}. Returning empty array.`,
+    );
     return [];
   }
 }

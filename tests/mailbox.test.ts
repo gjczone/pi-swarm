@@ -257,3 +257,143 @@ describe("#135 empty catch blocks log the underlying error", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// #137 — readAckIds / readJsonLines (called by readInbox) had four more
+// empty catch blocks. The two outer file-missing catches MUST log
+// instead of returning silently (ack reads suppress ENOENT — the
+// common case; JSONL reads log unconditionally because the file is
+// expected to exist). The two inner per-line parse catches MUST log
+// corruption per-line (capped at MAX_PER_LINE_LOGS to bound log
+// volume on heavily corrupt files). readInbox is the public entry
+// point that exercises both helpers, so the tests go through it.
+// ---------------------------------------------------------------------------
+
+describe("#137 readAckIds / readJsonLines log instead of swallowing", () => {
+  function makeAckFile(isolatedPaths: MailboxPaths, lines: string[]): void {
+    fs.writeFileSync(isolatedPaths.inboxAcks, lines.join("\n") + "\n");
+  }
+
+  it("readInbox logs readJsonLines outer (file-missing) catch when the inbox is missing", () => {
+    // paths.inbox does not exist — readJsonLines outer catch fires.
+    // JSONL files are expected to exist (ensureMailbox creates them),
+    // so a missing file is genuinely anomalous and must be logged.
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "137-inbox-missing");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(readInbox(isolatedPaths)).toEqual([]);
+      expect(spy).toHaveBeenCalled();
+      const log = spy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(log).toMatch(/readJsonLines/);
+      expect(log).toContain(isolatedPaths.inbox);
+      expect(log).toMatch(/Returning empty array/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("readInbox does NOT log readAckIds outer (file-missing) catch on ENOENT — common case", () => {
+    // paths.inbox exists (with one valid message) but paths.inboxAcks is
+    // missing. The acks file is created lazily (ackMessages is the only
+    // writer; compactAcks deletes it when empty). A missing acks file is
+    // the common case for any fresh or fully-acked mailbox, so the outer
+    // catch suppresses the log for ENOENT and silently returns empty.
+    // This matches the #135 sendMessage readdir pattern.
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "137-acks-missing");
+    fs.mkdirSync(path.dirname(isolatedPaths.inbox), { recursive: true });
+    const validMsg = JSON.stringify({ messageId: "m1" });
+    fs.writeFileSync(isolatedPaths.inbox, validMsg + "\n");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = readInbox(isolatedPaths);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.messageId).toBe("m1");
+      // ENOENT is silent — the readAckIds outer catch must not log.
+      // (The readJsonLines call on the existing inbox does not log either.)
+      expect(spy).not.toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("readInbox logs readJsonLines inner (per-line parse) catch for each corrupted inbox line", () => {
+    // Inner catch logs per-line (capped) plus a summary. Pre-create an
+    // empty acks file so the readAckIds outer catch is silent on the
+    // intentionally-missing path. The test pins the per-line log
+    // behavior so a future regression to empty-braces is caught.
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "137-inbox-corrupt");
+    fs.mkdirSync(path.dirname(isolatedPaths.inbox), { recursive: true });
+    // Pre-create empty acks so readAckIds outer catch is silent.
+    fs.writeFileSync(isolatedPaths.inboxAcks, "");
+    const valid = JSON.stringify({ messageId: "m1" });
+    const corrupt = "{ this is not valid json";
+    fs.writeFileSync(isolatedPaths.inbox, `${valid}\n${corrupt}\n`);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = readInbox(isolatedPaths);
+      expect(result).toHaveLength(1);
+      expect(result[0]?.messageId).toBe("m1");
+      expect(spy).toHaveBeenCalled();
+      const log = spy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(log).toContain(isolatedPaths.inbox);
+      expect(log).toMatch(/[Cc]orrupted/);
+      expect(log).toMatch(/skipped 1 corrupted line/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("readInbox logs readAckIds inner (per-line parse) catch for each corrupted acks line", () => {
+    // The inner catch at readAckIds silently skipped before #137. This
+    // test pins the post-fix behavior: per-line corruption must be
+    // logged with the ack file path. The summary log is emitted only
+    // when count > MAX_PER_LINE_LOGS (covered by a separate test).
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "137-acks-corrupt");
+    fs.mkdirSync(path.dirname(isolatedPaths.inbox), { recursive: true });
+    const validMsg = JSON.stringify({ messageId: "m1" });
+    fs.writeFileSync(isolatedPaths.inbox, validMsg + "\n");
+    const validAck = JSON.stringify({ messageId: "m1" });
+    const corrupt = "{ not valid";
+    makeAckFile(isolatedPaths, [validAck, corrupt]);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const result = readInbox(isolatedPaths);
+      // Valid ack removes m1 from the inbox; corrupt line is logged and skipped.
+      expect(result).toEqual([]);
+      expect(spy).toHaveBeenCalled();
+      const log = spy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(log).toContain(isolatedPaths.inboxAcks);
+      expect(log).toMatch(/[Cc]orrupted/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("readAckIds per-line log is capped at MAX_PER_LINE_LOGS on heavily corrupt files", () => {
+    // #137 review: per-line logs would spam on a file with millions of
+    // bad lines. Cap the per-line log to MAX_PER_LINE_LOGS and emit a
+    // summary for the rest. This test exercises a file with N > cap
+    // bad lines and asserts the log count is bounded.
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "137-acks-spam");
+    fs.mkdirSync(path.dirname(isolatedPaths.inbox), { recursive: true });
+    fs.writeFileSync(isolatedPaths.inbox, "");
+    const corruptLines = Array.from({ length: 20 }, (_, i) => `{ invalid ${i}`);
+    makeAckFile(isolatedPaths, corruptLines);
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      readInbox(isolatedPaths);
+      // Per-line logs (5) + 1 summary = 6 total. If the cap is removed,
+      // the count would be 21 (20 per-line + 1 summary).
+      const perLineCount = spy.mock.calls.filter((c) =>
+        /[Cc]orrupted JSONL line/.test(String(c[0])),
+      ).length;
+      const summaryCount = spy.mock.calls.filter((c) =>
+        /skipped 20 corrupted line/.test(String(c[0])),
+      ).length;
+      expect(perLineCount).toBeLessThanOrEqual(5);
+      expect(summaryCount).toBe(1);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+});
