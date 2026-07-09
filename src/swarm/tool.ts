@@ -488,8 +488,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
 
     /**
      * Render the tool call in the conversation transcript with arg summary.
-     * 业务说明：在对话记录中展示 swarm 调用信息 —— 包含类型、数量、
-     * prompt 模板预览。
+     * Business: display the swarm call info in the conversation
+     * transcript — including type, count, and prompt template preview.
      */
     renderCall(args, theme, _context) {
       const itemCount = (args.items as string[] | undefined)?.length ?? 0;
@@ -527,7 +527,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
 
     /**
      * Render the tool result in the conversation transcript.
-     * 业务说明：根据执行结果展示成功/失败图标和概要统计。
+     * Business: show success/failure icons and a summary based on the
+     * execution results.
      */
     renderResult(result, _options, theme, context) {
       const text =
@@ -580,30 +581,36 @@ interface ProgressHandle {
  * Returns undefined in non-TUI modes (print/rpc/json) where setWidget is a
  * no-op, so the controller's onProgress callback stays a cheap no-op too.
  *
- * 业务说明：在 TUI 模式下注册一个实时进度面板，展示每个子 Agent 的
- * 运行状态（队列/运行中/完成/失败/限流挂起）。非 TUI 模式下返回
- * undefined，避免无意义的 UI 调用。
+ * Business: register a real-time progress panel in TUI mode showing the
+ * state of each sub-agent (queued / running / completed / failed /
+ * rate-limited suspended). In non-TUI modes, return undefined to avoid
+ * no-op UI calls.
  *
- * 关键修复：setWidget 的工厂函数接收 (tui, theme) 参数，我们捕获 tui
- * 引用并传给组件，使组件在动画定时器触发时能调用 tui.requestRender()
- * 通知 TUI 框架重绘，否则 braille 进度条不会动。
+ * Key fix: setWidget's factory function receives (tui, theme); we
+ * capture the tui reference and pass it to the component so the
+ * component can call tui.requestRender() from its animation timer.
+ * Without this, the TUI framework does not know to redraw and the
+ * braille progress bar does not animate.
  */
 function createProgressWidget(
   ctx: ExtensionContext,
 ): ProgressHandle | undefined {
-  // 仅在 TUI 模式下展示进度面板；其他模式（print/rpc/json）无可用 UI
+  // Only show the progress panel in TUI mode; other modes
+  // (print/rpc/json) have no UI.
   if (ctx.mode !== "tui") return undefined;
   const setWidget = ctx.ui?.setWidget;
   if (typeof setWidget !== "function") return undefined;
 
-  // 捕获 tui 引用，供组件动画 tick 时调用 requestRender()
+  // Capture the tui reference so the component's animation tick can
+  // call requestRender() to ask the TUI framework to redraw.
   let capturedTui: { requestRender(force?: boolean): void } | undefined;
 
   const component = new AgentSwarmProgressComponent(() => {
     capturedTui?.requestRender();
   });
   try {
-    // 工厂函数接收 tui 和 theme，捕获 tui 供动画驱动使用
+    // The factory function receives (tui, theme); we capture tui to
+    // drive the animation tick.
     setWidget(
       PROGRESS_WIDGET_KEY,
       (tui, _theme) => {
@@ -615,7 +622,7 @@ function createProgressWidget(
       },
     );
   } catch {
-    // setWidget 失败不应阻断 swarm 执行
+    // setWidget failure must not block swarm execution.
     component.dispose();
     return undefined;
   }

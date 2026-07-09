@@ -246,9 +246,11 @@ async function runSubagentProcess(
   let worktree: WorktreeInfo | undefined;
   let cwd = repoCwd;
 
-  // worktree 默认启用：Git 仓库自动创建 worktree 隔离，非 Git 仓库回退到 cwd
-  // 仅当显式设置 useWorktree: false 时禁用
-  // 传递 mailboxPath 以符号链接 mailbox 到 worktree 中，支持实时消息传递
+  // Worktree isolation is enabled by default: a Git repo automatically
+  // creates a worktree for isolation, while a non-Git repo falls back to
+  // cwd. Disable only by explicitly setting useWorktree: false. Pass
+  // mailboxPath to symlink the mailbox into the worktree so the sub-agent
+  // can exchange messages with the parent in real time.
   if (opts.useWorktree !== false && isGitRepository(repoCwd)) {
     try {
       worktree = createWorktree(repoCwd, agentId, opts.mailboxPath);
@@ -658,9 +660,11 @@ async function runSubagentProcess(
  * Parse the JSON Lines event stream from a pi --print child process.
  * Returns a Promise that resolves after process close with accumulated results.
  *
- * 业务说明：解析 pi --print 的 JSON Lines 事件流，累积 token 使用量和最终结果。
- * 支持实时通过 onUsage 回调推送使用量更新，让 TUI 能实时显示 token 计数。
- * 同时捕获 content_block_delta 增量文本和工具调用输出，避免结果丢失。
+ * Business: parse the JSON Lines event stream from `pi --print`,
+ * accumulate token usage and the final result. Supports real-time
+ * token-usage push via the onUsage callback so the TUI can display live
+ * counters. Also captures content_block_delta incremental text and
+ * tool-call output to avoid losing the final result.
  */
 function parseEventStream(
   proc: ChildProcess,
