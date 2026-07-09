@@ -180,6 +180,7 @@ export class SubagentBatchController<T> {
   private resolve: ((results: Array<SubagentResult<T>>) => void) | undefined;
   private reject: ((error: unknown) => void) | undefined;
   private finished = false;
+  private heartbeatInFlight = false;
   private started = false;
   private startedAt = 0;
   private startedSuccessCount = 0;
@@ -643,14 +644,18 @@ export class SubagentBatchController<T> {
     attempt.cleanup();
     this.active.delete(attempt);
 
+    // Persist the real outcome before the finished guard so a result that
+    // arrived after finish/fail/cancel is not lost as an "aborted" marker (#152).
+    if (outcome.type !== "rate_limited") {
+      this.results[attempt.state.index] = outcome;
+    }
+
     if (this.finished) return;
 
     if (outcome.type === "rate_limited") {
       this.handleRateLimit(attempt, outcome);
       return;
     }
-
-    this.results[attempt.state.index] = outcome;
 
     const agentId = outcome.agentId;
     if (this.coordOnEvent && agentId) {
@@ -834,7 +839,9 @@ export class SubagentBatchController<T> {
   private finishIfComplete(): boolean {
     const allDone = this.results.every((r) => r !== undefined);
     if (allDone) {
-      this.finish(this.results as Array<SubagentResult<T>>);
+      this.finish(
+        this.results.filter((r): r is SubagentResult<T> => r !== undefined),
+      );
       return true;
     }
     return false;
@@ -870,7 +877,19 @@ export class SubagentBatchController<T> {
   private emitProgress(): void {
     // Update heartbeat to prevent stale-run false positives (#107).
     // Throttled to at most once every 30s to avoid excessive disk I/O.
-    this.updateHeartbeatIfNeeded();
+    // Throttled heartbeat; guard against concurrent read-modify-write races (#163).
+    if (!this.heartbeatInFlight) {
+      this.heartbeatInFlight = true;
+      try {
+        this.updateHeartbeatIfNeeded();
+      } catch (err) {
+        console.error(
+          `[pi-swarm] updateHeartbeat failed: ${(err as Error).message}`,
+        );
+      } finally {
+        this.heartbeatInFlight = false;
+      }
+    }
 
     if (!this.onProgress) return;
 
@@ -1021,7 +1040,9 @@ export class SubagentBatchController<T> {
       }
     }
 
-    this.finish(this.results as Array<SubagentResult<T>>);
+    this.finish(
+      this.results.filter((r): r is SubagentResult<T> => r !== undefined),
+    );
   }
 
   private fail(error: unknown): void {
@@ -1071,7 +1092,9 @@ export class SubagentBatchController<T> {
     // completed branches. Without this, completed agents' worktree branches
     // are silently orphaned. Coordinator path (runAsync) still rejects via
     // coordReject so the completion promise propagates the error.
-    this.resolve?.(this.results as Array<SubagentResult<T>>);
+    this.resolve?.(
+      this.results.filter((r): r is SubagentResult<T> => r !== undefined),
+    );
     this.coordReject?.(
       error instanceof Error ? error : new Error(String(error)),
     );
