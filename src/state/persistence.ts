@@ -123,7 +123,11 @@ export function createManifest(swarmRoot: string, manifest: RunManifest): void {
 
 /**
  * Read a run manifest from disk.
- * Returns null if the manifest does not exist.
+ * Returns null if the manifest does not exist or is corrupted (#126).
+ *
+ * ENOENT is treated as "absent" and returns null silently. JSON parse
+ * errors and other I/O failures are logged via console.error so operators
+ * know a manifest is corrupted, but the null contract is preserved.
  */
 export function readManifest(
   swarmRoot: string,
@@ -133,10 +137,23 @@ export function readManifest(
     resolveRunStateDir(swarmRoot, runId),
     "manifest.json",
   );
+  let raw: string;
   try {
-    const raw = fs.readFileSync(filePath, "utf-8");
+    raw = fs.readFileSync(filePath, "utf-8");
+  } catch (err: unknown) {
+    const code = (err as NodeJS.ErrnoException).code;
+    if (code === "ENOENT") return null;
+    console.error(
+      `[pi-swarm] readManifest: failed to read ${filePath}: ${(err as Error).message}`,
+    );
+    return null;
+  }
+  try {
     return JSON.parse(raw) as RunManifest;
-  } catch {
+  } catch (err) {
+    console.error(
+      `[pi-swarm] readManifest: corrupted JSON in ${filePath}: ${(err as Error).message}`,
+    );
     return null;
   }
 }
@@ -383,8 +400,11 @@ export function writeAtomic(filePath: string, content: string): void {
       if (fs.existsSync(tmpPath)) {
         fs.unlinkSync(tmpPath);
       }
-    } catch {
-      // Best effort
+    } catch (cleanupErr) {
+      // Temp cleanup failure is non-fatal but visible (#130)
+      console.error(
+        `[pi-swarm] writeAtomic: failed to remove temp ${tmpPath}: ${(cleanupErr as Error).message}`,
+      );
     }
     throw err;
   }

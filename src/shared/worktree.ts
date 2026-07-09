@@ -120,6 +120,40 @@ function isWorkingTreeClean(cwd: string): boolean {
 }
 
 /**
+ * #129: detect any user-produced content in the worktree, including
+ * gitignored files (build artifacts, logs, cache). The plain
+ * `git status --porcelain` would return empty when an agent writes
+ * to a gitignored path (e.g. dist/), causing the empty-status branch
+ * to fire and silently destroy the agent's work. The `--ignored`
+ * flag surfaces ignored untracked files as `!! path` entries.
+ *
+ * Returns true if the porcelain output is non-empty.
+ */
+function hasAnyWorktreeChanges(worktreePath: string): boolean {
+  try {
+    const status = execFileSync(
+      "git",
+      ["status", "--porcelain", "--ignored", "--untracked-files=all"],
+      {
+        cwd: worktreePath,
+        stdio: "pipe",
+        timeout: 10000,
+      },
+    )
+      .toString()
+      .trim();
+    return status.length > 0;
+  } catch (err) {
+    console.error(
+      `[pi-swarm] hasAnyWorktreeChanges: failed to read status for ${worktreePath}: ${(err as Error).message}`,
+    );
+    // Could not read status — be conservative: assume there are
+    // changes and preserve the worktree.
+    return true;
+  }
+}
+
+/**
  * Files/directories to symlink from repo root into worktree for project context.
  * These contain project rules, config, and state that subagents need access to.
  */
@@ -199,8 +233,11 @@ export function createWorktree(
           targetPath,
           stat.isDirectory() ? "dir" : "file",
         );
-      } catch {
-        // Best effort per-entry symlink
+      } catch (err) {
+        // Per-entry symlink failure is non-fatal but visible (#130)
+        console.error(
+          `[pi-swarm] createWorktree: failed to symlink ${entry} for ${worktreePath}: ${(err as Error).message}`,
+        );
       }
     }
 
@@ -213,8 +250,11 @@ export function createWorktree(
           symlinkSync(mailboxPath, mailboxTarget, "dir");
           mailboxLinkCreated = true;
         }
-      } catch {
-        // Best effort mailbox link
+      } catch (err) {
+        // Mailbox link failure is non-fatal but visible (#130)
+        console.error(
+          `[pi-swarm] createWorktree: failed to symlink mailbox for ${worktreePath}: ${(err as Error).message}`,
+        );
       }
     }
 
@@ -265,7 +305,13 @@ export function cleanupWorktree(
       .toString()
       .trim();
 
-    if (!status) {
+    // #129: porcelain-only change detection ignores .gitignore-matched
+    // untracked files (build artifacts, logs, cache). If the agent wrote
+    // anything — tracked or gitignored — we must preserve the worktree
+    // so the user can recover it. hasAnyWorktreeChanges runs
+    // `git status --ignored --untracked-files=all` to surface any
+    // gitignored content the agent produced.
+    if (!status && !hasAnyWorktreeChanges(worktree.path)) {
       removeWorktree(cwd, worktree.path);
       return { hasChanges: false };
     }
@@ -390,8 +436,11 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
           stdio: "pipe",
           timeout: 5000,
         });
-      } catch {
-        // Best effort cleanup
+      } catch (err) {
+        // Branch deletion failure is non-fatal but visible (#130)
+        console.error(
+          `[pi-swarm] mergeBranch: failed to delete already-merged branch ${branchName}: ${(err as Error).message}`,
+        );
       }
       return { success: true, branch: branchName };
     } catch {
@@ -455,15 +504,20 @@ function removeWorktree(cwd: string, worktreePath: string): void {
       stdio: "pipe",
       timeout: 10000,
     });
-  } catch {
+  } catch (err) {
+    console.error(
+      `[pi-swarm] removeWorktree: failed to remove ${worktreePath}: ${(err as Error).message}. Falling back to prune.`,
+    );
     try {
       execFileSync("git", ["worktree", "prune"], {
         cwd,
         stdio: "pipe",
         timeout: 5000,
       });
-    } catch {
-      // best effort prune
+    } catch (err) {
+      console.error(
+        `[pi-swarm] removeWorktree: prune also failed: ${(err as Error).message}`,
+      );
     }
   }
 }

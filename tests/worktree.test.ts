@@ -87,3 +87,60 @@ describe("#109 cleanupWorktree preserves uncommitted changes on staging failure"
     expect(fs.existsSync(wt.path)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #129 — cleanupWorktree treats gitignored untracked files as "has changes"
+// ---------------------------------------------------------------------------
+
+describe("#129 cleanupWorktree preserves gitignored untracked files", () => {
+  it("preserves the worktree when the only artifact is gitignored (e.g. dist/)", () => {
+    // #129: an agent may produce files that match .gitignore patterns
+    // (build artifacts, logs, caches). git status --porcelain returns empty
+    // for these, so the empty-status branch fires and removeWorktree()
+    // deletes the entire worktree directory — destroying the agent's work.
+    // The fix: a shallow scan of the worktree root for any non-.git entry
+    // marks the worktree as having content worth preserving.
+    const worktree = createWorktree(tmpRepo, "test-129", undefined);
+    expect(worktree).toBeDefined();
+    const wt = worktree!;
+
+    // Create a tracked .gitignore that matches dist/, then commit it so
+    // git status does not flag it as untracked.
+    fs.writeFileSync(path.join(wt.path, ".gitignore"), "dist/\n");
+    git(["add", ".gitignore"], wt.path);
+    git(["commit", "-m", "add gitignore"], wt.path);
+    // Create a gitignored artifact (the kind of file agents typically produce)
+    const distDir = path.join(wt.path, "dist");
+    fs.mkdirSync(distDir, { recursive: true });
+    fs.writeFileSync(path.join(distDir, "artifact.txt"), "important data");
+
+    // git status --porcelain should be empty (the file is gitignored)
+    const statusOutput = git(["status", "--porcelain"], wt.path);
+    expect(statusOutput).toBe("");
+
+    // cleanupWorktree must preserve the worktree (not destroy it) because
+    // there is user-generated content, even though git considers the
+    // working tree clean.
+    const result = cleanupWorktree(tmpRepo, wt, "test agent #129");
+    expect(result.hasChanges).toBe(true);
+    expect(fs.existsSync(wt.path)).toBe(true);
+    expect(fs.existsSync(path.join(distDir, "artifact.txt"))).toBe(true);
+
+    // Clean up the preserved worktree.
+    try {
+      fs.rmSync(wt.path, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  });
+
+  it("still removes the worktree when truly empty (only .git present)", () => {
+    const worktree = createWorktree(tmpRepo, "test-129-clean", undefined);
+    expect(worktree).toBeDefined();
+    const wt = worktree!;
+
+    const result = cleanupWorktree(tmpRepo, wt, "empty agent");
+    expect(result.hasChanges).toBe(false);
+    expect(fs.existsSync(wt.path)).toBe(false);
+  });
+});

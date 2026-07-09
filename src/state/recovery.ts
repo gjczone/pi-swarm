@@ -15,6 +15,7 @@ import {
   updateManifest,
   deleteRunState,
   loadAgentStatus,
+  validateId,
   type RunManifest,
   appendEvent,
 } from "./persistence.js";
@@ -83,8 +84,11 @@ export function recoverRuns(cwd: string): RecoveryResult {
         try {
           deleteRunState(swarmRoot, runId);
           cleanedUp.push(runId);
-        } catch {
-          // Best effort
+        } catch (err) {
+          // Orphan cleanup failure is non-fatal but visible (#130)
+          console.error(
+            `[pi-swarm] recoverRuns: failed to delete orphaned run ${runId}: ${(err as Error).message}`,
+          );
         }
       }
       continue;
@@ -124,8 +128,10 @@ export function recoverRuns(cwd: string): RecoveryResult {
           try {
             deleteRunState(swarmRoot, runId);
             cleanedUp.push(runId);
-          } catch {
-            // Best effort
+          } catch (err) {
+            console.error(
+              `[pi-swarm] recoverRuns: failed to clean expired run ${runId}: ${(err as Error).message}`,
+            );
           }
         }
         break;
@@ -138,8 +144,10 @@ export function recoverRuns(cwd: string): RecoveryResult {
             try {
               deleteRunState(swarmRoot, runId);
               cleanedUp.push(runId);
-            } catch {
-              // Best effort
+            } catch (err) {
+              console.error(
+                `[pi-swarm] recoverRuns: failed to clean abandoned run ${runId}: ${(err as Error).message}`,
+              );
             }
           }
         }
@@ -185,6 +193,12 @@ export function hasUnfinishedTasks(swarmRoot: string, runId: string): boolean {
 /**
  * Get resumable agent IDs from a run.
  * Returns a map of agentId → last known status.
+ *
+ * #126: each agentId read from the manifest is validated against the safe
+ * id pattern before any filesystem operation. A corrupted manifest with
+ * `agentIds: ["../../etc/passwd"]` would otherwise escape the agents
+ * directory during path construction. Invalid entries are logged and
+ * skipped, never silently dropped.
  */
 export function getResumableAgents(
   swarmRoot: string,
@@ -196,6 +210,18 @@ export function getResumableAgents(
   if (!manifest) return result;
 
   for (const agentId of manifest.agentIds) {
+    try {
+      validateId(agentId, "agentId");
+    } catch (err) {
+      // #126: skip entries that fail validation. The path-traversal
+      // sequence is logged (with the runId for context) so operators
+      // know the manifest is corrupted; the entry is dropped, never
+      // silently used in a filesystem path.
+      console.error(
+        `[pi-swarm] getResumableAgents: skipping unsafe agentId in run ${runId}: ${agentId} (${(err as Error).message})`,
+      );
+      continue;
+    }
     const statusDir = path.join(
       swarmRoot,
       "state",
