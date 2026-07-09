@@ -19,6 +19,15 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { appendLine } from "../shared/atomic-append.js";
 
+/**
+ * #140: per-line log cap for corrupted JSONL entries. Mirrors the
+ * MAX_PER_LINE_LOGS constant in src/team/mailbox.ts (introduced by
+ * #137) to bound log volume on heavily corrupt files. The events
+ * log and the mailbox JSONL can both be read at high frequency, so
+ * a single corrupt file must not produce N log entries per read.
+ */
+const MAX_PER_LINE_LOGS = 5;
+
 // ---------------------------------------------------------------------------
 // Security: ID validation and path containment
 // ---------------------------------------------------------------------------
@@ -216,26 +225,6 @@ export function saveTaskState(
   writeAtomic(path.join(dir, "tasks.json"), JSON.stringify(data, null, 2));
 }
 
-/**
- * Load task state from disk.
- * Returns null if the file does not exist.
- */
-export function loadTaskState(
-  swarmRoot: string,
-  runId: string,
-): Record<string, unknown> | null {
-  const filePath = path.join(
-    resolveRunStateDir(swarmRoot, runId),
-    "tasks.json",
-  );
-  try {
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
-}
-
 // ---------------------------------------------------------------------------
 // Event log
 // ---------------------------------------------------------------------------
@@ -275,18 +264,39 @@ export function readEvents(
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     if (!raw.trim()) return [];
-    return raw
-      .trim()
-      .split("\n")
-      .map((line) => {
-        try {
-          return JSON.parse(line) as Record<string, unknown>;
-        } catch {
-          return null;
+    let corruptedCount = 0;
+    const messages: Record<string, unknown>[] = [];
+    for (const line of raw.trim().split("\n")) {
+      try {
+        messages.push(JSON.parse(line) as Record<string, unknown>);
+      } catch (err) {
+        // #140: per-line log only for the first MAX_PER_LINE_LOGS
+        // occurrences to bound log volume; the summary below records
+        // the total. Same cap-and-summarize pattern as #137.
+        corruptedCount += 1;
+        if (corruptedCount <= MAX_PER_LINE_LOGS) {
+          console.error(
+            `[pi-swarm] readEvents: corrupted JSONL line in ${filePath}: ${(err as Error).message}. Line: ${line.slice(0, 200)}.`,
+          );
         }
-      })
-      .filter((e): e is Record<string, unknown> => e !== null);
-  } catch {
+      }
+    }
+    if (corruptedCount > MAX_PER_LINE_LOGS) {
+      console.error(
+        `[pi-swarm] readEvents: skipped ${corruptedCount} corrupted line(s) in ${filePath} (logged first ${MAX_PER_LINE_LOGS})`,
+      );
+    }
+    return messages;
+  } catch (err) {
+    // #140: ENOENT is the common case (a fresh run that has not yet
+    // appended any events). Suppress the log for ENOENT, log other
+    // faults. Mirrors the #137 readAckIds pattern.
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (code !== "ENOENT") {
+      console.error(
+        `[pi-swarm] readEvents: failed to read events file ${filePath}: ${(err as Error).message}. Returning empty array.`,
+      );
+    }
     return [];
   }
 }
@@ -324,7 +334,17 @@ export function loadAgentStatus(
   try {
     const raw = fs.readFileSync(filePath, "utf-8");
     return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
+  } catch (err) {
+    // #140: missing status file is the common case (the agent has not
+    // yet written its first status update). Suppress the log for
+    // ENOENT; log other faults (EACCES, EIO, corrupt JSON) so a real
+    // I/O issue is visible. Mirrors the #137 readAckIds pattern.
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (code !== "ENOENT") {
+      console.error(
+        `[pi-swarm] loadAgentStatus: failed to read or parse status ${filePath}: ${(err as Error).message}. Returning null.`,
+      );
+    }
     return null;
   }
 }
