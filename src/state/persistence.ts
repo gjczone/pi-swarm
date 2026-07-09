@@ -28,6 +28,9 @@ import { appendLine } from "../shared/atomic-append.js";
  */
 const MAX_PER_LINE_LOGS = 5;
 
+// Serialize heartbeat writes to avoid concurrent read-modify-write corruption (#163).
+let heartbeatWriteInFlight = false;
+
 // ---------------------------------------------------------------------------
 // Security: ID validation and path containment
 // ---------------------------------------------------------------------------
@@ -184,11 +187,22 @@ export function updateManifest(swarmRoot: string, manifest: RunManifest): void {
  * Update the heartbeat timestamp for a running manifest.
  */
 export function updateHeartbeat(swarmRoot: string, runId: string): void {
-  const manifest = readManifest(swarmRoot, runId);
-  if (!manifest) return;
-  if (manifest.status !== "running") return;
-  manifest.lastHeartbeatAt = Date.now();
-  updateManifest(swarmRoot, manifest);
+  if (heartbeatWriteInFlight) return; // another heartbeat write is in progress (#163)
+  heartbeatWriteInFlight = true;
+  try {
+    const manifest = readManifest(swarmRoot, runId);
+    if (!manifest) {
+      console.error(
+        `[pi-swarm] updateHeartbeat: could not read manifest for run ${runId}; heartbeat not updated (run may be marked stale).`,
+      );
+      return;
+    }
+    if (manifest.status !== "running") return;
+    manifest.lastHeartbeatAt = Date.now();
+    updateManifest(swarmRoot, manifest);
+  } finally {
+    heartbeatWriteInFlight = false;
+  }
 }
 
 /**
