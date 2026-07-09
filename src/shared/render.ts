@@ -8,6 +8,7 @@
 import type {
   SwarmSpawnSpec,
   SwarmResumeSpec,
+  SwarmSpec,
   SubagentResult,
 } from "./types.js";
 import { escapeXmlAttr, escapeXmlBody } from "./xml.js";
@@ -78,12 +79,18 @@ export function renderSwarmResults(results: readonly SwarmRunResult[]): string {
 
 /**
  * Convert SubagentResult array (from controller) to SwarmRunResult array.
+ *
+ * #146: T is constrained to extend SwarmSpec so that `r.task.data` is
+ * provably assignable to the `spec: SwarmSpawnSpec | SwarmResumeSpec`
+ * field — no cast needed. The call site in swarm/tool.ts already
+ * instantiates SubagentBatchController<SwarmSpec>, so the bound is
+ * always satisfied.
  */
-export function toSwarmRunResults<T>(
+export function toSwarmRunResults<T extends SwarmSpec>(
   results: readonly SubagentResult<T>[],
 ): SwarmRunResult[] {
   return results.map((r) => {
-    const spec = r.task.data as unknown as SwarmSpawnSpec | SwarmResumeSpec;
+    const spec: SwarmSpawnSpec | SwarmResumeSpec = r.task.data;
     return {
       spec,
       agentId: r.agentId,

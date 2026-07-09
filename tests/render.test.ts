@@ -3,8 +3,13 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { renderSwarmResults } from "../src/shared/render.js";
-import type { SwarmSpawnSpec, SwarmResumeSpec } from "../src/shared/types.js";
+import { renderSwarmResults, toSwarmRunResults } from "../src/shared/render.js";
+import type {
+  SwarmSpawnSpec,
+  SwarmResumeSpec,
+  SwarmSpec,
+  SubagentResult,
+} from "../src/shared/types.js";
 
 // Use the internal SwarmRunResult type (matches the render function's input)
 interface SwarmRunResult {
@@ -185,5 +190,73 @@ describe("renderSwarmResults", () => {
 
     expect(xml).not.toContain("<resume_hint>");
     expect(xml).not.toContain("resume_agent_ids");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #146 — toSwarmRunResults drops the `as unknown as` cast by constraining
+// the generic T to extend SwarmSpec. The function still accepts a
+// SubagentResult<SwarmSpec>[] (the call site in swarm/tool.ts uses
+// SubagentBatchController<SwarmSpec>).
+// ---------------------------------------------------------------------------
+
+describe("toSwarmRunResults (#146)", () => {
+  function makeSubagentResult(
+    data: SwarmSpec,
+    status: "completed" | "failed" | "aborted" = "completed",
+    result?: string,
+  ): SubagentResult<SwarmSpec> {
+    return {
+      agentId: `agent-${data.index}`,
+      profileName: "test",
+      resumed: false,
+      status,
+      result,
+      task: {
+        data,
+        profileName: "test",
+        agentName: `agent-${data.index}`,
+      },
+    };
+  }
+
+  it("preserves the spec kind (spawn vs resume) without an unsafe cast", () => {
+    const spawnSpec: SwarmSpawnSpec = {
+      kind: "spawn",
+      index: 1,
+      item: "src/a.ts",
+      prompt: "Process a.ts",
+    };
+    const resumeSpec: SwarmResumeSpec = {
+      kind: "resume",
+      index: 2,
+      agentId: "old-agent",
+      prompt: "continue",
+    };
+    const results: SubagentResult<SwarmSpec>[] = [
+      makeSubagentResult(spawnSpec, "completed", "ok"),
+      makeSubagentResult(resumeSpec, "failed", undefined),
+    ];
+    const converted = toSwarmRunResults(results);
+    expect(converted).toHaveLength(2);
+    expect(converted[0]?.spec.kind).toBe("spawn");
+    expect(converted[1]?.spec.kind).toBe("resume");
+  });
+
+  it("preserves all SubagentResult fields (agentId, status, result, error)", () => {
+    const spec: SwarmSpawnSpec = {
+      kind: "spawn",
+      index: 1,
+      item: "x",
+      prompt: "do",
+    };
+    const results: SubagentResult<SwarmSpec>[] = [
+      makeSubagentResult(spec, "failed", undefined),
+    ];
+    results[0]!.error = "boom";
+    const converted = toSwarmRunResults(results);
+    expect(converted[0]?.agentId).toBe("agent-1");
+    expect(converted[0]?.status).toBe("failed");
+    expect(converted[0]?.error).toBe("boom");
   });
 });
