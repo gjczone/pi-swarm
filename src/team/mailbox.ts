@@ -187,8 +187,8 @@ export function sendMessage(
     // with what was actually delivered. If any per-recipient append had
     // thrown, we never reach this point and the sender's outbox stays
     // empty (the caller retries the whole broadcast).
-    appendJsonLine(paths.outbox, message);
     appendJsonLine(paths.inbox, message);
+    appendJsonLine(paths.outbox, message);
   } else {
     // Direct message: validate recipient exists BEFORE writing anything (#108, #113).
     // This ensures no partial state (outbox/inbox writes) is left behind on failure.
