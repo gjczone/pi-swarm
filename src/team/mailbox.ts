@@ -9,6 +9,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { MailboxMessage } from "../shared/types.js";
 import { validateId, writeAtomic } from "../state/persistence.js";
+import { appendLine } from "../shared/atomic-append.js";
 
 // ---------------------------------------------------------------------------
 // Security helpers
@@ -289,22 +290,16 @@ export function updateDeliveryState(
 // ---------------------------------------------------------------------------
 
 /**
- * Append a JSON line to a JSONL file using atomic read-modify-write.
+ * Append a JSON line to a JSONL file.
  *
- * Business: AGENTS.md invariant requires all JSON/JSONL mutations to use
- * writeAtomic (temp-file + rename) to prevent partial writes. Since all
- * mailbox writes originate from the parent process (no concurrent writers),
- * a read-modify-write via writeAtomic is safe and crash-proof.
+ * #106 + #134: O_APPEND + fsync via `appendLine` replaces the previous
+ * read-modify-write path. Each line is durable on disk before the call
+ * returns, so a SIGKILL mid-write cannot lose the message. The O_APPEND
+ * primitive is atomic at the filesystem level for small writes, which
+ * is what mailbox messages are.
  */
 function appendJsonLine(filePath: string, data: unknown): void {
-  const line = JSON.stringify(data) + "\n";
-  let existing = "";
-  try {
-    existing = fs.readFileSync(filePath, "utf-8");
-  } catch {
-    // File doesn't exist yet — start with empty content
-  }
-  writeAtomic(filePath, existing + line);
+  appendLine(filePath, JSON.stringify(data) + "\n");
 }
 
 /**
