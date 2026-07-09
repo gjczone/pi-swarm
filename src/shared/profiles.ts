@@ -12,6 +12,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import type { AgentProfile, BuiltinProfileName } from "./types.js";
 import { loadFileAgents } from "./agents.js";
+import { readPiSettings } from "./pi-settings.js";
 
 // ---------------------------------------------------------------------------
 // Built-in profiles
@@ -130,16 +131,6 @@ interface UserProfileConfig {
   model?: string | "inherit";
   outputFormat?: "free" | "structured";
   systemPrompt?: string;
-}
-
-function readPiSettings(filePath: string): Record<string, unknown> | null {
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 function loadUserProfiles(cwd?: string): Record<string, AgentProfile> {

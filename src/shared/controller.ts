@@ -32,6 +32,7 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import { updateHeartbeat, writeAtomic } from "../state/persistence.js";
 import { appendLine } from "./atomic-append.js";
+import { readPiSettings } from "./pi-settings.js";
 
 // ---------------------------------------------------------------------------
 // Constants
@@ -1303,16 +1304,6 @@ function validateConcurrency(value: unknown, source: string): number {
     );
   }
   return num;
-}
-
-function readPiSettings(filePath: string): Record<string, unknown> | null {
-  try {
-    if (!fs.existsSync(filePath)) return null;
-    const raw = fs.readFileSync(filePath, "utf-8");
-    return JSON.parse(raw) as Record<string, unknown>;
-  } catch {
-    return null;
-  }
 }
 
 function getSettingsMaxConcurrency(
