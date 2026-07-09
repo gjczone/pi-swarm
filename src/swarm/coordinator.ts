@@ -502,6 +502,12 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
 
       activeRuns.set(runId, run);
 
+      // #160: Remove the run entry when it reaches a terminal state
+      // (completes or fails) to prevent the activeRuns Map from leaking memory.
+      run.completionPromise.finally(() => {
+        activeRuns.delete(runId);
+      });
+
       return {
         content: [
           {
