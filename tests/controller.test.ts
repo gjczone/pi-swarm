@@ -6,7 +6,11 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { SubagentBatchController } from "../src/shared/controller.js";
+import {
+  SubagentBatchController,
+  USER_CANCELLATION_MARKER,
+  isUserCancellation,
+} from "../src/shared/controller.js";
 import type {
   QueuedSubagentTask,
   SubagentHandle,
@@ -575,9 +579,7 @@ describe("SubagentBatchController", () => {
           (_resolve, reject) => {
             setTimeout(() => {
               const err = new Error("user typed Ctrl-C");
-              (err as Record<string, unknown>)[
-                "__pi_swarm_user_cancellation__"
-              ] = true;
+              (err as Record<symbol, unknown>)[USER_CANCELLATION_MARKER] = true;
               reject(err);
             }, 5);
           },
@@ -604,6 +606,22 @@ describe("SubagentBatchController", () => {
     const results = await handle.completion;
     expect(results).toHaveLength(1);
     expect(results[0]!.status).toBe("aborted");
+  });
+
+  it("#132 USER_CANCELLATION_MARKER is a Symbol, not a string", () => {
+    // #132: the marker is now a Symbol so plain string properties on Error
+    // cannot be misidentified as user cancellation. The exported value must
+    // be a Symbol.
+    expect(typeof USER_CANCELLATION_MARKER).toBe("symbol");
+  });
+
+  it("#132 an Error with a literal '__pi_swarm_user_cancellation__' string property is NOT recognized as user cancellation", () => {
+    // Defense-in-depth: after the Symbol refactor, an unrelated library that
+    // attaches a string property with the old marker name must not be
+    // misclassified. Only the symbol-keyed property is the source of truth.
+    const err = new Error("spoof attempt");
+    (err as Record<string, unknown>)["__pi_swarm_user_cancellation__"] = true;
+    expect(isUserCancellation(err)).toBe(false);
   });
 
   it("#121 blocking run() resolves (does not reject) on internal failure with partial results", async () => {
