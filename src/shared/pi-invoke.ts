@@ -82,13 +82,13 @@ export function buildSubagentArgs(opts: {
     args.push("--model", opts.model);
   }
 
-  if (opts.tools && opts.tools.length > 0) {
-    // System-level restriction: strip pi-swarm tools from subagent tool lists.
-    // This prevents subagents from spawning sub-sub-agents regardless of profile config.
-    const filtered = opts.tools.filter((t) => !FORBIDDEN_SUBAGENT_TOOLS.has(t));
-    if (filtered.length > 0) {
-      args.push("--tools", filtered.join(","));
-    }
+  // System-level restriction (#153): strip pi-swarm tools from subagent tool
+  // lists unconditionally, even when opts.tools is undefined, to prevent
+  // subagents from spawning sub-sub-agents regardless of profile config.
+  const requested = opts.tools ?? [];
+  const filtered = requested.filter((t) => !FORBIDDEN_SUBAGENT_TOOLS.has(t));
+  if (filtered.length > 0) {
+    args.push("--tools", filtered.join(","));
   }
 
   if (opts.maxTurns !== undefined) {
