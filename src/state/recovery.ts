@@ -19,13 +19,11 @@ import {
   type RunManifest,
   appendEvent,
 } from "./persistence.js";
+import { resolveRunRetentionMs } from "./settings.js";
 
 // ---------------------------------------------------------------------------
 // Constants
 // ---------------------------------------------------------------------------
-
-/** Runs completed more than this many ms ago are eligible for cleanup. */
-const COMPLETED_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000; // 7 days
 
 /** Runs with status "running" older than this without a heartbeat are stale. */
 const STALE_RUN_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
@@ -60,6 +58,10 @@ export function recoverRuns(cwd: string): RecoveryResult {
 
   const runIds = listActiveRuns(swarmRoot);
   const now = Date.now();
+  // #133: retention period is configurable via .pi/settings.json
+  // (pi-swarm.runRetentionMs). Default 7d, same as the previous hard-coded
+  // value. Resolved once per call so all branches use the same threshold.
+  const retentionMs = resolveRunRetentionMs(cwd);
   const resumable: RunManifest[] = [];
   const abandoned: RunManifest[] = [];
   const cleanedUp: string[] = [];
@@ -124,7 +126,7 @@ export function recoverRuns(cwd: string): RecoveryResult {
         // Clean up expired runs
         const completedAt = manifest.completedAt ?? manifest.startedAt;
         const age = now - completedAt;
-        if (age > COMPLETED_RUN_RETENTION_MS) {
+        if (age > retentionMs) {
           try {
             deleteRunState(swarmRoot, runId);
             cleanedUp.push(runId);
@@ -140,7 +142,7 @@ export function recoverRuns(cwd: string): RecoveryResult {
         // Already abandoned — check if we should clean up
         {
           const abandonedAt = manifest.completedAt ?? manifest.startedAt;
-          if (now - abandonedAt > COMPLETED_RUN_RETENTION_MS) {
+          if (now - abandonedAt > retentionMs) {
             try {
               deleteRunState(swarmRoot, runId);
               cleanedUp.push(runId);

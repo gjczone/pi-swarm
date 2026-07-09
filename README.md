@@ -212,16 +212,18 @@ Default max concurrency: **5**. Adjust in `.pi/settings.json` (project) or `~/.p
   "pi-swarm": {
     "maxConcurrency": 8,
     "smallModel": "deepseek/deepseek-v4-flash",
-    "subagents": {}
+    "subagents": {},
+    "runRetentionMs": 604800000 // 7 days in ms
   }
 }
 ```
 
-| Setting          | Default   | Description                                            |
-| ---------------- | --------- | ------------------------------------------------------ |
-| `maxConcurrency` | 5         | Max parallel subagents                                 |
-| `smallModel`     | (inherit) | Lightweight model for explore profile and simple tasks |
-| `subagents`      | (none)    | User-defined custom agent profiles (name → config map) |
+| Setting           | Default     | Description                                                       |
+| ----------------- | ----------- | ----------------------------------------------------------------- |
+| `maxConcurrency`  | 5           | Max parallel subagents                                            |
+| `smallModel`      | (inherit)   | Lightweight model for explore profile and simple tasks            |
+| `subagents`       | (none)      | User-defined custom agent profiles (name → config map)            |
+| `runRetentionMs`  | 604800000   | ms before completed/failed/abandoned runs are auto-deleted (7d)  |
 
 ## Supported Platforms
 
