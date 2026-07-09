@@ -25,4 +25,12 @@ describe("resolveKeywordMode", () => {
   it("returns swarm for swarm team input", () => {
     expect(resolveKeywordMode("swarm team task")).toBe("swarm");
   });
+
+  it('does NOT activate for "swarmy" (substring, no word boundary)', () => {
+    expect(resolveKeywordMode("swarmy ideas everywhere")).toBeNull();
+  });
+
+  it("does NOT activate when swarm is part of a larger word", () => {
+    expect(resolveKeywordMode("swarming with bugs")).toBeNull();
+  });
 });

@@ -34,8 +34,7 @@ import { ensureGitignore } from "./shared/gitignore.js";
  * Return "swarm" when the input contains the word "swarm", otherwise null.
  */
 export function resolveKeywordMode(text: string): "swarm" | null {
-  const t = text.toLowerCase();
-  if (t.includes("swarm")) return "swarm";
+  if (/\bswarm\b/i.test(text)) return "swarm";
   return null;
 }
 
@@ -43,6 +42,7 @@ export default function (pi: ExtensionAPI): void {
   // ---- State ----
 
   let swarmMode: "swarm" | null = null;
+  let swarmTrigger: "manual" | "task" | "tool" | null = null;
 
   const log = (_msg: string): void => {
     // Silent by default — pi extensions should not print startup noise.
@@ -56,8 +56,9 @@ export default function (pi: ExtensionAPI): void {
     get swarmActive() {
       return swarmMode !== null;
     },
-    setSwarmActive(active: boolean, _trigger: "manual" | "task" | "tool") {
+    setSwarmActive(active: boolean, trigger: "manual" | "task" | "tool") {
       swarmMode = active ? "swarm" : null;
+      swarmTrigger = active ? trigger : null;
     },
     sendNormalUserInput(prompt: string) {
       pi.sendMessage({
@@ -123,7 +124,13 @@ export default function (pi: ExtensionAPI): void {
   });
 
   pi.on("agent_end", async () => {
-    // Auto-exit task-mode swarm after the turn completes.
+    // Auto-exit task-mode swarm after the turn completes so it does not
+    // stay active through subsequent turns (#156). Manual/tool activation
+    // persists across turns.
+    if (swarmTrigger === "task") {
+      swarmMode = null;
+      swarmTrigger = null;
+    }
   });
 
   pi.on("session_shutdown", async () => {
