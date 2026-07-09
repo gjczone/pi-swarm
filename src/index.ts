@@ -96,8 +96,9 @@ export default function (pi: ExtensionAPI): void {
     // Best-effort cleanup of orphaned worktrees from previous crashes
     try {
       pruneWorktrees(process.cwd());
-    } catch {
-      // Non-git repos or worktree prune failures are non-fatal
+    } catch (err) {
+      // Non-git repos or worktree prune failures are non-fatal but visible (#130)
+      console.error(`[pi-swarm] pruneWorktrees: ${(err as Error).message}`);
     }
 
     // Run recovery: detect stale/abandoned runs, clean up expired ones
@@ -115,7 +116,9 @@ export default function (pi: ExtensionAPI): void {
         );
       }
     } catch (err) {
-      log(`Recovery error (non-fatal): ${String(err)}`);
+      // Recovery failure is non-fatal but must be visible (#130) — the
+      // log() helper is silent by design for normal startup messages.
+      console.error(`[pi-swarm] recoverRuns: ${(err as Error).message}`);
     }
   });
 

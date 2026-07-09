@@ -55,10 +55,20 @@ import {
 } from "../state/persistence.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
+import { MAX_AGENT_SWARM_SUBAGENTS } from "./specs.js";
 
 const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
-const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
+
+/**
+ * #128: produce a 6-character base36 random suffix for runId generation.
+ * Two calls in the same millisecond produce distinct IDs.
+ */
+function randomSuffix(length = 6): string {
+  return Math.random()
+    .toString(36)
+    .slice(2, 2 + length);
+}
 
 /** Build the Coordinator tool description dynamically, including available agents. */
 function buildCoordinatorDescription(): string {
@@ -287,8 +297,8 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         }),
         items: Type.Array(Type.String(), {
           minItems: 1,
-          maxItems: MAX_ITEM_COUNT,
-          description: "Items (1-20) to parallelize across.",
+          maxItems: MAX_AGENT_SWARM_SUBAGENTS,
+          description: `Items (1-${String(MAX_AGENT_SWARM_SUBAGENTS)}) to parallelize across.`,
         }),
         model: Type.Optional(
           Type.String({
@@ -349,7 +359,9 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
 
       const swarmRoot =
         process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
-      const runId = `coord-${Date.now().toString(36)}`;
+      // #128: append a 6-char random suffix so two coordinator calls in
+      // the same millisecond do not collide in activeRuns / manifest lookups.
+      const runId = `coord-${Date.now().toString(36)}-${randomSuffix()}`;
 
       const placeholderCount =
         prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).length - 1;

@@ -167,6 +167,69 @@ describe("SubagentBatchController", () => {
     expect(results[1]!.error).toBeDefined();
   });
 
+  it("#125 scheduleNextRateLimitWakeup: past-time branch calls schedule()", async () => {
+    // Regression: previously scheduleNextRateLimitWakeup returned silently when
+    // the next-wake time was in the past, leaving the controller in a stuck
+    // state. The fix invokes this.schedule() directly when next <= now.
+    // This test exercises the method through the public surface: a launcher
+    // that rate-limits twice in a row (the second recovery time elapses while
+    // the task is still pending) must not deadlock.
+    let callCount = 0;
+    const launcher: SubagentBatchLauncher = {
+      async spawn(opts: SpawnSubagentOptions): Promise<SubagentHandle> {
+        callCount += 1;
+        const agentId = `mock-rl-${callCount}`;
+        opts.onReady?.();
+        const completion: Promise<SubagentCompletion> = new Promise(
+          (resolve, reject) => {
+            setTimeout(() => {
+              if (callCount === 1) {
+                reject(new Error("Rate limit exceeded (429)"));
+              } else {
+                resolve({ result: "ok-after-past-wakeup" });
+              }
+            }, 5);
+          },
+        );
+        return {
+          agentId,
+          profileName: opts.profileName,
+          resumed: false,
+          completion,
+        };
+      },
+      async resume(
+        agentId: string,
+        opts: RunSubagentOptions,
+      ): Promise<SubagentHandle> {
+        return this.spawn({
+          ...opts,
+          profileName: "resumed",
+        });
+      },
+      async retry(
+        agentId: string,
+        opts: RunSubagentOptions,
+      ): Promise<SubagentHandle> {
+        return this.resume(agentId, opts);
+      },
+    };
+
+    const controller = new SubagentBatchController(launcher, [makeTask(0)]);
+    // Bounded wait: if scheduleNextRateLimitWakeup deadlocks, the run promise
+    // never resolves; if it works, we see completion within a few seconds.
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("rate-limit recovery deadlocked")),
+        10000,
+      ),
+    );
+    const results = await Promise.race([controller.run(), timeout]);
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).toBe("completed");
+    expect(results[0]!.result).toBe("ok-after-past-wakeup");
+  });
+
   it("handles rate-limit errors by retrying", async () => {
     let callCount = 0;
     const launcher: SubagentBatchLauncher = {
@@ -452,6 +515,126 @@ describe("SubagentBatchController", () => {
     );
     expect(r0?.status).toBe("completed");
     expect(r1).toBeDefined();
+    expect(r1?.status).toBe("aborted");
+  });
+
+  it("#124 isUserCancellation does NOT match substring 'user' in error messages", async () => {
+    // Regression: an Error message that happens to contain the word "user"
+    // must NOT be misclassified as user cancellation. Substring matching on
+    // "user"/"cancel"/"interrupt" caused unrelated errors to be reported as
+    // "aborted" instead of "failed".
+    // Use a launcher that throws an error containing "user" in its message
+    // at the task level (handleAttemptError path) — not via abort signal.
+    const launcher: SubagentBatchLauncher = {
+      async spawn(opts: SpawnSubagentOptions): Promise<SubagentHandle> {
+        const agentId = "mock-user-message";
+        opts.onReady?.();
+        const completion: Promise<SubagentCompletion> = new Promise(
+          (_resolve, reject) => {
+            // Reject with a non-cancellation error whose message contains "user"
+            setTimeout(() => reject(new Error("user_id field is required")), 5);
+          },
+        );
+        return {
+          agentId,
+          profileName: opts.profileName,
+          resumed: false,
+          completion,
+        };
+      },
+      async resume() {
+        throw new Error("not used");
+      },
+      async retry() {
+        throw new Error("not used");
+      },
+    };
+
+    const task = makeTask(0);
+    const controller = new SubagentBatchController(launcher, [task]);
+    const handle = controller.runAsync("test-run-124");
+
+    // The completion promise resolves with a result whose status reflects the
+    // task outcome — "failed" for a non-user error (NOT "aborted").
+    const results = await handle.completion;
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).toBe("failed");
+    expect(results[0]!.status).not.toBe("aborted");
+    expect(results[0]!.error).toBe("user_id field is required");
+  });
+
+  it("#124 isUserCancellation still detects marker-based errors as cancellation", async () => {
+    // Counterpart: errors carrying the USER_CANCELLATION_MARKER must still be
+    // recognized as user cancellation so the result status is "aborted" (not
+    // "failed"). This is the source of truth for the marker check.
+    const launcher: SubagentBatchLauncher = {
+      async spawn(opts: SpawnSubagentOptions): Promise<SubagentHandle> {
+        const agentId = "mock-marker";
+        opts.onReady?.();
+        const completion: Promise<SubagentCompletion> = new Promise(
+          (_resolve, reject) => {
+            setTimeout(() => {
+              const err = new Error("user typed Ctrl-C");
+              (err as Record<string, unknown>)[
+                "__pi_swarm_user_cancellation__"
+              ] = true;
+              reject(err);
+            }, 5);
+          },
+        );
+        return {
+          agentId,
+          profileName: opts.profileName,
+          resumed: false,
+          completion,
+        };
+      },
+      async resume() {
+        throw new Error("not used");
+      },
+      async retry() {
+        throw new Error("not used");
+      },
+    };
+
+    const task = makeTask(0);
+    const controller = new SubagentBatchController(launcher, [task]);
+    const handle = controller.runAsync("test-run-124b");
+
+    const results = await handle.completion;
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).toBe("aborted");
+  });
+
+  it("#121 blocking run() resolves (does not reject) on internal failure with partial results", async () => {
+    // Regression: previously fail() always called reject(). The blocking
+    // AgentSwarm caller in src/swarm/tool.ts:409 caught that rejection and
+    // returned "Swarm failed: <message>" — skipping the post-await auto-merge
+    // loop and orphaning completed worktree branches. fix() changes fail()
+    // to call resolve() for blocking callers (coordReject still rejects).
+    const ac = new AbortController();
+    const launcher = createMockLauncher({
+      "task-0": { delayMs: 10, result: "done-0" },
+      "task-1": { delayMs: 500, result: "done-1" },
+    });
+    const tasks = [makeTask(0), makeTask(1, { signal: ac.signal })];
+    const controller = new SubagentBatchController(launcher, tasks);
+    const runPromise = controller.run();
+
+    // Let task-0 finish, then abort task-1's signal with a non-user reason.
+    await new Promise((r) => setTimeout(r, 80));
+    ac.abort(new Error("Simulated failure"));
+
+    // run() must resolve with a full results array (not throw)
+    const results = await runPromise;
+    expect(results).toHaveLength(2);
+    const r0 = results.find(
+      (r) => (r.task.data as { index: number }).index === 0,
+    );
+    const r1 = results.find(
+      (r) => (r.task.data as { index: number }).index === 1,
+    );
+    expect(r0?.status).toBe("completed");
     expect(r1?.status).toBe("aborted");
   });
 });

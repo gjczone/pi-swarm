@@ -1,10 +1,11 @@
 /**
- * shared/gitignore — auto-manage .gitignore entries for pi-swarm state.
+ * shared/gitignore — auto-manage .pi/.gitignore entries for pi-swarm state.
  *
- * Ensures `.pi/swarm/state/` is listed in the project's `.gitignore` so
- * durable runtime state is never committed. Only operates when the project
- * is an actual git repository (#110): creating .gitignore in non-git
- * directories is unwanted side-effect pollution.
+ * Ensures `.pi/swarm/state/` is listed in `.pi/.gitignore` so durable
+ * runtime state is never committed. Only operates when the project is an
+ * actual git repository (#110) and only writes to `.pi/.gitignore`
+ * (#123) — never the project-root `.gitignore`, which would be an
+ * unwanted side effect in projects that opt out of gitignore.
  */
 
 import * as fs from "node:fs";
@@ -15,6 +16,7 @@ import { isGitRepository } from "./worktree.js";
 // Constants
 // ---------------------------------------------------------------------------
 
+const PI_GITIGNORE_PATH = ".pi/.gitignore";
 const GITIGNORE_ENTRY = ".pi/swarm/state/";
 
 // ---------------------------------------------------------------------------
@@ -22,79 +24,52 @@ const GITIGNORE_ENTRY = ".pi/swarm/state/";
 // ---------------------------------------------------------------------------
 
 /**
- * Ensure `.pi/swarm/state/` is listed in the project's `.gitignore`.
+ * Ensure `.pi/swarm/state/` is listed in `.pi/.gitignore`.
  *
- * Behavior:
+ * Behavior (#123):
  *   - If cwd is not a git repository: do nothing (#110).
- *   - If `.gitignore` exists and contains the entry: no-op.
- *   - If `.gitignore` exists but lacks the entry: append it.
- *   - If no `.gitignore` exists (and no other `*ignore` file): create one.
+ *   - If `.pi/.gitignore` exists and contains the entry: no-op.
+ *   - If `.pi/.gitignore` exists but lacks the entry: append it.
+ *   - If `.pi/.gitignore` does not exist: create it inside `.pi/`.
  *
- * All filesystem errors are swallowed (best-effort, non-fatal).
+ * Never writes to the project-root `.gitignore`. Every filesystem
+ * error is surfaced via `console.error` (AGENTS.md §0 Quality Gates).
  */
 export function ensureGitignore(cwd: string): void {
-  // #110: Never manage .gitignore outside of a git repository.
   if (!isGitRepository(cwd)) {
     return;
   }
 
-  const gitignorePath = findGitignore(cwd);
-  if (!gitignorePath) {
-    // No gitignore file exists — create one
+  const targetPath = path.join(cwd, PI_GITIGNORE_PATH);
+  const targetDir = path.dirname(targetPath);
+
+  try {
+    fs.mkdirSync(targetDir, { recursive: true });
+
+    let content = "";
     try {
-      fs.writeFileSync(
-        path.join(cwd, ".gitignore"),
-        `${GITIGNORE_ENTRY}\n`,
-        "utf-8",
-      );
-    } catch {
-      // Best effort
-    }
-    return;
-  }
-
-  try {
-    const content = fs.readFileSync(gitignorePath, "utf-8");
-    if (content.includes(GITIGNORE_ENTRY)) return; // Already present
-
-    // Append with a leading newline if the file doesn't end with one
-    const separator = content.endsWith("\n") ? "" : "\n";
-    fs.appendFileSync(
-      gitignorePath,
-      `${separator}${GITIGNORE_ENTRY}\n`,
-      "utf-8",
-    );
-  } catch {
-    // Best effort
-  }
-}
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Find the project's gitignore file.
- * Checks `.gitignore` first, then returns null if only non-standard `*ignore`
- * files exist (e.g. `.dockerignore`) — those must not be polluted.
- */
-function findGitignore(cwd: string): string | null {
-  // Standard .gitignore
-  const standard = path.join(cwd, ".gitignore");
-  if (fs.existsSync(standard)) return standard;
-
-  // Check for any other *ignore file (but prefer .gitignore)
-  try {
-    const entries = fs.readdirSync(cwd);
-    for (const entry of entries) {
-      if (entry.endsWith("ignore") && entry !== ".gitignore") {
-        // Found a non-standard ignore file — use .gitignore instead (don't pollute others)
-        return null;
+      content = fs.readFileSync(targetPath, "utf-8");
+    } catch (err: unknown) {
+      const code = (err as NodeJS.ErrnoException).code;
+      if (code !== "ENOENT") {
+        console.error(
+          `[pi-swarm] ensureGitignore: failed to read ${targetPath}: ${(err as Error).message}`,
+        );
+        return;
       }
     }
-  } catch {
-    // Can't read directory
-  }
 
-  return null;
+    if (content.includes(GITIGNORE_ENTRY)) return;
+
+    const separator = content.length > 0 && !content.endsWith("\n") ? "\n" : "";
+    fs.writeFileSync(
+      targetPath,
+      `${content}${separator}${GITIGNORE_ENTRY}\n`,
+      "utf-8",
+    );
+  } catch (err) {
+    console.error(
+      `[pi-swarm] ensureGitignore: failed to update ${targetPath}: ${(err as Error).message}`,
+    );
+  }
 }

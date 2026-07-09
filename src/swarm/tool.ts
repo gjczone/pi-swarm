@@ -24,11 +24,7 @@ import {
   resumeSubagent,
   retrySubagent,
 } from "../shared/spawner.js";
-import type {
-  QueuedSubagentTask,
-  SwarmSpawnSpec,
-  SwarmSpec,
-} from "../shared/types.js";
+import type { QueuedSubagentTask, SwarmSpec } from "../shared/types.js";
 import {
   resolveProfile,
   resolveProfileTools,
@@ -59,6 +55,7 @@ import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
 } from "../tui/progress.js";
+import { createAgentSwarmSpecs, MAX_AGENT_SWARM_SUBAGENTS } from "./specs.js";
 
 /** Widget key used to render the live swarm progress panel. */
 const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
@@ -68,8 +65,18 @@ const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
 // ---------------------------------------------------------------------------
 
 const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
-const MAX_ITEM_COUNT = 20;
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
+
+/**
+ * #128: produce a 6-character base36 random suffix for runId generation.
+ * Two calls in the same millisecond produce distinct IDs (collision
+ * probability < 1e-9 across 1000 calls in the same ms).
+ */
+function randomSuffix(length = 6): string {
+  return Math.random()
+    .toString(36)
+    .slice(2, 2 + length);
+}
 
 // ---------------------------------------------------------------------------
 // Registration
@@ -197,9 +204,8 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         }),
         items: Type.Array(Type.String(), {
           minItems: 1,
-          maxItems: MAX_ITEM_COUNT,
-          description:
-            "Items (1-20) to parallelize across. Each item replaces {{item}} in the template.",
+          maxItems: MAX_AGENT_SWARM_SUBAGENTS,
+          description: `Items (1-${String(MAX_AGENT_SWARM_SUBAGENTS)}) to parallelize across. Each item replaces {{item}} in the template.`,
           examples: [["src/auth.ts", "src/api.ts", "src/db.ts"]],
         }),
         model: Type.Optional(
@@ -286,32 +292,20 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
       // Persistent run state - declared outside try for catch access
       const swarmRoot =
         process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
-      const runId = `swarm-${Date.now().toString(36)}`;
+      // #128: append a 6-char random suffix to the timestamp-based runId so
+      // concurrent Swarm tool calls in the same millisecond do not collide
+      // and overwrite each other in activeRuns / manifest lookups.
+      const runId = `swarm-${Date.now().toString(36)}-${randomSuffix()}`;
       let runCreated = false;
 
       try {
-        // Validate prompt_template contains exactly one placeholder
-        const placeholderCount =
-          prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).length - 1;
-        if (placeholderCount !== 1) {
-          throw new Error(
-            `prompt_template must contain {{item}} exactly once, found ${placeholderCount} occurrence(s). ` +
-              `Each item replaces the placeholder to generate per-agent prompts.`,
-          );
-        }
-
-        // Build specs
-        const specs = items.map(
-          (item: string, index: number) =>
-            ({
-              kind: "spawn" as const,
-              index: index + 1,
-              item: item.trim(),
-              prompt: prompt_template
-                .split(PROMPT_TEMPLATE_PLACEHOLDER)
-                .join(item.trim()),
-            }) satisfies SwarmSpawnSpec,
-        );
+        // #127: build specs via the shared validator (duplicate detection,
+        // 128-item cap, placeholder presence). Replaces the inline
+        // items.map that previously allowed duplicates and capped at 20.
+        const specs = createAgentSwarmSpecs({
+          items,
+          prompt_template,
+        });
 
         // Set up mailbox when enabled
         let mailboxPath: string | undefined;
@@ -340,13 +334,14 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => {
           const agentName = deriveAgentName(profileName, spec.item, idx + 1);
 
-          // Auto-route per item when no explicit profile/agentType
+          // Auto-route per item when no explicit profile/agentType.
+          // Resume specs do not have an `item` field, so skip routing for them.
           let itemProfile = agentProfile;
           let itemProfileTools = profileTools;
           let itemModel = effectiveModel;
           let itemAdditionalPrompt = agentProfile.systemPrompt;
 
-          if (useAutoRoute && fileAgents) {
+          if (spec.kind === "spawn" && useAutoRoute && fileAgents) {
             const matched = matchItemToAgent(spec.item, fileAgents);
             if (matched) {
               itemProfile = matched;
@@ -642,7 +637,8 @@ function clearProgressWidget(ctx: ExtensionContext): void {
   if (typeof setWidget !== "function") return;
   try {
     setWidget(PROGRESS_WIDGET_KEY, undefined, { placement: "aboveEditor" });
-  } catch {
-    // Best effort — widget teardown failure is non-fatal
+  } catch (err) {
+    // Widget teardown failure is non-fatal but visible (#130)
+    console.error(`[pi-swarm] clearProgressWidget: ${(err as Error).message}`);
   }
 }

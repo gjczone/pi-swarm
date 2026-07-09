@@ -1,135 +1,15 @@
 /**
  * tests/swarm-tool.test.ts — unit tests for AgentSwarm spec creation.
  *
- * Tests the validation and spec creation logic from swarm/tool.ts.
+ * Tests the validation and spec creation logic from src/swarm/specs.ts.
  * Does not require a running pi instance.
  */
 
 import { describe, it, expect } from "vitest";
-
-const SAFE_ID_PATTERN = /^[a-zA-Z0-9_-]+$/;
-
-function validateId(id: string, kind: string): void {
-  if (typeof id !== "string" || id.length === 0 || id.length > 128) {
-    throw new Error(
-      `Invalid ${kind}: must be a non-empty string up to 128 characters`,
-    );
-  }
-  if (!SAFE_ID_PATTERN.test(id)) {
-    throw new Error(
-      `Invalid ${kind}: "${id}" contains unsafe characters (only a-z, A-Z, 0-9, _, - allowed)`,
-    );
-  }
-}
-
-// Replicate the createAgentSwarmSpecs logic inline for testing.
-// (In production this lives in swarm/tool.ts; we test the pure function.)
-
-const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
-const MAX_AGENT_SWARM_SUBAGENTS = 128;
-
-interface SwarmSpawnSpec {
-  readonly kind: "spawn";
-  readonly index: number;
-  readonly item: string;
-  readonly prompt: string;
-}
-
-interface SwarmResumeSpec {
-  readonly kind: "resume";
-  readonly index: number;
-  readonly agentId: string;
-  readonly item?: string;
-  readonly prompt: string;
-}
-
-type SwarmSpec = SwarmSpawnSpec | SwarmResumeSpec;
-
-function createAgentSwarmSpecs(args: {
-  items?: string[];
-  resume_agent_ids?: Record<string, string>;
-  prompt_template?: string;
-}): SwarmSpec[] {
-  const resumeEntries = Object.entries(args.resume_agent_ids ?? {}).map(
-    ([agentId, prompt]) => {
-      const trimmedId = agentId.trim();
-      validateId(trimmedId, "agentId");
-      return {
-        agentId: trimmedId,
-        prompt: prompt.trim(),
-      };
-    },
-  );
-  const items = (args.items ?? []).map((item) => item.trim());
-  const itemCount = items.length;
-  const resumeCount = resumeEntries.length;
-  const totalCount = resumeCount + itemCount;
-
-  if (resumeCount === 0 && itemCount < 1) {
-    throw new Error(
-      "AgentSwarm requires at least 1 item or a resume_agent_ids entry.",
-    );
-  }
-
-  if (totalCount > MAX_AGENT_SWARM_SUBAGENTS) {
-    throw new Error(
-      `AgentSwarm supports at most ${String(MAX_AGENT_SWARM_SUBAGENTS)} subagents.`,
-    );
-  }
-
-  const promptTemplate = args.prompt_template?.trim() || undefined;
-
-  if (items.length > 0 && promptTemplate === undefined) {
-    throw new Error("prompt_template is required when items are provided.");
-  }
-
-  if (
-    promptTemplate !== undefined &&
-    !promptTemplate.includes(PROMPT_TEMPLATE_PLACEHOLDER)
-  ) {
-    throw new Error(
-      `prompt_template must include the ${PROMPT_TEMPLATE_PLACEHOLDER} placeholder.`,
-    );
-  }
-
-  const seenPrompts = new Map<string, number>();
-  const specs: SwarmSpec[] = [];
-
-  for (const entry of resumeEntries) {
-    specs.push({
-      kind: "resume",
-      index: specs.length + 1,
-      agentId: entry.agentId,
-      prompt: entry.prompt,
-    });
-  }
-
-  if (items.length > 0) {
-    const itemPromptTemplate = promptTemplate!;
-    items.forEach((item, index) => {
-      const prompt = itemPromptTemplate
-        .split(PROMPT_TEMPLATE_PLACEHOLDER)
-        .join(item);
-
-      const previousIndex = seenPrompts.get(prompt);
-      if (previousIndex !== undefined) {
-        throw new Error(
-          `Duplicate subagent prompts from items ${String(previousIndex)} and ${String(index + 1)}. AgentSwarm requires distinct subagents.`,
-        );
-      }
-      seenPrompts.set(prompt, index + 1);
-
-      specs.push({
-        kind: "spawn",
-        index: specs.length + 1,
-        item,
-        prompt,
-      });
-    });
-  }
-
-  return specs;
-}
+import {
+  createAgentSwarmSpecs,
+  MAX_AGENT_SWARM_SUBAGENTS,
+} from "../src/swarm/specs.js";
 
 // ---------------------------------------------------------------------------
 // Tests

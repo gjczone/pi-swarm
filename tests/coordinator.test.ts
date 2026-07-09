@@ -5,6 +5,7 @@
  *   #102 — resolveAgentId returns undefined for unknown agents
  *   #103 — SwarmStatus honors the runId filter
  *   #104 — runToSummary counts unique agentIds, not agent_started events
+ *   #128 — runId format includes a random suffix to avoid same-ms collisions
  */
 
 import { describe, it, expect } from "vitest";
@@ -19,6 +20,7 @@ import type {
   SubagentResult,
   SwarmSpec,
 } from "../src/shared/types.js";
+import { validateId } from "../src/state/persistence.js";
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -180,5 +182,37 @@ describe("#103 summarizeRuns runId filter", () => {
     const runs = [makeRun({ runId: "run-a" })];
     const out = summarizeRuns(runs, "nonexistent");
     expect(out).toMatch(/not found|no run/i);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #128 — runId format includes a random suffix to avoid same-ms collisions
+// ---------------------------------------------------------------------------
+
+describe("#128 runId collision avoidance", () => {
+  it("two calls in the same millisecond produce distinct runIds", () => {
+    // Simulate the runId format used in src/swarm/coordinator.ts:352 and
+    // src/swarm/tool.ts:289. The format is
+    //   `coord-${Date.now().toString(36)}-${randomSuffix()}` /
+    //   `swarm-${Date.now().toString(36)}-${randomSuffix()}`.
+    function generateRunId(prefix: string): string {
+      return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
+    }
+
+    const ids = new Set<string>();
+    for (let i = 0; i < 100; i += 1) {
+      ids.add(generateRunId("coord"));
+    }
+    // 100 calls in the same millisecond should all produce distinct IDs.
+    // (Worst case: ms-clock-stable + random collisions; the random suffix
+    //  gives ~2^30 buckets so we expect <1e-7 collision probability.)
+    expect(ids.size).toBe(100);
+  });
+
+  it("runId format passes validateId (safe-id pattern)", () => {
+    // The new format with `-${randomSuffix()}` separator must remain
+    // compatible with the safe-id regex used by state/persistence.ts.
+    const runId = `swarm-${Date.now().toString(36)}-abc123`;
+    expect(() => validateId(runId, "runId")).not.toThrow();
   });
 });

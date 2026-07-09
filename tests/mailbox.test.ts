@@ -151,6 +151,36 @@ describe("#115 broadcast error surfacing", () => {
     const msg = makeMessage("broadcast");
     expect(() => sendMessage(paths, msg)).toThrow();
   });
+
+  it("#122 broadcast: team outbox is NOT written when a per-recipient delivery fails", () => {
+    // Regression: previously the broadcast branch wrote the team outbox
+    // and team inbox FIRST, then iterated per-recipient. If a mid-loop
+    // failure occurred (e.g. disk full on recipient N+1), the sender's
+    // outbox claimed "delivered" but some recipients never got the message.
+    // Fix: per-recipient delivery completes first; only on full success
+    // does the team outbox/inbox get the broadcast record. Per-recipient
+    // writes are idempotent (appendJsonLine), so retries are safe.
+    for (const id of ["agent-1", "agent-2"]) {
+      const tp = resolveTaskMailboxPaths(paths, id);
+      fs.mkdirSync(path.dirname(tp.inbox), { recursive: true });
+    }
+    // Make agent-2's inbox unwritable so delivery fails
+    const tp2 = resolveTaskMailboxPaths(paths, "agent-2");
+    fs.mkdirSync(tp2.inbox);
+
+    const msg = makeMessage("broadcast");
+    expect(() => sendMessage(paths, msg)).toThrow();
+
+    // Team outbox must remain empty — the broadcast was not fully delivered
+    expect(countOutboxMessages(paths)).toBe(0);
+    // Team inbox must also be empty
+    expect(readInbox(paths)).toHaveLength(0);
+    // agent-1 received the message before agent-2 failed. This is
+    // intentional: the per-recipient writes are idempotent, so a retry
+    // of the whole broadcast appends another copy. The sender's
+    // outbox staying empty is the new correctness signal.
+    expect(readTaskInbox(paths, "agent-1")).toHaveLength(1);
+  });
 });
 
 // ---------------------------------------------------------------------------

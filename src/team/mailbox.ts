@@ -138,10 +138,6 @@ export function sendMessage(
   validateRecipient(message.to, "message.to");
 
   if (message.to === "broadcast") {
-    // Append to team outbox and inbox first
-    appendJsonLine(paths.outbox, message);
-    appendJsonLine(paths.inbox, message);
-
     // Broadcast: deliver to all known task inboxes under the tasks directory.
     // Discovers recipients dynamically so it works for both team mode
     // (explorer, planner, ...) and swarm mode (agent-1, agent-2, ...).
@@ -161,6 +157,14 @@ export function sendMessage(
       fs.mkdirSync(path.dirname(taskPaths.inbox), { recursive: true });
       appendJsonLine(taskPaths.inbox, message);
     }
+
+    // #122: All per-recipient deliveries succeeded. Now record the broadcast
+    // in the team outbox + team inbox so the sender's view is consistent
+    // with what was actually delivered. If any per-recipient append had
+    // thrown, we never reach this point and the sender's outbox stays
+    // empty (the caller retries the whole broadcast).
+    appendJsonLine(paths.outbox, message);
+    appendJsonLine(paths.inbox, message);
   } else {
     // Direct message: validate recipient exists BEFORE writing anything (#108, #113).
     // This ensures no partial state (outbox/inbox writes) is left behind on failure.
@@ -349,8 +353,11 @@ function compactAcks(ackPath: string): void {
         .join("\n");
       writeAtomic(ackPath, content + "\n");
     }
-  } catch {
-    // Best effort compaction
+  } catch (err) {
+    // Compaction failure is non-fatal but visible (#130)
+    console.error(
+      `[pi-swarm] compactAcks: failed to compact ${ackPath}: ${(err as Error).message}`,
+    );
   }
 }
 

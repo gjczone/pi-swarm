@@ -84,22 +84,44 @@ interface AttemptOutcome<T> extends SubagentResult<T> {
 // ---------------------------------------------------------------------------
 
 /**
- * Check whether an abort reason indicates user cancellation
- * (as opposed to a programmatic abort).
+ * Marker property that identifies a user-cancellation error.
+ *
+ * #124: replaces the previous substring match on "user"/"cancel"/"interrupt"
+ * which misclassified any error message containing those words (e.g. "user_id
+ * is invalid", "User aborted the request" from an unrelated framework) as
+ * user cancellation, hiding real failures behind status "aborted".
+ *
+ * Identity is now determined by the marker property on the Error object.
+ * Only errors created via `userCancellationReason()` carry the marker.
  */
-function isUserCancellation(reason?: unknown): boolean {
-  if (reason === undefined) return false;
-  const msg =
-    reason instanceof Error
-      ? reason.message.toLowerCase()
-      : String(reason).toLowerCase();
+export const USER_CANCELLATION_MARKER = "__pi_swarm_user_cancellation__";
+
+/**
+ * Check whether an abort reason indicates user cancellation
+ * (as opposed to a programmatic abort). Uses a marker property on the
+ * Error object so unrelated error messages are not misclassified (#124).
+ */
+export function isUserCancellation(reason?: unknown): boolean {
+  if (reason === undefined || reason === null) return false;
+  if (typeof reason !== "object") return false;
   return (
-    msg.includes("user") || msg.includes("cancel") || msg.includes("interrupt")
+    (reason as { [USER_CANCELLATION_MARKER]?: boolean })[
+      USER_CANCELLATION_MARKER
+    ] === true
   );
 }
 
-function userCancellationReason(): Error {
-  return new Error("User cancelled");
+/**
+ * Create an Error that marks itself as a user cancellation via the
+ * `USER_CANCELLATION_MARKER` property (#124). Use this anywhere the code
+ * path needs to signal "the user explicitly cancelled this work".
+ */
+export function userCancellationReason(): Error {
+  const err = new Error("User cancelled");
+  (err as Error & { [USER_CANCELLATION_MARKER]?: boolean })[
+    USER_CANCELLATION_MARKER
+  ] = true;
+  return err;
 }
 
 /**
@@ -829,8 +851,11 @@ export class SubagentBatchController<T> {
 
     try {
       updateHeartbeat(swarmRoot, runId);
-    } catch {
-      // Best effort — heartbeat failure is non-fatal
+    } catch (err) {
+      // Heartbeat failure is non-fatal but must be visible (#130)
+      console.error(
+        `[pi-swarm] updateHeartbeat failed for ${runId}: ${(err as Error).message}`,
+      );
     }
   }
 
@@ -1032,7 +1057,13 @@ export class SubagentBatchController<T> {
 
     // Emit final snapshot so the TUI reflects the failed state
     this.emitProgress();
-    this.reject?.(error);
+    // #121: Blocking-mode callers (controller.run()) need the partial results
+    // (with "aborted" status for unfinished tasks) so the post-await
+    // auto-merge loop in src/swarm/tool.ts:432-451 still runs and merges
+    // completed branches. Without this, completed agents' worktree branches
+    // are silently orphaned. Coordinator path (runAsync) still rejects via
+    // coordReject so the completion promise propagates the error.
+    this.resolve?.(this.results as Array<SubagentResult<T>>);
     this.coordReject?.(
       error instanceof Error ? error : new Error(String(error)),
     );
@@ -1075,7 +1106,13 @@ export class SubagentBatchController<T> {
     );
     if (next > now) {
       this.scheduleRateLimitWakeup(next, now);
+      return;
     }
+    // #125: When the next-wake time is in the past (or now), no timer is
+    // needed. Call schedule() synchronously so the controller immediately
+    // tries to launch the next pending task instead of leaving it queued
+    // indefinitely.
+    this.schedule();
   }
 
   // -----------------------------------------------------------------------
