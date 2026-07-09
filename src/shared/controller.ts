@@ -1269,7 +1269,7 @@ export function resolveSwarmMaxConcurrency(cwd?: string): number {
   // 1. Project-local settings
   const projectSettings = readPiSettings(
     path.join(cwd ?? process.cwd(), ".pi", "settings.json"),
-  );
+  ).value;
   const projectValue = getSettingsMaxConcurrency(projectSettings);
   if (projectValue !== undefined) {
     return validateConcurrency(projectValue, ".pi/settings.json");
@@ -1279,7 +1279,7 @@ export function resolveSwarmMaxConcurrency(cwd?: string): number {
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "~";
   const globalSettings = readPiSettings(
     path.join(home, ".pi", "agent", "settings.json"),
-  );
+  ).value;
   const globalValue = getSettingsMaxConcurrency(globalSettings);
   if (globalValue !== undefined) {
     return validateConcurrency(globalValue, "~/.pi/agent/settings.json");
@@ -1325,14 +1325,14 @@ function getSettingsMaxConcurrency(
 export function resolveSwarmSmallModel(cwd?: string): string | undefined {
   const projectSettings = readPiSettings(
     path.join(cwd ?? process.cwd(), ".pi", "settings.json"),
-  );
+  ).value;
   const projectValue = getSettingsSmallModel(projectSettings);
   if (projectValue !== undefined) return projectValue;
 
   const home = process.env.HOME ?? process.env.USERPROFILE ?? "~";
   const globalSettings = readPiSettings(
     path.join(home, ".pi", "agent", "settings.json"),
-  );
+  ).value;
   return getSettingsSmallModel(globalSettings);
 }
 

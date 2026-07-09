@@ -142,7 +142,7 @@ function loadUserProfiles(cwd?: string): Record<string, AgentProfile> {
   }
 
   for (const settingsPath of searchPaths) {
-    const settings = readPiSettings(settingsPath);
+    const settings = readPiSettings(settingsPath).value;
     if (!settings) continue;
     const swarm = settings["pi-swarm"] as PiSwarmSettings | undefined;
     const subagents = swarm?.subagents;
@@ -347,7 +347,7 @@ function resolveSmallModel(cwd?: string): string | undefined {
     searchPaths.push(path.join(home, ".pi", "agent", "settings.json"));
   }
   for (const settingsPath of searchPaths) {
-    const settings = readPiSettings(settingsPath);
+    const settings = readPiSettings(settingsPath).value;
     if (!settings) continue;
     const swarm = settings["pi-swarm"] as PiSwarmSettings | undefined;
     const val = swarm?.smallModel;
