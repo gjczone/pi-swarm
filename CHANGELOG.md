@@ -5,6 +5,102 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.4] - 2026-07-10
+
+### Fixed
+
+- **Results lost on late completion (#152)**: `handleAttemptOutcome`
+  in `src/shared/controller.ts` now writes the real outcome to
+  `this.results[index]` _before_ the `if (this.finished) return`
+  guard. Previously, a subagent that finished after
+  `finish()`/`fail()`/`finishWithUserCancellation()` had already
+  set `finished = true` had its result silently dropped and
+  replaced by an "aborted" marker. Rate-limited outcomes are still
+  excluded from the results array as before.
+- **Unsound `as Array<SubagentResult<T>>` casts (#154)**: the three
+  sites in `controller.ts` that cast the sparse results array to a
+  dense result type now use
+  `.filter((r): r is SubagentResult<T> => r !== undefined)` instead
+  of a non-null-asserting `as` cast, eliminating the risk of
+  downstream crashes from `undefined` elements after a race with
+  cancellation.
+- **Recursive subagent spawning (#153)**: `buildSubagentArgs` in
+  `src/shared/pi-invoke.ts` now always applies the
+  `FORBIDDEN_SUBAGENT_TOOLS` filter. Previously the filter only ran
+  when `opts.tools` was non-empty, so a subagent spawned without an
+  explicit tool list inherited `Swarm`, `SwarmCoordinator`,
+  `SendMessage`, `TaskStop`, and `SwarmStatus` — enabling unbounded
+  recursive spawning.
+- **CI/CD exposure via subagent worktrees (#155)**: removed `.github`
+  from `PROJECT_CONTEXT_ENTRIES` in `src/shared/worktree.ts` so
+  subagent worktrees no longer symlink GitHub Actions workflow
+  files, closing a path to arbitrary code execution in CI/CD.
+- **Swarm state machine broken (#156)**: `index.ts` now stores the
+  activation trigger (`manual` / `task` / `tool`) and the
+  `agent_end` handler auto-exits swarm mode only when the trigger
+  was `task` (e.g. `/swarm <task>`). Manual and tool activations
+  persist across turns. The unused trigger parameter is no longer
+  discarded.
+- **Over-broad keyword activation (#157)**: `resolveKeywordMode` now
+  uses word-boundary matching (`/\bswarm\b/i`) instead of
+  `text.includes("swarm")`, so incidental substrings like
+  "swarmy" or "swarming" no longer activate swarm mode.
+- **Project profiles overridden by global (#158)**: `loadUserProfiles`
+  in `src/shared/profiles.ts` now skips a profile name that already
+  exists, so a project-level (`.pi/`) custom agent profile wins
+  over a same-named global (`~/.pi/`) profile, matching documented
+  precedence.
+- **Inconsistent abort/close behavior (#159)**: the two independent
+  `settled` flags in `src/shared/spawner.ts` (outer in
+  `runSubagentProcess`, inner in `parseEventStream`) are now shared
+  via a single `settledState` object passed by reference, so an
+  aborted process no longer produces partial result output that
+  conflicts with the abort marker.
+- **Mailbox path leak to subagents (#166)**: `mailboxAddendum`
+  injected into team-mode subagent prompts now describes only the
+  conceptual communication protocol. Concrete filesystem paths
+  (`inbox.jsonl` / `outbox.jsonl`) and the JSON message format are
+  no longer exposed, reducing the risk of message-queue tampering.
+- **Memory leak in coordinator (#160)**: `activeRuns` in
+  `src/swarm/coordinator.ts` is now cleared via
+  `.finally(() => activeRuns.delete(runId))` on the completion
+  promise, so repeated `runAsync` calls no longer accumulate entries.
+- **Broadcast mailbox inconsistency (#161)**: `sendMessage` now
+  appends to the recipient `inbox` before the sender `outbox` in
+  `src/team/mailbox.ts`, prioritizing receiver visibility and
+  reducing the window where a crash leaves an outbox record with no
+  delivered message.
+- **Silent heartbeat-read failure (#162)**: `updateHeartbeat` in
+  `src/state/persistence.ts` now logs via `console.error` (with
+  `runId`) when `readManifest` returns null, so a non-ENOENT read
+  error is surfaced instead of silently marking a running swarm
+  abandoned.
+- **Heartbeat read-modify-write race (#163)**: concurrent
+  `emitProgress` calls can no longer corrupt the run manifest.
+  `emitProgress` guards its heartbeat call with a per-controller
+  `heartbeatInFlight` flag, and `updateHeartbeat` serializes writes
+  with a module-level `heartbeatWriteInFlight` guard. Both are
+  synchronous, so no async/await was introduced into the hot path.
+- **Crash recovery misses resumable agents (#164)**:
+  `getResumableAgents` in `src/state/recovery.ts` now normalizes
+  agent status casing (`toLowerCase()`) before comparison, so
+  agents reported as "Running"/"Started" by other runtime versions
+  are correctly identified as resumable.
+- **Duplicate prompt text from multi-placeholder templates (#165)**:
+  `createAgentSwarmSpecs` in `src/swarm/specs.ts` now requires the
+  `{{item}}` placeholder to appear exactly once
+  (`split(placeholder).length - 1 !== 1` throws), aligning with
+  `coordinator.ts`. Previously a template like
+  `"Fix {{item}} in {{item}}"` passed validation but substituted the
+  item text twice.
+
+## [0.9.3] - 2026-07-10
+
+### Changed
+
+- Version bump releasing the v0.9.2 changelog content. No code
+  changes relative to v0.9.2.
+
 ## [0.9.2] - 2026-07-09
 
 ### Fixed
