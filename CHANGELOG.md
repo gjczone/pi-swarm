@@ -5,6 +5,91 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.1] - 2026-07-09
+
+### Fixed
+
+- **Crash-safety of JSONL appends (#134)**: `appendEvent` and
+  `appendJsonLine` now use `O_APPEND + fsync` via the new
+  `src/shared/atomic-append.ts` helper instead of `writeAtomic`
+  (read-modify-write of the whole log). The coordinator
+  `sendMessageToAgent` per-agent inbox follows the same pattern.
+  On SIGKILL or kernel-level crash, the most recent append is
+  either fully visible or fully absent — never a torn line. The
+  recovery path's `readJsonLines` filters unparseable tail
+  bytes, so the impact is bounded to "the last line is dropped".
+- **User-cancellation marker spoofing (#132)**: `USER_CANCELLATION_MARKER`
+  is now a `Symbol.for("pi-swarm.user-cancellation")` instead of a
+  plain string. Unrelated libraries that happen to attach a
+  string property with the same name can no longer be misidentified
+  as user cancellations.
+- **Silent log loss in #135 / #137 / #140 batches**: 10 catch blocks
+  that silently swallowed errors now log via `console.error` with
+  a `[pi-swarm] <funcName>: <operation>: <message>` pattern.
+  Affected: `countOutboxMessages`, `getDeliveryState`,
+  `sendMessage` (broadcast readdir), `readAckIds` (outer +
+  per-line), `readJsonLines` (outer + per-line), `readEvents`
+  (outer + per-line), `loadAgentStatus`. Per-line parse errors
+  use a `MAX_PER_LINE_LOGS = 5` cap-and-summarize pattern to
+  bound log volume on heavily corrupt files. ENOENT is suppressed
+  on reads of lazily-created files (acks, events.jsonl) to
+  avoid per-poll log spam.
+
+### Added
+
+- **`pi-swarm.runRetentionMs` user setting (#133)**: operators can
+  override the 7-day default for completed/failed/abandoned run
+  cleanup via `.pi/settings.json`. Value must be a positive
+  integer in milliseconds; missing or invalid values fall back
+  to the default with a `console.error` log. Resolved by the
+  new `state/settings.ts:resolveRunRetentionMs` (previously
+  hard-coded as `COMPLETED_RUN_RETENTION_MS` in `recovery.ts`).
+
+### Changed
+
+- **Cleanup of dead code (#140, #148)**: removed `loadTaskState`
+  (zero internal callers) plus 10 dead exports and 5 dead types
+  flagged by `knip` (see commit `chore(#148)` for the full list).
+  `DEFAULT_RUN_RETENTION_MS`, `PROMPT_TEMPLATE_PLACEHOLDER`, and
+  the coordinator/tool `smallModel` resolver were deduplicated.
+  No public API change; no behavior change.
+- **All source comments translated to English (#141)**: 31 lines
+  of Chinese comments across `src/index.ts`, `src/shared/spawner.ts`,
+  `src/shared/worktree.ts`, and `src/swarm/tool.ts` were
+  translated to satisfy the AGENTS.md LANGUAGE RULE.
+- **Shared `readPiSettings` helper (#142, #147)**: extracted from
+  `controller.ts` / `profiles.ts` into `src/shared/pi-settings.ts`.
+  Contract is `{ value, error? }` so callers can distinguish
+  ENOENT (silent default) from a real I/O fault (log + fall back).
+  `state/settings.ts:resolveRunRetentionMs` now uses the helper.
+- **Generic constraint on `toSwarmRunResults` (#146)**: dropped
+  the `as unknown as` double cast by constraining `T extends SwarmSpec`.
+  The compiler now proves the spec kind, so no cast is needed.
+
+### Chore
+
+- Dependency bumps: `prettier` 3.8.3 → 3.9.4, `@types/node`,
+  `typebox` 1.3.1 → 1.3.4, plus 3 major-deps updates (#117-#120).
+
+### Tests
+
+- 34 new tests across 5 new test files / blocks:
+  `tests/atomic-append.test.ts` (4), `tests/recovery-retention.test.ts`
+  (8, incl. 2 from #133 and 6 from #140), `tests/mailbox.test.ts`
+  (5 from #135 and 6 from #137), `tests/pi-settings.test.ts` (5),
+  `tests/render.test.ts` (2 from #146), and inline additions to
+  `tests/persistence-state.test.ts` (5 from #140). Total: 149 → 183.
+
+### Quality
+
+- 0 `any` types, 0 `as any` casts, 0 `@ts-ignore` bypasses in
+  `src/` (audited).
+- 0 empty catch blocks in `src/` (#135, #137, #140 batches).
+- 0 Chinese characters in `src/` comments (#141).
+- `knip` reports 2 functions + 15 types as "unused" — all
+  verified false positives (used internally via function calls
+  or type-only references that static analysis does not see).
+
 ## [0.9.0] - 2026-06-30
 
 ### Fixed
