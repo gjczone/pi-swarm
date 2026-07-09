@@ -213,7 +213,9 @@ export function getResumableAgents(
       continue;
     }
 
-    const agentStatus = String(statusRecord.status ?? statusRecord.state ?? "");
+    const agentStatus = String(
+      statusRecord.status ?? statusRecord.state ?? "",
+    ).toLowerCase();
     // Non-terminal states — agent can be resumed
     if (
       agentStatus === "running" ||
