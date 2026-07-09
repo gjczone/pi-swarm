@@ -157,7 +157,6 @@ const PROJECT_CONTEXT_ENTRIES = [
   ".pi",
   ".cursorrules",
   ".cursor",
-  ".github",
   "docs",
   "rules",
 ];
