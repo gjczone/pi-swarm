@@ -296,33 +296,16 @@ async function runSubagentProcess(
   // Inject mailbox communication instructions into prompt if mailbox is available
   let finalPrompt = opts.prompt;
   if (opts.mailboxPath && pollInboxPath && pollOutboxPath) {
-    // Use path relative to cwd when possible for cleaner instructions
-    const inboxRel = worktree
-      ? join(".pi", "swarm", "mailbox-link", "tasks", roleName, "inbox.jsonl")
-      : pollInboxPath;
-    const outboxRel = worktree
-      ? join(".pi", "swarm", "mailbox-link", "tasks", roleName, "outbox.jsonl")
-      : pollOutboxPath;
     const mailboxAddendum = [
       "",
       "---",
       "",
       "## Real-time Mailbox Communication",
       "",
-      "You have access to a live mailbox for sending and receiving messages during your work:",
-      "",
-      `- Your inbox (read for new messages): ${inboxRel}`,
-      `- Your outbox (write to send messages): ${outboxRel}`,
-      "",
-      "How to use:",
-      "1. Read your inbox for new messages: use the read tool to check your inbox file periodically.",
-      "2. To send a message, append a single JSON line to your outbox file with format:",
-      `   {"messageId":"msg-{random}","runId":"${opts.runId ?? ""}","timestamp":"{ISO8601}","from":"${roleName}","to":"{recipient}","type":"handoff","payload":{"content":"your message"}}`,
-      `3. Valid recipients: other agent names (e.g. agent-1, agent-2, ...) or "broadcast" to send to all.`,
-      "   To discover available agents, list the mailbox tasks directory (parent of your inbox path).",
-      "4. Messages you write to your outbox are delivered immediately to the recipient's inbox.",
-      "5. You do NOT need to wait for your phase to complete to send messages.",
-      "6. Read your inbox: use the read tool or bash cat to read your inbox file.",
+      "You can exchange messages with other team members through the shared mailbox system.",
+      "To send a message, write it as a single JSON line containing the recipient name, a subject,",
+      'and the message body. Valid recipients are the other agent role names or "broadcast" to reach everyone.',
+      "Check your inbox periodically for new messages from teammates.",
       "",
     ].join("\n");
     finalPrompt = finalPrompt + mailboxAddendum;
@@ -429,7 +412,7 @@ async function runSubagentProcess(
   let mailboxReadOffset = 0;
   let streamResolve: ((result: ParsedResult) => void) | undefined;
   let streamReject: ((err: Error) => void) | undefined;
-  let settled = false;
+  const settledState = { settled: false };
   let done = false;
   let abortReason: Error | undefined;
 
@@ -465,7 +448,7 @@ async function runSubagentProcess(
     }
 
     mailboxPollHandle = setInterval(() => {
-      if (settled || done) return;
+      if (settledState.settled || done) return;
       try {
         const { messages, newOffset } = readNewMailboxLines(
           pollOutboxPath,
@@ -482,7 +465,7 @@ async function runSubagentProcess(
   }
 
   const cleanup = () => {
-    settled = true;
+    settledState.settled = true;
     if (timeoutHandle) {
       clearTimeout(timeoutHandle);
       timeoutHandle = undefined;
@@ -507,7 +490,7 @@ async function runSubagentProcess(
   const resolveOnce = (parsed: ParsedResult) => {
     if (done) return;
     done = true;
-    settled = true;
+    settledState.settled = true;
     const footer = [
       `Completed: ${new Date().toISOString()}`,
       `Stop reason: ${parsed.stopReason ?? "unknown"}`,
@@ -524,7 +507,7 @@ async function runSubagentProcess(
   const rejectOnce = (err: Error, footerPrefix = "Failed") => {
     if (done) return;
     done = true;
-    settled = true;
+    settledState.settled = true;
     const footer = [
       `${footerPrefix}: ${new Date().toISOString()}`,
       `Error: ${err.message}`,
@@ -535,8 +518,8 @@ async function runSubagentProcess(
   };
 
   const killProc = (reason?: unknown) => {
-    if (settled || done) return;
-    settled = true;
+    if (settledState.settled || done) return;
+    settledState.settled = true;
     abortReason =
       reason instanceof Error ? reason : new Error("Subagent aborted");
     if (!killState.exited) {
@@ -557,8 +540,8 @@ async function runSubagentProcess(
 
   if (opts.timeout && opts.timeout > 0) {
     timeoutHandle = setTimeout(() => {
-      if (settled || done) return;
-      settled = true;
+      if (settledState.settled || done) return;
+      settledState.settled = true;
       abortReason = new Error("Subagent timed out");
       if (!killState.exited) {
         proc.kill("SIGTERM");
@@ -578,10 +561,11 @@ async function runSubagentProcess(
         killState,
         opts.onUsage,
         opts.onActivity,
+        settledState,
       ).then(
         (parsed) => {
           if (done) return;
-          if (settled) {
+          if (settledState.settled) {
             // Abort or timeout was requested, but process exited cleanly.
             // Prefer the completed result if it has no errors.
             if (parsed && !parsed.errorMessage) {
@@ -596,7 +580,7 @@ async function runSubagentProcess(
         },
         (err) => {
           if (done) return;
-          if (settled) {
+          if (settledState.settled) {
             // Abort was requested and process errored — use saved abort reason if available
             rejectOnce(
               abortReason ??
@@ -673,6 +657,7 @@ function parseEventStream(
   killState: ProcessKillState,
   onUsage?: (usage: SubagentUsage) => void,
   onActivity?: (tool: string, activity: string) => void,
+  settledState?: { settled: boolean },
 ): Promise<ParsedResult> {
   return new Promise<ParsedResult>((resolve, reject) => {
     const usageAcc = {
@@ -687,7 +672,6 @@ function parseEventStream(
     let errorMessage = "";
     let buffer = "";
     let unparseableCount = 0;
-    let settled = false;
     let lastUsageEmit = 0;
     let lastActivityEmit = 0;
     let lastModelText = "";
@@ -717,8 +701,8 @@ function parseEventStream(
     };
 
     const settle = (result: ParsedResult | null, err?: Error) => {
-      if (settled) return;
-      settled = true;
+      if (settledState?.settled) return;
+      if (settledState) settledState.settled = true;
       proc.stdout?.removeAllListeners();
       proc.stderr?.removeAllListeners();
       proc.removeAllListeners();
@@ -868,7 +852,7 @@ function parseEventStream(
 
     if (proc.stdout) {
       proc.stdout.on("data", (data: Buffer) => {
-        if (settled) return;
+        if (settledState?.settled) return;
         const text = data.toString();
         buffer += text;
         if (logStream) logStream.write(text);
@@ -895,7 +879,7 @@ function parseEventStream(
           `[pi-swarm] stdout error for agent ${agentId}:`,
           err.message,
         );
-        if (!settled) {
+        if (!settledState?.settled) {
           settle(null, new Error(`Subagent stdout error: ${err.message}`));
         }
       });
@@ -905,7 +889,7 @@ function parseEventStream(
 
     if (proc.stderr) {
       proc.stderr.on("data", (data: Buffer) => {
-        if (settled) return;
+        if (settledState?.settled) return;
         const text = data.toString();
         if (logStream) {
           logStream.write(`[stderr] ${text}`);
@@ -927,7 +911,7 @@ function parseEventStream(
     }
 
     proc.on("close", (code, signal) => {
-      if (settled) return;
+      if (settledState?.settled) return;
       processBuffer();
 
       if (code === 0 && signal === null) {
@@ -942,7 +926,7 @@ function parseEventStream(
     });
 
     proc.on("error", (err) => {
-      if (settled) return;
+      if (settledState?.settled) return;
       settle(null, err);
     });
   });
