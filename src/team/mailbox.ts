@@ -146,8 +146,22 @@ export function sendMessage(
     let entries: fs.Dirent[];
     try {
       entries = fs.readdirSync(paths.taskDir, { withFileTypes: true });
-    } catch {
-      // tasks directory might not exist yet — no recipients to deliver to
+    } catch (err) {
+      // #135: ensureMailbox already created taskDir, so this catch is
+      // defensive — it covers ENOENT (race / external rm) and I/O faults
+      // like EACCES/ENOTDIR. Log the operation, the dir, the error, and
+      // the chosen remediation (treat as "no recipients" — the same
+      // semantic the previous empty catch had). A real I/O fault during
+      // broadcast is a degraded-but-non-fatal condition; we still record
+      // it so the operator can investigate.
+      const code = (err as NodeJS.ErrnoException).code ?? "";
+      const isMissing = code === "ENOENT";
+      const context = isMissing
+        ? "no tasks dir (treating as zero recipients)"
+        : `tasks dir unreadable (treating as zero recipients): ${code || "I/O error"}`;
+      console.error(
+        `[pi-swarm] sendMessage: failed to readdir ${paths.taskDir}: ${(err as Error).message}. ${context}.`,
+      );
       return;
     }
     for (const entry of entries) {
@@ -222,7 +236,13 @@ export function countOutboxMessages(paths: MailboxPaths): number {
       .trim()
       .split("\n")
       .filter((line) => line.trim()).length;
-  } catch {
+  } catch (err) {
+    // #135: missing outbox is the common case (first run, fresh mailbox),
+    // but a corrupt or unreadable file is a real fault. Log the path and
+    // the error so the operator can tell which.
+    console.error(
+      `[pi-swarm] countOutboxMessages: failed to read outbox ${paths.outbox}: ${(err as Error).message}. Returning 0.`,
+    );
     return 0;
   }
 }
@@ -267,7 +287,13 @@ export function getDeliveryState(paths: MailboxPaths): Record<string, string> {
     const raw = fs.readFileSync(paths.delivery, "utf-8");
     if (!raw.trim()) return {};
     return JSON.parse(raw) as Record<string, string>;
-  } catch {
+  } catch (err) {
+    // #135: this catch covers BOTH readFileSync (missing/unreadable) and
+    // JSON.parse (corrupt content) failures. Log both possibilities under
+    // a single "read or parse" message so the operator knows what failed.
+    console.error(
+      `[pi-swarm] getDeliveryState: failed to read or parse delivery ${paths.delivery}: ${(err as Error).message}. Returning empty state.`,
+    );
     return {};
   }
 }

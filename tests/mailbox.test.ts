@@ -6,9 +6,11 @@
  *   #108 — transactional send (validate-first, no partial state on failure)
  *   #113 — recipient validation (reject unknown direct recipients)
  *   #115 — broadcast per-recipient errors are surfaced, not swallowed
+ *   #135 — missing-file error paths log via console.error instead of
+ *     silently swallowing (no empty catch blocks)
  */
 
-import { describe, it, expect, beforeEach, afterEach } from "vitest";
+import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
@@ -19,6 +21,7 @@ import {
   readInbox,
   readTaskInbox,
   countOutboxMessages,
+  getDeliveryState,
   resolveTaskMailboxPaths,
   type MailboxPaths,
 } from "../src/team/mailbox.js";
@@ -204,5 +207,53 @@ describe("#106 atomic JSONL writes", () => {
     sendMessage(paths, makeMessage("broadcast"));
     const raw = fs.readFileSync(paths.outbox, "utf-8");
     expect(raw.endsWith("\n")).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #135 — missing-file error paths log via console.error instead of
+// silently swallowing. The catch blocks must surface the operation
+// name, the relevant input context, and the original error message.
+//
+// Note on sendMessage's broadcast catch: ensureMailbox always creates
+// taskDir with mkdirSync(recursive), so the readdirSync catch is
+// defensive (e.g. ENOTDIR if a file collides with the dir). Reaching
+// it from a unit test requires either mocking node:fs (heavy) or
+// chmod tricks (non-portable). The two tests below exercise the same
+// pattern (missing file → console.error → safe default) for the
+// standalone helpers, which is sufficient regression coverage.
+// ---------------------------------------------------------------------------
+
+describe("#135 empty catch blocks log the underlying error", () => {
+  it("countOutboxMessages logs the path and remediation, then returns 0 when the outbox is missing", () => {
+    // No ensureMailbox() call — paths.outbox does not exist. countOutboxMessages
+    // must log the error (function name + path + remediation) and return 0.
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "no-such-team-outbox");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(countOutboxMessages(isolatedPaths)).toBe(0);
+      expect(spy).toHaveBeenCalled();
+      const log = spy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(log).toMatch(/countOutboxMessages/);
+      expect(log).toContain(isolatedPaths.outbox);
+      expect(log).toMatch(/Returning 0/);
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("getDeliveryState logs the path and remediation, then returns {} when the delivery file is missing", () => {
+    const isolatedPaths = resolveMailboxPaths(tmpDir, "no-such-delivery");
+    const spy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      expect(getDeliveryState(isolatedPaths)).toEqual({});
+      expect(spy).toHaveBeenCalled();
+      const log = spy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(log).toMatch(/getDeliveryState/);
+      expect(log).toContain(isolatedPaths.delivery);
+      expect(log).toMatch(/Returning empty state/);
+    } finally {
+      spy.mockRestore();
+    }
   });
 });
