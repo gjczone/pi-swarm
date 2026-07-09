@@ -161,38 +161,6 @@ export function recoverRuns(cwd: string): RecoveryResult {
 }
 
 /**
- * Check whether a run has unfinished tasks.
- * Used to decide whether to offer resume or start fresh.
- */
-export function hasUnfinishedTasks(swarmRoot: string, runId: string): boolean {
-  const manifest = readManifest(swarmRoot, runId);
-  if (!manifest) return false;
-  if (manifest.status === "completed") return false;
-  if (manifest.status !== "running") return false;
-
-  // Check if any agent status files indicate unfinished work
-  const agentsDir = path.join(swarmRoot, "state", "runs", runId, "agents");
-  if (!fs.existsSync(agentsDir)) return true;
-
-  // Check each agent directory for non-terminal status
-  const agentDirs = fs
-    .readdirSync(agentsDir, { withFileTypes: true })
-    .filter((d) => d.isDirectory())
-    .map((d) => d.name);
-
-  for (const agentId of agentDirs) {
-    const status = loadAgentStatus(swarmRoot, runId, agentId);
-    if (!status) return true;
-    const state = String(status.status ?? status.state ?? "");
-    if (state === "running" || state === "started" || state === "") {
-      return true;
-    }
-  }
-
-  return false;
-}
-
-/**
  * Get resumable agent IDs from a run.
  * Returns a map of agentId → last known status.
  *

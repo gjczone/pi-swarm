@@ -9,16 +9,6 @@
 // Subagent lifecycle
 // ---------------------------------------------------------------------------
 
-/** Phase of a single subagent during execution. */
-export type SubagentPhase =
-  | "pending"
-  | "prompting"
-  | "working"
-  | "completed"
-  | "failed"
-  | "cancelled"
-  | "suspended";
-
 /** Terminal outcome of a subagent run. */
 export type SubagentOutcome = "completed" | "failed" | "aborted";
 
@@ -86,25 +76,8 @@ export type SwarmSpec = SwarmSpawnSpec | SwarmResumeSpec;
 export type AgentRole =
   "explorer" | "planner" | "coder" | "reviewer" | "tester" | "fixer";
 
-/** Configuration for a single role in a team run. */
-export interface AgentRoleConfig {
-  readonly role: AgentRole;
-  /** Model override for this role (optional). */
-  readonly model?: string;
-  /** Tool allowlist (default: all). */
-  readonly tools?: string[];
-  /** Role-specific system prompt addition. */
-  readonly systemPrompt?: string;
-}
-
 /** A team phase with role assignment. */
 export interface TeamPhase {
-  readonly name: string;
-  readonly role: AgentRole;
-  /** Phases that must complete before this one starts. */
-  readonly dependsOn?: string[];
-  /** Model tier override for this phase. */
-  readonly modelTier?: ModelTier;
   /** Explicit model name override (takes precedence over tier). */
   readonly model?: string;
   /** Tool whitelist override for this phase. */
@@ -122,8 +95,16 @@ export interface MailboxMessage {
   readonly payload: Record<string, unknown>;
 }
 
-// ---------------------------------------------------------------------------
-// Envelope for external launcher abstraction
+/** A team phase with role assignment. */
+export interface TeamPhase {
+  readonly name: string;
+  readonly role: AgentRole;
+  /** Phases that must complete before this one starts. */
+  readonly dependsOn?: string[];
+  /** Model tier override for this phase. */
+  readonly modelTier?: ModelTier;
+}
+
 // ---------------------------------------------------------------------------
 
 /** Options passed through to every subagent run. */
@@ -164,12 +145,6 @@ export interface RunSubagentOptions {
 
 /** Model tier for cost-optimized routing. */
 export type ModelTier = "default" | "small";
-
-/** Roles that automatically use the small/fast model when configured. */
-export const SMALL_MODEL_ROLES: ReadonlySet<string> = new Set([
-  "explorer",
-  "tester",
-]);
 
 /** Options specific to spawning a NEW subagent. */
 export interface SpawnSubagentOptions extends RunSubagentOptions {

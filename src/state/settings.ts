@@ -16,7 +16,7 @@ import * as path from "node:path";
 import { readPiSettings } from "../shared/pi-settings.js";
 
 /** Default retention for completed/failed/abandoned runs (7 days, in ms). */
-export const DEFAULT_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
+const DEFAULT_RUN_RETENTION_MS = 7 * 24 * 60 * 60 * 1000;
 
 interface PiSwarmSettings {
   runRetentionMs?: unknown;

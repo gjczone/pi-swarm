@@ -55,9 +55,11 @@ import {
 } from "../state/persistence.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
-import { MAX_AGENT_SWARM_SUBAGENTS } from "./specs.js";
+import {
+  MAX_AGENT_SWARM_SUBAGENTS,
+  PROMPT_TEMPLATE_PLACEHOLDER,
+} from "./specs.js";
 
-const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000;
 
 /**

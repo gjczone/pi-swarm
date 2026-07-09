@@ -55,7 +55,11 @@ import {
   AgentSwarmProgressComponent,
   snapshotToProgressState,
 } from "../tui/progress.js";
-import { createAgentSwarmSpecs, MAX_AGENT_SWARM_SUBAGENTS } from "./specs.js";
+import {
+  createAgentSwarmSpecs,
+  MAX_AGENT_SWARM_SUBAGENTS,
+  PROMPT_TEMPLATE_PLACEHOLDER,
+} from "./specs.js";
 
 /** Widget key used to render the live swarm progress panel. */
 const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
@@ -64,7 +68,6 @@ const PROGRESS_WIDGET_KEY = "pi-swarm-progress";
 // Constants
 // ---------------------------------------------------------------------------
 
-const PROMPT_TEMPLATE_PLACEHOLDER = "{{item}}";
 const DEFAULT_SUBAGENT_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 /**
