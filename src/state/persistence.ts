@@ -212,19 +212,6 @@ export function registerAgentInManifest(
 // Task state
 // ---------------------------------------------------------------------------
 
-/**
- * Persist task state (task graph) to disk.
- */
-export function saveTaskState(
-  swarmRoot: string,
-  runId: string,
-  data: Record<string, unknown>,
-): void {
-  const dir = resolveRunStateDir(swarmRoot, runId);
-  fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(path.join(dir, "tasks.json"), JSON.stringify(data, null, 2));
-}
-
 // ---------------------------------------------------------------------------
 // Event log
 // ---------------------------------------------------------------------------
@@ -306,20 +293,6 @@ export function readEvents(
 // ---------------------------------------------------------------------------
 
 /**
- * Save per-agent status.
- */
-export function saveAgentStatus(
-  swarmRoot: string,
-  runId: string,
-  agentId: string,
-  status: Record<string, unknown>,
-): void {
-  const dir = resolveAgentStateDir(swarmRoot, runId, agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  writeAtomic(path.join(dir, "status.json"), JSON.stringify(status, null, 2));
-}
-
-/**
  * Load per-agent status.
  */
 export function loadAgentStatus(
@@ -347,22 +320,6 @@ export function loadAgentStatus(
     }
     return null;
   }
-}
-
-/**
- * Create a writable stream for the agent's output.log file.
- * Returns undefined if swarmRoot/runId are not provided.
- */
-export function createAgentLogStream(
-  swarmRoot: string | undefined,
-  runId: string | undefined,
-  agentId: string,
-): fs.WriteStream | undefined {
-  if (!swarmRoot || !runId) return undefined;
-  const dir = resolveAgentStateDir(swarmRoot, runId, agentId);
-  fs.mkdirSync(dir, { recursive: true });
-  const logPath = path.join(dir, "output.log");
-  return fs.createWriteStream(logPath, { flags: "a", encoding: "utf-8" });
 }
 
 /**

@@ -210,24 +210,6 @@ export function getBuiltinProfiles(): Record<BuiltinProfileName, AgentProfile> {
 }
 
 /**
- * Resolve the effective model for a profile.
- *
- * - "small" resolves to the configured smallModel from settings
- * - "inherit" returns undefined (use parent session model)
- * - explicit model ID is returned as-is
- */
-export function resolveProfileModel(
-  profile: AgentProfile,
-  cwd?: string,
-): string | undefined {
-  if (!profile.model || profile.model === "inherit") return undefined;
-  if (profile.model === "small") {
-    return resolveSmallModel(cwd);
-  }
-  return profile.model;
-}
-
-/**
  * Derive tool restrictions for a profile.
  * Returns a list of allowed native tools.
  * Never returns undefined — always passes an explicit list so
@@ -283,19 +265,6 @@ export function resolveProfileTools(
   return tools;
 }
 
-/**
- * Get bash restriction guidance for profiles that disallow write commands.
- */
-export function getBashRestrictionPrompt(profile: AgentProfile): string {
-  if (profile.allowBashWrite) return "";
-  return [
-    "",
-    "BASH COMMAND RESTRICTION:",
-    "You may ONLY run read-only bash commands: ls, find, grep, cat, head, tail, wc, sort, uniq, git log, git diff, git status, file, stat.",
-    "Do NOT run: npm install, npm build, git commit, git checkout, mkdir, rm, cp, mv, or any command that creates/modifies/deletes files.",
-  ].join("\n");
-}
-
 // ---------------------------------------------------------------------------
 // Agent name derivation
 // ---------------------------------------------------------------------------
@@ -339,21 +308,3 @@ export function deriveAgentName(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
-
-function resolveSmallModel(cwd?: string): string | undefined {
-  const searchPaths = [path.join(cwd ?? process.cwd(), ".pi", "settings.json")];
-  const home = process.env.HOME ?? process.env.USERPROFILE;
-  if (home) {
-    searchPaths.push(path.join(home, ".pi", "agent", "settings.json"));
-  }
-  for (const settingsPath of searchPaths) {
-    const settings = readPiSettings(settingsPath).value;
-    if (!settings) continue;
-    const swarm = settings["pi-swarm"] as PiSwarmSettings | undefined;
-    const val = swarm?.smallModel;
-    if (typeof val === "string" && val.trim().length > 0) {
-      return val.trim();
-    }
-  }
-  return undefined;
-}

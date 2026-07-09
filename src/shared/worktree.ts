@@ -44,12 +44,6 @@ export interface MergeResult {
   mergedCommit?: string;
 }
 
-export interface SubagentWorktreeResult {
-  worktreeUsed: boolean;
-  branch?: string;
-  hasChanges: boolean;
-}
-
 /**
  * Detect whether cwd is inside a git repository.
  */

@@ -355,29 +355,6 @@ export function loadFileAgents(cwd?: string): Map<string, AgentProfile> {
 }
 
 /**
- * Load a single file-based agent by name.
- * Checks project dir first, then user dir.
- */
-export function loadFileAgent(
-  name: string,
-  cwd?: string,
-): AgentProfile | undefined {
-  // Check project dir first
-  const projectDir = resolveProjectAgentsDir(cwd);
-  const projectAgents = scanDirectory(projectDir, "project");
-  const projectAgent = projectAgents.get(name);
-  if (projectAgent) return convertToProfile(projectAgent);
-
-  // Check user dir
-  const userDir = resolveUserAgentsDir();
-  const userAgents = scanDirectory(userDir, "user");
-  const userAgent = userAgents.get(name);
-  if (userAgent) return convertToProfile(userAgent);
-
-  return undefined;
-}
-
-/**
  * Convert an AgentFileDefinition to an AgentProfile.
  *
  * The systemPrompt is the Markdown body content.

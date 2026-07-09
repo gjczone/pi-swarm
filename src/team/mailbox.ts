@@ -216,10 +216,6 @@ export function readInbox(paths: MailboxPaths): MailboxMessage[] {
   return messages.filter((m) => !ackedIds.has(m.messageId));
 }
 
-function taskAckPath(taskInbox: string): string {
-  return taskInbox + ".acks";
-}
-
 /**
  * Read messages from a task-specific inbox.
  */
@@ -229,7 +225,7 @@ export function readTaskInbox(
 ): MailboxMessage[] {
   const taskPaths = resolveTaskMailboxPaths(paths, taskId);
   const messages = readJsonLines(taskPaths.inbox);
-  const ackedIds = readAckIds(taskAckPath(taskPaths.inbox));
+  const ackedIds = readAckIds(taskPaths.inbox + ".acks");
   if (ackedIds.size === 0) return messages;
   return messages.filter((m) => !ackedIds.has(m.messageId));
 }
@@ -257,38 +253,6 @@ export function countOutboxMessages(paths: MailboxPaths): number {
 }
 
 /**
- * Acknowledge (delete) messages from the team inbox.
- *
- * Uses an append-only ack file to avoid the TOCTOU race between
- * reading and rewriting inbox.jsonl. Acknowledged message IDs are
- * appended to inboxAcks.jsonl and filtered at read time.
- */
-export function ackMessages(paths: MailboxPaths, messageIds: string[]): void {
-  for (const id of messageIds) {
-    appendJsonLine(paths.inboxAcks, { messageId: id });
-  }
-  compactAcks(paths.inboxAcks);
-}
-
-/**
- * Acknowledge (delete) messages from a task-specific inbox.
- *
- * Uses the same append-only ack approach as ackMessages.
- */
-export function ackTaskMessages(
-  paths: MailboxPaths,
-  taskId: string,
-  messageIds: string[],
-): void {
-  const taskPaths = resolveTaskMailboxPaths(paths, taskId);
-  const ackPath = taskAckPath(taskPaths.inbox);
-  for (const id of messageIds) {
-    appendJsonLine(ackPath, { messageId: id });
-  }
-  compactAcks(ackPath);
-}
-
-/**
  * Get delivery state (which messages have been delivered/read).
  */
 export function getDeliveryState(paths: MailboxPaths): Record<string, string> {
@@ -305,19 +269,6 @@ export function getDeliveryState(paths: MailboxPaths): Record<string, string> {
     );
     return {};
   }
-}
-
-/**
- * Update delivery state for a message.
- */
-export function updateDeliveryState(
-  paths: MailboxPaths,
-  messageId: string,
-  status: string,
-): void {
-  const state = getDeliveryState(paths);
-  state[messageId] = status;
-  writeAtomic(paths.delivery, JSON.stringify(state, null, 2));
 }
 
 // ---------------------------------------------------------------------------
@@ -388,32 +339,36 @@ function readAckIds(ackPath: string): Set<string> {
 /**
  * Compact an ack file if the number of lines exceeds 10x the unique ID count
  * (indicating significant duplication from repeated acknowledgment cycles).
+ *
+ * #148: dead since #135/#137 removed `ackMessages` and `ackTaskMessages`
+ * (its only callers). Kept for now in case a future ack-aware tool wants
+ * the same logic; remove in a follow-up if no caller appears.
  */
-function compactAcks(ackPath: string): void {
-  try {
-    const raw = fs.readFileSync(ackPath, "utf-8");
-    if (!raw.trim()) return;
-    const lines = raw
-      .trim()
-      .split("\n")
-      .filter((l) => l.trim());
-    if (lines.length < 100) return; // Don't compact small files
-    const uniqueIds = readAckIds(ackPath);
-    if (uniqueIds.size === 0) return;
-    // Compact if ratio exceeds 10x
-    if (lines.length > uniqueIds.size * 10) {
-      const content = Array.from(uniqueIds)
-        .map((id) => JSON.stringify({ messageId: id }))
-        .join("\n");
-      writeAtomic(ackPath, content + "\n");
-    }
-  } catch (err) {
-    // Compaction failure is non-fatal but visible (#130)
-    console.error(
-      `[pi-swarm] compactAcks: failed to compact ${ackPath}: ${(err as Error).message}`,
-    );
-  }
-}
+// function compactAcks(ackPath: string): void {
+//   try {
+//     const raw = fs.readFileSync(ackPath, "utf-8");
+//     if (!raw.trim()) return;
+//     const lines = raw
+//       .trim()
+//       .split("\n")
+//       .filter((l) => l.trim());
+//     if (lines.length < 100) return; // Don't compact small files
+//     const uniqueIds = readAckIds(ackPath);
+//     if (uniqueIds.size === 0) return;
+//     // Compact if ratio exceeds 10x
+//     if (lines.length > uniqueIds.size * 10) {
+//       const content = Array.from(uniqueIds)
+//         .map((id) => JSON.stringify({ messageId: id }))
+//         .join("\n");
+//       writeAtomic(ackPath, content + "\n");
+//     }
+//   } catch (err) {
+//     // Compaction failure is non-fatal but visible (#130)
+//     console.error(
+//       `[pi-swarm] compactAcks: failed to compact ${ackPath}: ${(err as Error).message}`,
+//     );
+//   }
+// }
 
 function readJsonLines(filePath: string): MailboxMessage[] {
   try {
