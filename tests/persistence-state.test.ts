@@ -208,6 +208,34 @@ describe("#126 manifest corruption and agentId safety", () => {
     const result = getResumableAgents(swarmRoot, "no-such-run");
     expect(result.size).toBe(0);
   });
+
+  it("getResumableAgents normalizes status casing (#164)", () => {
+    const runId = "case-run";
+    const runDir = path.join(swarmRoot, "state", "runs", runId);
+    fs.mkdirSync(runDir, { recursive: true });
+    const manifest: RunManifest = {
+      runId,
+      type: "swarm",
+      status: "running",
+      goal: "test",
+      startedAt: Date.now(),
+      agentIds: ["agent-cap"],
+    };
+    fs.writeFileSync(
+      path.join(runDir, "manifest.json"),
+      JSON.stringify(manifest, null, 2),
+    );
+    const agentDir = path.join(runDir, "agents", "agent-cap");
+    fs.mkdirSync(agentDir, { recursive: true });
+    // Non-standard casing ("Running") as if produced by another runtime version.
+    fs.writeFileSync(
+      path.join(agentDir, "status.json"),
+      JSON.stringify({ status: "Running", agentId: "agent-cap" }),
+    );
+
+    const result = getResumableAgents(swarmRoot, runId);
+    expect(result.get("agent-cap")).toBe("resumable");
+  });
 });
 
 // ---------------------------------------------------------------------------
