@@ -147,6 +147,7 @@ function getAgentInboxPath(
 ): string {
   return path.join(
     swarmRoot,
+    "state",
     "runs",
     runId,
     "coord",
@@ -385,7 +386,7 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           }) satisfies SwarmSpawnSpec,
       );
 
-      const coordDir = path.join(swarmRoot, "runs", runId, "coord");
+      const coordDir = path.join(swarmRoot, "state", "runs", runId, "coord");
       const inboxesDir = path.join(coordDir, "inboxes");
       fs.mkdirSync(inboxesDir, { recursive: true });
 
