@@ -916,4 +916,37 @@ describe("matchItemToAgent", () => {
 
     expect(matchItemToAgent("src/app.ts", agents)?.name).toBe("project-ts");
   });
+
+  it("#183 no-wildcard pattern does not match substring filenames", () => {
+    // Regression: previously matchGlobPattern used endsWith for no-wildcard
+    // patterns, so "a.ts" matched "xa.ts" (a completely different file).
+    // After the fix, no-wildcard patterns match exact filename or path
+    // suffix only (item === pattern || item.endsWith("/" + pattern)).
+    const agents = new Map<string, AgentProfile>([
+      [
+        "exact-ts",
+        {
+          name: "exact-ts",
+          description: "Exact TS match",
+          allowWrite: true,
+          allowBashWrite: true,
+          model: "small",
+          outputFormat: "free",
+          systemPrompt: "",
+          match: { patterns: ["a.ts"] },
+        },
+      ],
+    ]);
+
+    // Correct matches: exact filename and path suffix
+    expect(matchItemToAgent("a.ts", agents)?.name).toBe("exact-ts");
+    expect(matchItemToAgent("src/a.ts", agents)?.name).toBe("exact-ts");
+    expect(matchItemToAgent("deep/nested/a.ts", agents)?.name).toBe("exact-ts");
+
+    // Must NOT match: substring filenames
+    expect(matchItemToAgent("xa.ts", agents)).toBeUndefined();
+    expect(matchItemToAgent("ba.ts", agents)).toBeUndefined();
+    expect(matchItemToAgent("a.tsx", agents)).toBeUndefined();
+    expect(matchItemToAgent("a.ts.bak", agents)).toBeUndefined();
+  });
 });

@@ -13,10 +13,14 @@ import {
   rmSync,
   appendFileSync,
   statSync,
+  existsSync,
 } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readNewMailboxLines } from "../src/shared/spawner.js";
+import {
+  readNewMailboxLines,
+  cleanupTempSystemPrompt,
+} from "../src/shared/spawner.js";
 
 function makeMessage(id: string): string {
   return JSON.stringify({
@@ -113,5 +117,84 @@ describe("#101 mailbox outbox poll: partial trailing line is not swallowed", () 
     expect(messages[0].messageId).toBe("a");
     expect(messages[1].messageId).toBe("b");
     expect(newOffset).toBe(statSync(outboxPath).size);
+  });
+
+  it("#189 resets offset when file shrinks below offset (recreated outbox)", () => {
+    // Regression: previously readNewMailboxLines used fileSize <= offset
+    // which returned the stale offset unchanged. When the outbox file was
+    // recreated (fileSize < offset), the poller was stuck at the old offset
+    // and missed all new messages.
+    // First message: long messageId to create a large file offset
+    const a = makeMessage("long-message-id-aaaa");
+    writeFileSync(outboxPath, `${a}\n`, "utf-8");
+    const fileSizeAfterFirst = statSync(outboxPath).size;
+
+    // Simulate the outbox being recreated with a shorter new message.
+    const b = makeMessage("b");
+    writeFileSync(outboxPath, `${b}\n`, "utf-8");
+    const fileSizeAfterRecreate = statSync(outboxPath).size;
+
+    // Ensure the new file is shorter than the old offset (the bug condition).
+    expect(fileSizeAfterRecreate).toBeLessThan(fileSizeAfterFirst);
+
+    // Use the old offset (from the first file) — it is now past EOF.
+    const { messages, newOffset } = readNewMailboxLines(
+      outboxPath,
+      fileSizeAfterFirst,
+    );
+
+    // After the fix, offset resets to 0 so the next poll can read the new
+    // content. (If the bug were present, newOffset would equal the stale
+    // offset and the poller would be stuck forever.)
+    expect(newOffset).toBe(0);
+
+    // The reset return does not include messages (it signals the caller to
+    // re-read from the start). Poll again with the reset offset to verify
+    // the new message is now delivered.
+    const { messages: messages2, newOffset: newOffset2 } = readNewMailboxLines(
+      outboxPath,
+      newOffset,
+    );
+    expect(messages2).toHaveLength(1);
+    expect(messages2[0].messageId).toBe("b");
+    expect(newOffset2).toBe(fileSizeAfterRecreate);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #190 — temp system prompt file cleanup
+// ---------------------------------------------------------------------------
+
+describe("#190 cleanupTempSystemPrompt deletes temp file", () => {
+  let dir: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "temp-prompt-"));
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("deletes an existing temp file", () => {
+    const tempFile = join(dir, "sys-test-agent.md");
+    writeFileSync(tempFile, "system prompt content", "utf-8");
+    expect(existsSync(tempFile)).toBe(true);
+
+    cleanupTempSystemPrompt(tempFile);
+
+    expect(existsSync(tempFile)).toBe(false);
+  });
+
+  it("does nothing when filePath is undefined", () => {
+    // Should not throw
+    cleanupTempSystemPrompt(undefined);
+  });
+
+  it("does not throw when file does not exist", () => {
+    const nonExistent = join(dir, "nope.md");
+    expect(existsSync(nonExistent)).toBe(false);
+    // Should not throw
+    cleanupTempSystemPrompt(nonExistent);
   });
 });

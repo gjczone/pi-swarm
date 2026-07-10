@@ -46,6 +46,8 @@ const RATE_LIMIT_CAPACITY_RECOVERY_INTERVAL_MS = 3 * 60 * 1000; // 3 minutes
 const AGENT_SWARM_MAX_CONCURRENCY_ENV = "PI_SWARM_MAX_CONCURRENCY";
 const DEFAULT_MAX_CONCURRENCY = 5;
 const RATE_LIMIT_SUSPENDED_REASON = "Rate limit reached — agent suspended";
+/** Maximum rate-limit retries before a task is marked failed. (#191) */
+const MAX_RATE_LIMIT_RETRIES = 10;
 
 // ---------------------------------------------------------------------------
 // Internal types
@@ -160,6 +162,7 @@ export class SubagentBatchController<T> {
   private readonly controller = new AbortController();
   private readonly batchSignals: AbortSignal[];
   private readonly maxConcurrency: number | undefined;
+  private readonly maxRateLimitRetries: number;
   private batchAborted = false;
 
   // Normal phase state
@@ -210,6 +213,8 @@ export class SubagentBatchController<T> {
     options: SubagentBatchOptions = {},
   ) {
     this.maxConcurrency = options.maxConcurrency;
+    this.maxRateLimitRetries =
+      options.maxRateLimitRetries ?? MAX_RATE_LIMIT_RETRIES;
     this.onProgress = options.onProgress;
     this.states = tasks.map((task, index) => ({
       index,
@@ -721,6 +726,42 @@ export class SubagentBatchController<T> {
     // Save agent id for retry and requeue at front
     state.retryAgentId = state.agentId ?? state.retryAgentId;
     state.retryCount += 1;
+
+    // #191: Fail the task after exceeding the maximum retry count instead of
+    // retrying forever. A permanent rate-limit (exhausted quota, invalid API
+    // key, billing issue) would otherwise hang the swarm indefinitely.
+    if (state.retryCount > this.maxRateLimitRetries) {
+      const errorMsg = `Rate limit exceeded after ${this.maxRateLimitRetries} retries. Last error: ${_outcome.error ?? "unknown"}`;
+      const result: SubagentResult<T> = {
+        task: state.task,
+        agentId: state.agentId,
+        status: "failed",
+        state: state.started ? "started" : "not_started",
+        error: errorMsg,
+        usage: { ...state.usage },
+      };
+      this.results[state.index] = result;
+      attempt.cleanup();
+      this.active.delete(attempt);
+
+      // Forward to coordinator event channel if active.
+      const agentId = result.agentId;
+      if (this.coordOnEvent && agentId) {
+        this.coordOnEvent({
+          runId: this.coordRunId ?? "",
+          agentId,
+          agentName: state.task.agentName,
+          eventType: "agent_completed",
+          timestamp: Date.now(),
+          result,
+        });
+      }
+
+      console.error(`[pi-swarm] Task ${state.index + 1} failed: ${errorMsg}`);
+      this.emitProgress();
+      this.schedule();
+      return;
+    }
 
     // Notify external listeners that this agent was suspended
     if (state.agentId) {

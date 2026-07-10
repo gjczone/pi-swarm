@@ -490,8 +490,11 @@ function matchGlobPattern(item: string, pattern: string): boolean {
   // Simple wildcard: split on * and check prefix/suffix
   const parts = pattern.split("*");
   if (parts.length === 1) {
-    // No wildcard — exact suffix match
-    return item.endsWith(pattern);
+    // No wildcard — match exact filename only.
+    // "a.ts" should match "a.ts" and "src/a.ts" but NOT "xa.ts".
+    // Previously used endsWith which gave false positives on substring
+    // filenames. (#183)
+    return item === pattern || item.endsWith("/" + pattern);
   }
 
   if (parts.length === 2) {
