@@ -199,10 +199,15 @@ export function sendMessage(
       );
     }
     const taskPaths = resolveTaskMailboxPaths(paths, message.to);
-    // All validation passed — safe to write to outbox, inbox, and task inbox
-    appendJsonLine(paths.outbox, message);
-    appendJsonLine(paths.inbox, message);
+    // Deliver to recipient first, then record in sender's outbox last.
+    // This mirrors broadcast ordering (above): if a crash occurs
+    // mid-sequence, the sender's outbox stays empty and the caller
+    // retries. Previously wrote outbox first, which meant a crash after
+    // outbox but before task inbox left the message recorded but
+    // undelivered. (#179)
     appendJsonLine(taskPaths.inbox, message);
+    appendJsonLine(paths.inbox, message);
+    appendJsonLine(paths.outbox, message);
   }
 }
 

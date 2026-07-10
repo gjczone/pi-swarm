@@ -352,7 +352,13 @@ export function listActiveRuns(swarmRoot: string): string[] {
       try {
         validateId(name, "runId");
         return true;
-      } catch {
+      } catch (err) {
+        // Log so operators can trace why a run directory was skipped.
+        // Previously this was an empty catch, silently dropping invalid
+        // run directories. (#187)
+        console.error(
+          `[pi-swarm] listActiveRuns: skipping run directory with invalid name "${name}": ${(err as Error).message}`,
+        );
         return false;
       }
     });
