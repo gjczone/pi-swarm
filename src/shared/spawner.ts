@@ -368,32 +368,38 @@ async function runSubagentProcess(
   }
 
   let effectiveSystemPrompt: string | undefined;
-  if (systemPromptParts.length > 0) {
-    const tempDir = opts.swarmRoot
-      ? join(opts.swarmRoot, "temp")
-      : join(process.cwd(), ".pi", "swarm", "temp");
-    mkdirSync(tempDir, { recursive: true });
-    const tempFile = join(tempDir, `sys-${agentId}.md`);
-    writeFileSync(tempFile, systemPromptParts.join("\n\n"), "utf-8");
-    effectiveSystemPrompt = tempFile;
+  let proc: ChildProcess;
+  try {
+    if (systemPromptParts.length > 0) {
+      const tempDir = opts.swarmRoot
+        ? join(opts.swarmRoot, "temp")
+        : join(process.cwd(), ".pi", "swarm", "temp");
+      mkdirSync(tempDir, { recursive: true });
+      const tempFile = join(tempDir, `sys-${agentId}.md`);
+      writeFileSync(tempFile, systemPromptParts.join("\n\n"), "utf-8");
+      effectiveSystemPrompt = tempFile;
+    }
+
+    const args = buildSubagentArgs({
+      task: finalPrompt,
+      model: opts.model,
+      tools: opts.tools,
+      cwd,
+      systemPromptFile: effectiveSystemPrompt,
+    });
+
+    const invocation = getPiInvocation(args);
+
+    proc = spawn(invocation.command, invocation.args, {
+      cwd,
+      shell: false,
+      stdio: ["ignore", "pipe", "pipe"],
+      env: { ...process.env },
+    });
+  } catch (err) {
+    cleanupTempSystemPrompt(effectiveSystemPrompt);
+    throw err;
   }
-
-  const args = buildSubagentArgs({
-    task: finalPrompt,
-    model: opts.model,
-    tools: opts.tools,
-    cwd,
-    systemPromptFile: effectiveSystemPrompt,
-  });
-
-  const invocation = getPiInvocation(args);
-
-  const proc: ChildProcess = spawn(invocation.command, invocation.args, {
-    cwd,
-    shell: false,
-    stdio: ["ignore", "pipe", "pipe"],
-    env: { ...process.env },
-  });
 
   let logStream: WriteStream | undefined;
   if (opts.outputLogPath) {
@@ -477,6 +483,12 @@ async function runSubagentProcess(
       mailboxReadOffset = 0;
     }
 
+    // Track delivered messageIds to prevent re-delivery when the outbox file
+    // is recreated and the read offset resets to 0 (see #189 offset reset).
+    // LRU eviction caps memory at 2000 entries — evict 1000 oldest when full.
+    // (#199)
+    const deliveredMessageIds = new Set<string>();
+
     mailboxPollHandle = setInterval(() => {
       if (settledState.settled || done) return;
       try {
@@ -486,6 +498,16 @@ async function runSubagentProcess(
         );
         mailboxReadOffset = newOffset;
         for (const msg of messages) {
+          if (deliveredMessageIds.has(msg.messageId)) continue;
+          deliveredMessageIds.add(msg.messageId);
+          if (deliveredMessageIds.size > 2000) {
+            let evicted = 0;
+            for (const id of deliveredMessageIds) {
+              if (evicted >= 1000) break;
+              deliveredMessageIds.delete(id);
+              evicted++;
+            }
+          }
           opts.onMessage?.(msg);
         }
       } catch (err) {
