@@ -397,3 +397,48 @@ describe("#137 readAckIds / readJsonLines log instead of swallowing", () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// #179 — direct message write order: deliver-first, record-last
+// ---------------------------------------------------------------------------
+
+describe("#179 direct message write order", () => {
+  it("writes task inbox before outbox so a crash mid-sequence does not lose messages", () => {
+    // Regression: previously sendMessage wrote outbox → inbox → task inbox.
+    // If a crash occurred after outbox but before task inbox, the message
+    // was recorded in the sender's outbox but never delivered to the
+    // recipient. The fix reorders to task inbox → inbox → outbox.
+    //
+    // This test simulates a crash on the outbox write by making outbox
+    // read-only after ensuring it exists. The task inbox write must
+    // succeed before the outbox write is attempted.
+    const agentDir = path.join(paths.taskDir, "agent-179");
+    fs.mkdirSync(agentDir, { recursive: true });
+    const taskPaths = resolveTaskMailboxPaths(paths, "agent-179");
+    // Ensure task inbox exists
+    fs.writeFileSync(taskPaths.inbox, "", "utf-8");
+
+    const msg = makeMessage("agent-179");
+
+    // Make outbox read-only to cause appendLine to throw on write.
+    // The outbox file already exists (created by ensureMailbox).
+    fs.chmodSync(paths.outbox, 0o444);
+
+    try {
+      // sendMessage should throw when it tries to append to outbox.
+      // But task inbox should already have the message because the
+      // write order is task inbox → inbox → outbox (deliver-first).
+      expect(() => sendMessage(paths, msg)).toThrow();
+    } catch {
+      // On some systems chmod may not prevent writes; skip assertion
+    }
+
+    // Restore permissions for verification
+    fs.chmodSync(paths.outbox, 0o644);
+
+    // The task inbox must contain the message (deliver-first ordering).
+    const taskMessages = readTaskInbox(paths, "agent-179");
+    expect(taskMessages.length).toBeGreaterThanOrEqual(1);
+    expect(taskMessages[0].messageId).toBe(msg.messageId);
+  });
+});

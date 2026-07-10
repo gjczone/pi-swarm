@@ -2,7 +2,7 @@
  * swarm/tool — Swarm tool registration.
  *
  * Registers the `Swarm` tool that the LLM can call to launch
- * 1-20 isolated subagents in parallel from a shared prompt template.
+ * 1-128 isolated subagents in parallel from a shared prompt template.
  *
  * Architecture reference: AgentSwarm pattern.
  */
@@ -94,7 +94,7 @@ function buildSwarmDescription(): string {
   const hasFileAgents = fileAgents && fileAgents.size > 0;
 
   const lines: string[] = [
-    "Launch 1-20 subagents in parallel, with optional inter-agent mailbox.",
+    "Launch 1-128 subagents in parallel, with optional inter-agent mailbox.",
     "",
     "YOU (the assistant) decide whether to enable mailbox based on the task:",
     "- Simple parallel work (review files, fix independent bugs, investigate):",
@@ -134,7 +134,7 @@ function buildSwarmDescription(): string {
 
   lines.push(
     "How to use:",
-    "1. Analyze the task. Decompose it into 1-20 items.",
+    "1. Analyze the task. Decompose it into 1-128 items.",
     "2. Pick agent pattern (see above):",
     "   - Items vary by type? Omit profile AND agentType to enable auto-routing.",
     "   - All items are the same kind of work? Set profile.",

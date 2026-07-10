@@ -21,6 +21,7 @@ import {
   loadAgentStatus,
   resolveRunStateDir,
   resolveAgentStateDir,
+  listActiveRuns,
   type RunManifest,
 } from "../src/state/persistence.js";
 import { getResumableAgents, recoverRuns } from "../src/state/recovery.js";
@@ -341,6 +342,40 @@ describe("#140 readEvents / loadAgentStatus log instead of swallowing", () => {
       expect(errSpy).toHaveBeenCalled();
       const log = errSpy.mock.calls.map((c) => String(c[0])).join(" ");
       expect(log).toContain(statusFile);
+    } finally {
+      errSpy.mockRestore();
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #187 — listActiveRuns logs invalid run directory names instead of silently
+// dropping them
+// ---------------------------------------------------------------------------
+
+describe("#187 listActiveRuns logs invalid run names", () => {
+  it("logs an error for run directories with invalid names instead of silently filtering", () => {
+    // Create a valid run directory
+    const validRunDir = path.join(swarmRoot, "state", "runs", "run-valid-1");
+    fs.mkdirSync(validRunDir, { recursive: true });
+
+    // Create a directory with an invalid name (spaces are rejected by
+    // validateId which only allows [a-zA-Z0-9_-]+).
+    const invalidRunDir = path.join(swarmRoot, "state", "runs", "invalid name");
+    fs.mkdirSync(invalidRunDir, { recursive: true });
+
+    const errSpy = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const runs = listActiveRuns(swarmRoot);
+      // Valid run should be included
+      expect(runs).toContain("run-valid-1");
+      // Invalid run should NOT be included
+      expect(runs).not.toContain("invalid name");
+      // But an error should have been logged for the invalid name
+      expect(errSpy).toHaveBeenCalled();
+      const log = errSpy.mock.calls.map((c) => String(c[0])).join(" ");
+      expect(log).toContain("listActiveRuns");
+      expect(log).toContain("invalid name");
     } finally {
       errSpy.mockRestore();
     }

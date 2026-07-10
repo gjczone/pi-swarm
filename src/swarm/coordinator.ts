@@ -56,6 +56,7 @@ import {
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
+  createAgentSwarmSpecs,
   MAX_AGENT_SWARM_SUBAGENTS,
   PROMPT_TEMPLATE_PLACEHOLDER,
 } from "./specs.js";
@@ -81,7 +82,7 @@ function buildCoordinatorDescription(): string {
   const hasFileAgents = fileAgents && fileAgents.size > 0;
 
   const lines: string[] = [
-    "Launch a non-blocking swarm of 1-20 subagents and stay in control across turns.",
+    "Launch a non-blocking swarm of 1-128 subagents and stay in control across turns.",
     "",
     "Unlike the blocking Swarm tool, SwarmCoordinator returns immediately with a runId.",
     "You (the main agent) remain active and can orchestrate agents while they run.",
@@ -374,17 +375,10 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         );
       }
 
-      const specs = items.map(
-        (item: string, index: number) =>
-          ({
-            kind: "spawn" as const,
-            index: index + 1,
-            item: item.trim(),
-            prompt: prompt_template
-              .split(PROMPT_TEMPLATE_PLACEHOLDER)
-              .join(item.trim()),
-          }) satisfies SwarmSpawnSpec,
-      );
+      const specs = createAgentSwarmSpecs({
+        items: items.map((i) => i.trim()),
+        prompt_template,
+      });
 
       const coordDir = path.join(swarmRoot, "state", "runs", runId, "coord");
       const inboxesDir = path.join(coordDir, "inboxes");
@@ -400,7 +394,8 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       });
 
       const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => {
-        const agentName = deriveAgentName(profileName, spec.item, idx + 1);
+        const spawnSpec = spec as SwarmSpawnSpec;
+        const agentName = deriveAgentName(profileName, spawnSpec.item, idx + 1);
         const agentId = `${runId}-${idx + 1}`;
         const messageInboxPath = getAgentInboxPath(swarmRoot, runId, agentId);
 
@@ -411,7 +406,7 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         let itemAdditionalPrompt = agentProfile.systemPrompt;
 
         if (useAutoRoute && fileAgents) {
-          const matched = matchItemToAgent(spec.item, fileAgents);
+          const matched = matchItemToAgent(spawnSpec.item, fileAgents);
           if (matched) {
             itemProfile = matched;
             itemProfileTools = resolveProfileTools(matched);
@@ -432,7 +427,7 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           description: `${description ?? "Coordinator"} #${spec.index} (${agentName})`,
           swarmIndex: spec.index,
           runInBackground: true,
-          swarmItem: spec.item,
+          swarmItem: spawnSpec.item,
           signal,
           timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
           swarmRoot,
