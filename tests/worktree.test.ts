@@ -144,3 +144,46 @@ describe("#129 cleanupWorktree preserves gitignored untracked files", () => {
     expect(fs.existsSync(wt.path)).toBe(false);
   });
 });
+
+// ---------------------------------------------------------------------------
+// #186 — cleanupWorktree must not destroy worktree when git status --porcelain fails
+// ---------------------------------------------------------------------------
+
+describe("#186 cleanupWorktree preserves worktree when git status fails", () => {
+  it("preserves the worktree and reports hasChanges when git status --porcelain fails but worktree has content", () => {
+    // Regression: when `git status --porcelain` threw an error, the catch
+    // block checked `hadChanges` (still false at that point) and fell
+    // through to removeWorktree — destroying the agent's work. The fix
+    // calls hasAnyWorktreeChanges() before removing; if there is any
+    // content (tracked or gitignored), the worktree is preserved.
+    const worktree = createWorktree(tmpRepo, "test-186", undefined);
+    expect(worktree).toBeDefined();
+    const wt = worktree!;
+
+    // Write a file so the worktree has content
+    fs.writeFileSync(path.join(wt.path, "agent-output.txt"), "important work");
+
+    // Corrupt the worktree's git state so `git status --porcelain` fails.
+    // Removing the .git file/directory in the worktree makes git commands fail.
+    const gitFile = path.join(wt.path, ".git");
+    if (fs.existsSync(gitFile)) {
+      // .git in a worktree is a file pointing to the actual git dir.
+      // Overwrite it with garbage to make git status fail.
+      fs.writeFileSync(gitFile, "corrupted");
+    }
+
+    const result = cleanupWorktree(tmpRepo, wt, "test agent #186");
+
+    // The worktree must be preserved because it has content.
+    expect(result.hasChanges).toBe(true);
+    expect(fs.existsSync(wt.path)).toBe(true);
+    expect(fs.existsSync(path.join(wt.path, "agent-output.txt"))).toBe(true);
+
+    // Clean up the preserved worktree.
+    try {
+      fs.rmSync(wt.path, { recursive: true, force: true });
+    } catch {
+      // best effort
+    }
+  });
+});

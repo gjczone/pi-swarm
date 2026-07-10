@@ -276,6 +276,11 @@ export interface SubagentBatchOptions {
    * Receives a snapshot of the current batch progress.
    */
   readonly onProgress?: (snapshot: BatchProgressSnapshot) => void;
+  /**
+   * Maximum rate-limit retries before a task is marked failed.
+   * `undefined` means use the default (10). (#191)
+   */
+  readonly maxRateLimitRetries?: number;
 }
 
 // ---------------------------------------------------------------------------

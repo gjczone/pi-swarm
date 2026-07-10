@@ -63,6 +63,11 @@ export function isGitRepository(cwd: string): boolean {
     });
     return true;
   } catch {
+    // Non-git directory is a normal case — silent fallback. (#185)
+    // Only real I/O or permission failures would need logging, but
+    // git rev-parse exits non-zero for any non-repo path, making it
+    // impossible to distinguish without parsing stderr. Keep silent
+    // to avoid noise on every agent spawn in non-git projects.
     return false;
   }
 }
@@ -80,7 +85,11 @@ function getCurrentBranch(cwd: string): string {
       .toString()
       .trim();
     return name || "HEAD";
-  } catch {
+  } catch (err) {
+    // Log so git failures are visible. (#185)
+    console.error(
+      `[pi-swarm] getCurrentBranch: git command failed in ${cwd}: ${(err as Error).message}`,
+    );
     return "HEAD";
   }
 }
@@ -97,7 +106,11 @@ function getCurrentHead(cwd: string): string {
     })
       .toString()
       .trim();
-  } catch {
+  } catch (err) {
+    // Log so git failures are visible. (#185)
+    console.error(
+      `[pi-swarm] getCurrentHead: git command failed in ${cwd}: ${(err as Error).message}`,
+    );
     return "";
   }
 }
@@ -115,7 +128,11 @@ function isWorkingTreeClean(cwd: string): boolean {
       .toString()
       .trim();
     return status.length === 0;
-  } catch {
+  } catch (err) {
+    // Log so git failures are visible. (#185)
+    console.error(
+      `[pi-swarm] isWorkingTreeClean: git command failed in ${cwd}: ${(err as Error).message}`,
+    );
     return false;
   }
 }
@@ -192,7 +209,11 @@ export function createWorktree(
       stdio: "pipe",
       timeout: 5000,
     });
-  } catch {
+  } catch (err) {
+    // Log so the caller can trace why worktree creation was skipped. (#185)
+    console.error(
+      `[pi-swarm] createWorktree: rev-parse HEAD failed in ${cwd}: ${(err as Error).message}`,
+    );
     return undefined;
   }
 
@@ -252,8 +273,11 @@ export function createWorktree(
       if (existsSync(nodeModulesSource) && !existsSync(nodeModulesTarget)) {
         symlinkSync(nodeModulesSource, nodeModulesTarget, "dir");
       }
-    } catch {
-      // node_modules symlink failure is non-fatal; agent can still work
+    } catch (err) {
+      // node_modules symlink failure is non-fatal but visible. (#185)
+      console.error(
+        `[pi-swarm] createWorktree: failed to symlink node_modules for ${worktreePath}: ${(err as Error).message}`,
+      );
     }
 
     // Symlink project context files that are not tracked by git
@@ -396,7 +420,11 @@ export function cleanupWorktree(
         stdio: "pipe",
         timeout: 5000,
       });
-    } catch {
+    } catch (err) {
+      // Branch name collision — log and retry with a timestamped name. (#185)
+      console.error(
+        `[pi-swarm] cleanupWorktree: branch ${branchName} already exists, retrying with timestamp: ${(err as Error).message}`,
+      );
       branchName = `${worktree.branch}-${Date.now()}`;
       try {
         execFileSync("git", ["branch", branchName, commitSha], {
@@ -404,8 +432,12 @@ export function cleanupWorktree(
           stdio: "pipe",
           timeout: 5000,
         });
-      } catch {
-        return { hasChanges: true, commitSha }; // Commit exists but branch creation failed; user can find by SHA
+      } catch (err2) {
+        // Commit exists but branch creation failed; user can find by SHA. (#185)
+        console.error(
+          `[pi-swarm] cleanupWorktree: branch creation failed for ${branchName}: ${(err2 as Error).message}`,
+        );
+        return { hasChanges: true, commitSha };
       }
     }
 
@@ -419,10 +451,24 @@ export function cleanupWorktree(
       );
       return { hasChanges: true, error: String(err) };
     }
+    // #186: Before removing, check if the worktree has any changes (tracked
+    // or gitignored). If git status --porcelain failed (hadChanges is false
+    // here), hasAnyWorktreeChanges conservatively returns true on error,
+    // preserving the worktree for manual recovery instead of destroying
+    // the agent's work.
+    if (hasAnyWorktreeChanges(worktree.path)) {
+      console.error(
+        `[pi-swarm] cleanupWorktree: git status failed (${err instanceof Error ? err.message : String(err)}). Worktree has changes — preserving at ${worktree.path} for manual recovery.`,
+      );
+      return { hasChanges: true, error: String(err) };
+    }
     try {
       removeWorktree(cwd, worktree.path);
-    } catch {
-      // best effort cleanup
+    } catch (err2) {
+      // best effort cleanup — log so failures are visible. (#185)
+      console.error(
+        `[pi-swarm] cleanupWorktree: removeWorktree failed for ${worktree.path}: ${(err2 as Error).message}`,
+      );
     }
     return { hasChanges: false };
   }
@@ -455,7 +501,11 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
         stdio: "pipe",
         timeout: 5000,
       });
-    } catch {
+    } catch (err) {
+      // Branch not found — return error. Log for traceability. (#185)
+      console.error(
+        `[pi-swarm] mergeBranch: branch '${branchName}' not found: ${(err as Error).message}`,
+      );
       return {
         success: false,
         branch: branchName,
@@ -485,7 +535,8 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
       }
       return { success: true, branch: branchName };
     } catch {
-      // Not yet merged, proceed
+      // Not yet merged, proceed — merge-base --is-ancestor exits non-zero
+      // when the branch is NOT an ancestor, which is the normal case here.
     }
 
     // Attempt merge with --no-ff --no-edit
@@ -502,8 +553,11 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
         stdio: "pipe",
         timeout: 5000,
       });
-    } catch {
-      // Branch deletion failure is non-fatal
+    } catch (err) {
+      // Branch deletion failure is non-fatal but visible. (#185)
+      console.error(
+        `[pi-swarm] mergeBranch: failed to delete merged branch ${branchName}: ${(err as Error).message}`,
+      );
     }
 
     return { success: true, branch: branchName };
@@ -516,8 +570,11 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
         stdio: "pipe",
         timeout: 5000,
       });
-    } catch {
-      // Merge abort may fail if no merge was in progress
+    } catch (err) {
+      // Merge abort may fail if no merge was in progress — log for visibility. (#185)
+      console.error(
+        `[pi-swarm] mergeBranch: merge --abort failed (may be expected if no merge was in progress): ${(err as Error).message}`,
+      );
     }
 
     if (
@@ -570,7 +627,10 @@ export function pruneWorktrees(cwd: string): void {
       stdio: "pipe",
       timeout: 5000,
     });
-  } catch {
-    // best effort
+  } catch (err) {
+    // best effort — log so failures are visible. (#185)
+    console.error(
+      `[pi-swarm] pruneWorktrees: git worktree prune failed in ${cwd}: ${(err as Error).message}`,
+    );
   }
 }

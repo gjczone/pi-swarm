@@ -11,6 +11,7 @@ import {
   mkdirSync,
   createWriteStream,
   writeFileSync,
+  unlinkSync,
   type WriteStream,
   existsSync,
   readFileSync,
@@ -58,17 +59,34 @@ export function readNewMailboxLines(
   let fileSize: number;
   try {
     fileSize = statSync(filePath).size;
-  } catch {
-    // File doesn't exist (yet) — nothing to read
+  } catch (err) {
+    // File doesn't exist (yet) — nothing to read. Log non-ENOENT errors
+    // so permission issues or disk failures are visible. (#182)
+    const code = (err as NodeJS.ErrnoException).code ?? "";
+    if (code !== "ENOENT") {
+      console.error(
+        `[pi-swarm] readNewMailboxLines: stat failed for ${filePath}: ${(err as Error).message}`,
+      );
+    }
     return { messages: [], newOffset: offset };
   }
-  if (fileSize <= offset) {
+  if (fileSize < offset) {
+    // File shrank or was recreated — reset offset to read from start.
+    // Without this, the poller is stuck at the old offset and misses all
+    // new messages after outbox file recreation. (#189)
+    return { messages: [], newOffset: 0 };
+  }
+  if (fileSize === offset) {
     return { messages: [], newOffset: offset };
   }
   try {
     raw = readFileSync(filePath, "utf-8");
-  } catch {
-    // Read error — non-fatal, try again next poll
+  } catch (err) {
+    // Read error — non-fatal, try again next poll. Log so I/O issues are
+    // visible. (#182)
+    console.error(
+      `[pi-swarm] readNewMailboxLines: read failed for ${filePath}: ${(err as Error).message}`,
+    );
     return { messages: [], newOffset: offset };
   }
 
@@ -93,8 +111,15 @@ export function readNewMailboxLines(
       if (msg.messageId && msg.to && msg.from) {
         messages.push(msg);
       }
-    } catch {
-      // Skip malformed lines but still advance past them
+    } catch (err) {
+      // Skip malformed lines but still advance past them. Log truncated
+      // line and error so corruption is visible. Mirrors readJsonLines
+      // pattern in mailbox.ts. (#182)
+      const preview =
+        trimmed.length > 200 ? `${trimmed.slice(0, 200)}...` : trimmed;
+      console.error(
+        `[pi-swarm] readNewMailboxLines: skipping malformed JSON line (${preview}): ${(err as Error).message}`,
+      );
     }
   }
 
@@ -444,7 +469,11 @@ async function runSubagentProcess(
       mailboxReadOffset = existsSync(pollOutboxPath)
         ? statSync(pollOutboxPath).size
         : 0;
-    } catch {
+    } catch (err) {
+      // Stat failure on offset init — log so I/O issues are visible. (#182)
+      console.error(
+        `[pi-swarm] mailbox poll: failed to stat outbox ${pollOutboxPath}: ${(err as Error).message}`,
+      );
       mailboxReadOffset = 0;
     }
 
@@ -459,8 +488,11 @@ async function runSubagentProcess(
         for (const msg of messages) {
           opts.onMessage?.(msg);
         }
-      } catch {
-        // Poll errors are non-fatal
+      } catch (err) {
+        // Poll errors are non-fatal but must be visible. (#182)
+        console.error(
+          `[pi-swarm] mailbox poll: error reading outbox ${pollOutboxPath}: ${(err as Error).message}`,
+        );
       }
     }, 800); // Poll at ~1.25Hz for near-real-time delivery without excessive IO
   }
@@ -478,6 +510,9 @@ async function runSubagentProcess(
     if (opts.signal) {
       opts.signal.removeEventListener("abort", onAbort);
     }
+    // Delete the temp system prompt file created for this agent.
+    // Without this, sys-{agentId}.md files accumulate on disk. (#190)
+    cleanupTempSystemPrompt(effectiveSystemPrompt);
   };
 
   const closeLog = (footer: string) => {
@@ -633,8 +668,11 @@ async function runSubagentProcess(
     if (worktree) {
       try {
         cleanupWorktree(repoCwd, worktree, opts.description);
-      } catch {
-        // best effort cleanup on error
+      } catch (err) {
+        // best effort cleanup on error — log so failures are visible (#182)
+        console.error(
+          `[pi-swarm] runSubagentProcess: cleanupWorktree failed on error path for agent ${agentId}: ${(err as Error).message}`,
+        );
       }
     }
     throw err;
@@ -684,8 +722,11 @@ function parseEventStream(
       lastUsageEmit = now;
       try {
         onUsage({ ...usageAcc });
-      } catch {
-        // Callback errors must not break parsing
+      } catch (err) {
+        // Callback errors must not break parsing — log for visibility. (#182)
+        console.error(
+          `[pi-swarm] onUsage callback error: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     };
 
@@ -696,8 +737,11 @@ function parseEventStream(
       lastActivityEmit = now;
       try {
         onActivity(tool, activity);
-      } catch {
-        // Callback errors must not break parsing
+      } catch (err) {
+        // Callback errors must not break parsing — log for visibility. (#182)
+        console.error(
+          `[pi-swarm] onActivity callback error: ${err instanceof Error ? err.message : String(err)}`,
+        );
       }
     };
 
@@ -936,6 +980,20 @@ function parseEventStream(
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/**
+ * Delete a temporary system prompt file created by runSubagentProcess.
+ * Best-effort: ignores errors if the file is already gone.
+ * Exported for testing. (#190)
+ */
+export function cleanupTempSystemPrompt(filePath: string | undefined): void {
+  if (!filePath) return;
+  try {
+    unlinkSync(filePath);
+  } catch {
+    // best effort — file may already be gone
+  }
+}
 
 function randomId(): string {
   return Math.random().toString(36).slice(2, 10);

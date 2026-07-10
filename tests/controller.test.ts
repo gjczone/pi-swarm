@@ -655,4 +655,65 @@ describe("SubagentBatchController", () => {
     expect(r0?.status).toBe("completed");
     expect(r1?.status).toBe("aborted");
   });
+
+  it("#191 rate-limit retry has a maximum count — permanent rate limit fails the task", async () => {
+    // Regression: handleRateLimit retried indefinitely. A permanent rate
+    // limit (exhausted quota, invalid API key) caused the swarm to hang
+    // forever. The fix adds MAX_RATE_LIMIT_RETRIES; when exceeded, the task
+    // is marked failed instead of being requeued.
+    let callCount = 0;
+    const launcher: SubagentBatchLauncher = {
+      async spawn(opts: SpawnSubagentOptions): Promise<SubagentHandle> {
+        callCount += 1;
+        const agentId = `mock-rl-${callCount}`;
+        opts.onReady?.();
+        const completion: Promise<SubagentCompletion> = new Promise(
+          (_resolve, reject) => {
+            // Every attempt rate-limits — simulates a permanent rate limit
+            setTimeout(() => reject(new Error("Rate limit exceeded (429)")), 5);
+          },
+        );
+        return {
+          agentId,
+          profileName: opts.profileName,
+          resumed: false,
+          completion,
+        };
+      },
+      async resume(
+        agentId: string,
+        opts: RunSubagentOptions,
+      ): Promise<SubagentHandle> {
+        return this.spawn({
+          ...opts,
+          profileName: "resumed",
+        });
+      },
+      async retry(
+        agentId: string,
+        opts: RunSubagentOptions,
+      ): Promise<SubagentHandle> {
+        return this.resume(agentId, opts);
+      },
+    };
+
+    const controller = new SubagentBatchController(launcher, [makeTask(0)], {
+      maxRateLimitRetries: 2,
+    });
+
+    // Bounded wait: if the retry loop is infinite, the run promise never
+    // resolves. With the fix, it should resolve with status "failed" after
+    // exceeding maxRateLimitRetries (2 retries = ~9s with exponential backoff).
+    const timeout = new Promise<never>((_, reject) =>
+      setTimeout(
+        () => reject(new Error("rate-limit retry did not terminate")),
+        30000,
+      ),
+    );
+    const results = await Promise.race([controller.run(), timeout]);
+
+    expect(results).toHaveLength(1);
+    expect(results[0]!.status).toBe("failed");
+    expect(results[0]!.error).toMatch(/rate limit/i);
+  }, 35000);
 });
