@@ -415,6 +415,7 @@ async function runSubagentProcess(
   const settledState = { settled: false };
   let done = false;
   let abortReason: Error | undefined;
+  let abortRequested = false;
 
   const killState: ProcessKillState = {
     exited: false,
@@ -518,8 +519,8 @@ async function runSubagentProcess(
   };
 
   const killProc = (reason?: unknown) => {
-    if (settledState.settled || done) return;
-    settledState.settled = true;
+    if (settledState.settled || abortRequested || done) return;
+    abortRequested = true;
     abortReason =
       reason instanceof Error ? reason : new Error("Subagent aborted");
     if (!killState.exited) {
@@ -540,8 +541,8 @@ async function runSubagentProcess(
 
   if (opts.timeout && opts.timeout > 0) {
     timeoutHandle = setTimeout(() => {
-      if (settledState.settled || done) return;
-      settledState.settled = true;
+      if (settledState.settled || abortRequested || done) return;
+      abortRequested = true;
       abortReason = new Error("Subagent timed out");
       if (!killState.exited) {
         proc.kill("SIGTERM");
@@ -565,7 +566,7 @@ async function runSubagentProcess(
       ).then(
         (parsed) => {
           if (done) return;
-          if (settledState.settled) {
+          if (abortRequested) {
             // Abort or timeout was requested, but process exited cleanly.
             // Prefer the completed result if it has no errors.
             if (parsed && !parsed.errorMessage) {
@@ -580,7 +581,7 @@ async function runSubagentProcess(
         },
         (err) => {
           if (done) return;
-          if (settledState.settled) {
+          if (abortRequested) {
             // Abort was requested and process errored — use saved abort reason if available
             rejectOnce(
               abortReason ??
