@@ -19,7 +19,7 @@ Layer dependency chain: `tui/` + `state/` → `swarm/` + `team/` → `shared/` �
 
 Evidence: `PLAN.md` layer dependency section; confirmed by grep — zero `@earendil-works/pi-tui` imports in `src/shared/`, zero `../swarm/` or `../team/` imports in `src/tui/` or `src/state/`.
 
-`shared/` also contains `src/shared/agents.ts` (file-based agent loader, frontmatter parser, item-to-agent router) and `src/shared/pi-invoke.ts` (pi CLI invocation, system-level tool restriction) — both follow the same rule: zero pi or tui imports.
+`shared/` also contains `src/shared/agents.ts` (file-based agent loader, frontmatter parser, item-to-agent router), `src/shared/pi-invoke.ts` (pi CLI invocation, system-level tool restriction), and `src/shared/gitignore.ts` (auto-managed `.pi/.gitignore`) — all follow the same rule: zero pi or tui imports.
 
 `shared/` is pure logic and Node.js stdlib. `tui/` and `state/` are peer layers; neither depends on the other.
 
@@ -40,7 +40,7 @@ export default function (pi: ExtensionAPI): void {
 }
 ```
 
-Evidence: `grep "export function register" src/` → 5 register functions across `swarm/tool.ts`, `swarm/coordinator.ts`, `swarm/command.ts`, `team/command.ts`. Also `registerAgentInManifest` in `state/persistence.ts`. All called in `src/index.ts`.
+Evidence: `grep "export function register" src/` → 5 register functions across `swarm/tool.ts` (`registerAgentSwarmTool`), `swarm/coordinator.ts` (`registerCoordinatorTools`), `swarm/command.ts` (`registerSwarmCommand`), `team/command.ts` (`registerTeamCommand`), and `state/persistence.ts` (`registerAgentInManifest`). All tool/command registrations are called in `src/index.ts`.
 
 ---
 
@@ -62,7 +62,7 @@ Evidence: `src/shared/spawner.ts` — each subagent runs as an independent `pi -
 
 ## 5. Naming & Import Conventions
 
-File and directory names: `kebab-case` (e.g., `team-dashboard.ts`, `task-graph.ts`, `pi-invoke.ts`, `swarm-markers.ts`). Evidence: directory listing.
+File and directory names: `kebab-case` (e.g., `atomic-append.ts`, `pi-invoke.ts`, `swarm-markers.ts`, `pi-settings.ts`). Evidence: directory listing.
 
 Import order and format:
 
@@ -109,6 +109,6 @@ Evidence: `AGENTS.md` LANGUAGE RULE; `src/shared/spawner.ts` and `src/shared/ren
 
 ### Non-fatal / Best-effort Operations
 
-Operations that are not critical to the primary task (cleanup, recovery, gitignore management) should catch and log without propagating. Mark these clearly with `// Best effort` or `// Non-fatal` comments.
+Operations that are not critical to the primary task (cleanup, recovery, gitignore management) should catch and log without propagating. Per AGENTS.md §0 Quality Gates, empty catch blocks are forbidden — every `catch` MUST log via `console.error` with: what operation failed, the input context, and the original error message. Do NOT use bare `// Best effort` or `// Non-fatal` comments as a substitute for logging.
 
-Evidence: `src/index.ts` lines 50-52 (`// Best effort` on gitignore write), 176-178 (`// Non-git repos or worktree prune failures are non-fatal`).
+Evidence: `src/shared/gitignore.ts` logs all filesystem errors via `console.error` with path and error message. `src/team/mailbox.ts` `readJsonLines` logs corrupted line count and file path. See #130 for the cleanup pass that replaced silent `// Best effort` catches across the codebase.

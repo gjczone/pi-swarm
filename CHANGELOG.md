@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.5] - 2026-07-10
+
+### Fixed
+
+- **Temp system prompt file leak on synchronous throw (#198, P2)**: The temp
+  file `sys-{agentId}.md` created by `runSubagentProcess` was not deleted when
+  `buildSubagentArgs`, `getPiInvocation`, or `spawn` threw synchronously before
+  the promise chain started. Fixed by wrapping temp file creation and pre-spawn
+  setup in a try/catch that calls `cleanupTempSystemPrompt` before re-throwing.
+- **Mailbox message re-delivery after outbox recreation (#199, P3)**: When the
+  outbox file was recreated and the read offset reset to 0 (see `#189` offset
+  reset fix), previously delivered messages were re-delivered to the `onMessage`
+  callback because no deduplication existed. Fixed by adding a
+  `deliveredMessageIds` Set to the mailbox poll loop with LRU eviction (2000 cap,
+  evict 1000 oldest when exceeded).
+
+### Tests
+
+- 4 new tests in `tests/mailbox-poll.test.ts`: try/catch cleanup pattern (#198),
+  message dedup after offset reset, new message delivery after recreation, and
+  Set capacity cap eviction (#199). Total: 203.
+
 ## [0.9.4] - 2026-07-10
 
 ### Fixed

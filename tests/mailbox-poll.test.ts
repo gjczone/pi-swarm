@@ -138,7 +138,7 @@ describe("#101 mailbox outbox poll: partial trailing line is not swallowed", () 
     expect(fileSizeAfterRecreate).toBeLessThan(fileSizeAfterFirst);
 
     // Use the old offset (from the first file) — it is now past EOF.
-    const { messages, newOffset } = readNewMailboxLines(
+    const { messages: _messages, newOffset } = readNewMailboxLines(
       outboxPath,
       fileSizeAfterFirst,
     );
@@ -291,7 +291,7 @@ describe("#199 deduplicates delivered messages when offset resets", () => {
 
     // Simulate outbox recreation: truncate, then write old + new messages
     writeFileSync(outboxPath, "", "utf-8");
-    const { messages: pollReset, newOffset: offReset } = readNewMailboxLines(
+    const { messages: _reset, newOffset: offReset } = readNewMailboxLines(
       outboxPath,
       off1,
     );

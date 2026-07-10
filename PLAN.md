@@ -252,12 +252,7 @@ interface SwarmTeamInput {
 
 ```typescript
 type AgentRole =
-  | "planner"
-  | "coder"
-  | "reviewer"
-  | "tester"
-  | "explorer"
-  | "fixer";
+  "planner" | "coder" | "reviewer" | "tester" | "explorer" | "fixer";
 
 interface AgentRoleConfig {
   role: AgentRole;
@@ -474,9 +469,9 @@ line (activated / deactivated / ended) in the transcript.
 ### Phase 3: Team / Mailbox Mode
 
 - [x] Mailbox system (`team/mailbox.ts`) — JSONL inbox/outbox
-- [ ] Task graph (`team/task-graph.ts`) — phases with dependencies (planned)
-- [ ] Team supervisor (`team/supervisor.ts`) — task decomposition & assignment (planned)
-- [ ] SwarmTeam tool (`team/tool.ts`) — `pi.registerTool` (planned)
+- [~] Task graph (`team/task-graph.ts`) — removed, phase DAG no longer needed (see CHANGELOG)
+- [~] Team supervisor (`team/supervisor.ts`) — removed, merged into Swarm tool (see CHANGELOG)
+- [~] SwarmTeam tool (`team/tool.ts`) — merged into Swarm tool with mailbox:true param (see CHANGELOG)
 - [x] `/swarm-team` command (`team/command.ts`)
 
 ### Phase 4: TUI

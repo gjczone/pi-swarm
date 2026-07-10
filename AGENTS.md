@@ -150,7 +150,7 @@ Trigger only when the task or milestone is fully completed:
 
 # pi-swarm
 
-Agent Swarm & Team extension for pi-coding-agent. Single to 20 subagents: parallel swarm (item-template) with optional mailbox mode. Live TUI progress, rate-limit-aware retries, concurrency control, crash recovery.
+Agent Swarm & Team extension for pi-coding-agent. Single to 128 subagents: parallel swarm (item-template) with optional mailbox mode. Live TUI progress, rate-limit-aware retries, concurrency control, crash recovery.
 
 Goal: replace both the third-party `subagent` extension and `worktree`, becoming the unified sub-agent orchestration solution for the pi ecosystem.
 
@@ -196,8 +196,8 @@ If a tool errors or is unavailable, try once more, then work around it. But you 
 - **Runtime**: Node.js >= 18, npm package manager
 - **Type**: pi-coding-agent extension, auto-discovered via `pi.extensions: ["./dist"]` in `package.json`
 - **Dependencies**: `@earendil-works/pi-tui` (TUI components), `typebox` (schema); peer: `@earendil-works/pi-coding-agent`
-- **Test framework**: vitest — 85 tests, 7 test files, 0 failures
-- **Key risk areas**: concurrency controller (rate-limit capacity model, runAsync coordinator), sub-agent process lifecycle (spawn/kill/abort), worktree isolation edge cases, mailbox atomic writes, profile resolution ordering
+- **Test framework**: vitest — 203 tests, 17 test files, 0 failures
+- **Key risk areas**: concurrency controller (rate-limit capacity model, runAsync coordinator, missing max retry count #191), sub-agent process lifecycle (spawn/kill/abort, killProc promise hang #184), worktree isolation edge cases (cleanupWorktree data loss on git status failure #186, .pi symlink committed #192), mailbox atomic writes (direct message write order #179), profile resolution ordering, gitignore pattern correctness (#188 P0 — pattern matches wrong path)
 
 ## Commands
 
@@ -292,6 +292,8 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - `src/shared/agents.ts` — file-based agent loader: ~/.pi/agents/\*.md scanning, frontmatter parsing, AgentProfile conversion, matchItemToAgent() routing, buildAgentListing()
 - `src/shared/profiles.ts` — agent profile registry (built-in + file-based + user-defined), tool restrictions with allowlist/denylist, resolveProfileTools()
 - `src/shared/pi-invoke.ts` — pi CLI invocation, buildSubagentArgs() with FORBIDDEN_SUBAGENT_TOOLS filtering
+- `src/shared/gitignore.ts` — auto-managed `.pi/.gitignore` for state directory exclusion (pattern correctness critical — see #188)
+- `src/swarm/specs.ts` — AgentSwarm input validation (createAgentSwarmSpecs, MAX_AGENT_SWARM_SUBAGENTS, duplicate prompt detection)
 - `src/swarm/tool.ts` — Swarm tool definition (output.log persistence, run manifests, profile support)
 - `src/swarm/coordinator.ts` — Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
 - `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment
@@ -314,7 +316,7 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - [ ] Read `rules/CODING.md` before writing or modifying code
 - [ ] Read `rules/ARCHITECTURE.md` before modifying module structure or layer boundaries
 - [ ] `npm run typecheck` passes with zero errors
-- [ ] `npm test` passes — 107+ tests, 0 failures
+- [ ] `npm test` passes — 203 tests, 0 failures
 - [ ] `npm run build` succeeds with `dist/index.js` and `dist/index.d.ts` present
 - [ ] `PLAN.md` updated if architecture, API, or module specs changed
 - [ ] `docs/architecture.md` updated if design rationale or data flows changed

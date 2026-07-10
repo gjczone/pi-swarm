@@ -39,7 +39,8 @@ Cross-layer communication goes through `index.ts` (tool registration, command ha
 | `shared/controller.ts` | Two-phase concurrency controller                    | Most complex module. Ramp-up (5 + 1/700ms) → rate-limit phase with capacity model and exponential backoff. Must never block a test suite.                      |
 | `shared/spawner.ts`    | Child process lifecycle                             | Manages spawn → event parsing → result extraction → worktree cleanup. The only module that calls `pi --print`.                                                 |
 | `team/mailbox.ts`      | JSONL inter-agent messaging                         | All team agent communication flows through this. Atomic writes required — `writeAtomic` from `state/persistence.ts` is the only permitted write primitive.     |
-| `team/task-graph.ts`   | Phase DAG with dependency propagation               | When a phase fails, all downstream phases are auto-skipped. Serialization must be round-trip safe (`toJSON` ↔ `fromJSON`).                                     |
+| `swarm/coordinator.ts` | Non-blocking swarm orchestration                    | `runAsync()` + `SwarmHandle` for non-blocking swarm. Main agent orchestrates with SendMessage/TaskStop. Known bug: inbox path missing "state" segment (#178).  |
+| `shared/gitignore.ts`  | Auto-manage `.pi/.gitignore`                        | Ensures `.pi/swarm/state/` is listed in `.pi/.gitignore`. Known bug: pattern `.pi/swarm/state/` matches wrong path — state files NOT gitignored (#188).        |
 | `index.ts`             | Entry point, all registrations                      | The only file that imports from `@earendil-works/pi-coding-agent`. Every tool/command/hook is wired here via `pi.registerTool`, `pi.registerCommand`, `pi.on`. |
 
 ## Architectural Decisions
