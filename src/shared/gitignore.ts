@@ -1,7 +1,7 @@
 /**
  * shared/gitignore — auto-manage .pi/.gitignore entries for pi-swarm state.
  *
- * Ensures `.pi/swarm/state/` is listed in `.pi/.gitignore` so durable
+ * Ensures `swarm/state/` is listed in `.pi/.gitignore` so durable
  * runtime state is never committed. Only operates when the project is an
  * actual git repository (#110) and only writes to `.pi/.gitignore`
  * (#123) — never the project-root `.gitignore`, which would be an
@@ -17,14 +17,14 @@ import { isGitRepository } from "./worktree.js";
 // ---------------------------------------------------------------------------
 
 const PI_GITIGNORE_PATH = ".pi/.gitignore";
-const GITIGNORE_ENTRY = ".pi/swarm/state/";
+const GITIGNORE_ENTRY = "swarm/state/";
 
 // ---------------------------------------------------------------------------
 // Public API
 // ---------------------------------------------------------------------------
 
 /**
- * Ensure `.pi/swarm/state/` is listed in `.pi/.gitignore`.
+ * Ensure `swarm/state/` (relative to `.pi/`) is listed in `.pi/.gitignore`.
  *
  * Behavior (#123):
  *   - If cwd is not a git repository: do nothing (#110).
