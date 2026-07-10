@@ -56,9 +56,7 @@ describe("#123 ensureGitignore: writes to .pi/.gitignore, never project root", (
     ensureGitignore(dir);
     const piGitignorePath = join(dir, ".pi", ".gitignore");
     expect(existsSync(piGitignorePath)).toBe(true);
-    expect(readFileSync(piGitignorePath, "utf-8")).toContain(
-      "swarm/state/",
-    );
+    expect(readFileSync(piGitignorePath, "utf-8")).toContain("swarm/state/");
   });
 
   it("appends the entry to an existing .pi/.gitignore in a git repo", () => {
