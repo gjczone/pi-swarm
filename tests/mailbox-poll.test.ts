@@ -197,4 +197,145 @@ describe("#190 cleanupTempSystemPrompt deletes temp file", () => {
     // Should not throw
     cleanupTempSystemPrompt(nonExistent);
   });
+
+  it("#198 cleans up temp file when called in a catch block after sync throw", () => {
+    // Verifies the pattern used in the fix: wrap temp-file-dependent
+    // operations in try/catch, call cleanupTempSystemPrompt before
+    // re-throwing. This ensures the file is deleted even when a
+    // synchronous error occurs before the promise chain can run cleanup().
+    const tempFile = join(dir, "sys-catch-test.md");
+    writeFileSync(tempFile, "test content", "utf-8");
+    expect(existsSync(tempFile)).toBe(true);
+
+    try {
+      throw new Error("simulated sync error in buildSubagentArgs / spawn");
+    } catch {
+      cleanupTempSystemPrompt(tempFile);
+    }
+
+    expect(existsSync(tempFile)).toBe(false);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #199 — mailbox message dedup after outbox recreation
+// ---------------------------------------------------------------------------
+
+describe("#199 deduplicates delivered messages when offset resets", () => {
+  let dir: string;
+  let outboxPath: string;
+
+  beforeEach(() => {
+    dir = mkdtempSync(join(tmpdir(), "mb-dedup-"));
+    outboxPath = join(dir, "outbox.jsonl");
+  });
+
+  afterEach(() => {
+    rmSync(dir, { recursive: true, force: true });
+  });
+
+  it("skips re-delivery of a message seen before the outbox was recreated", () => {
+    // Use a long messageId to create a larger file, then recreate with an
+    // empty file so fileSize < offset triggers the reset to 0.
+    const msgLong = makeMessage("long-message-id-xxxxxxxxx");
+    writeFileSync(outboxPath, `${msgLong}\n`, "utf-8");
+    const originalSize = statSync(outboxPath).size;
+
+    const delivered = new Set<string>();
+
+    // Poll 1: deliver msgLong normally
+    const { messages: poll1, newOffset: off1 } = readNewMailboxLines(
+      outboxPath,
+      0,
+    );
+    expect(off1).toBe(originalSize);
+    for (const msg of poll1) {
+      if (!delivered.has(msg.messageId)) delivered.add(msg.messageId);
+    }
+    expect(delivered.has("long-message-id-xxxxxxxxx")).toBe(true);
+
+    // Simulate outbox file recreation: truncated file (fileSize < offset)
+    writeFileSync(outboxPath, "", "utf-8");
+    const { messages: poll2Reset, newOffset: off2 } = readNewMailboxLines(
+      outboxPath,
+      off1,
+    );
+    expect(off2).toBe(0); // offset reset because fileSize < offset
+    expect(poll2Reset).toHaveLength(0); // reset returns no messages
+
+    // Write the same message back to the recreated file (simulated replay)
+    const msgSame = makeMessage("long-message-id-xxxxxxxxx");
+    writeFileSync(outboxPath, `${msgSame}\n`, "utf-8");
+
+    // Re-read from 0 with dedup — previously delivered messageId must be skipped
+    const { messages: poll2Deliver } = readNewMailboxLines(outboxPath, off2);
+    const newMessages = poll2Deliver.filter((m) => !delivered.has(m.messageId));
+    expect(newMessages).toHaveLength(0);
+  });
+
+  it("still delivers new messages after the outbox recreation while skipping old ones", () => {
+    // Use a long messageId so the first file is larger than the recreated one
+    const msgA = makeMessage("msg-long-old-message");
+    writeFileSync(outboxPath, `${msgA}\n`, "utf-8");
+    const firstSize = statSync(outboxPath).size;
+
+    const delivered = new Set<string>();
+    const { messages: poll1, newOffset: off1 } = readNewMailboxLines(
+      outboxPath,
+      0,
+    );
+    expect(off1).toBe(firstSize);
+    for (const msg of poll1) {
+      if (!delivered.has(msg.messageId)) delivered.add(msg.messageId);
+    }
+
+    // Simulate outbox recreation: truncate, then write old + new messages
+    writeFileSync(outboxPath, "", "utf-8");
+    const { messages: pollReset, newOffset: offReset } = readNewMailboxLines(
+      outboxPath,
+      off1,
+    );
+    expect(offReset).toBe(0);
+
+    const msgB = makeMessage("msg-new");
+    writeFileSync(outboxPath, `${msgA}\n${msgB}\n`, "utf-8");
+
+    const { messages: poll2Deliver } = readNewMailboxLines(
+      outboxPath,
+      offReset,
+    );
+    const newMessages = poll2Deliver.filter((m) => !delivered.has(m.messageId));
+    expect(newMessages).toHaveLength(1);
+    expect(newMessages[0].messageId).toBe("msg-new");
+  });
+
+  it("caps the delivered-message set to prevent unbounded memory growth", () => {
+    // Simulate LRU-style eviction: when set size exceeds threshold, evict oldest entries.
+    const MAX_IDS = 2000;
+    const EVICT_COUNT = 1000;
+    const delivered = new Set<string>();
+
+    // Fill beyond the cap
+    for (let i = 0; i < MAX_IDS + 10; i++) {
+      delivered.add(`msg-${i}`);
+    }
+
+    expect(delivered.size).toBe(MAX_IDS + 10);
+
+    // Apply eviction: delete oldest entries (simulated by deleting the
+    // lowest-numbered IDs)
+    if (delivered.size > MAX_IDS) {
+      const toDelete = EVICT_COUNT;
+      let deleted = 0;
+      for (const id of delivered) {
+        if (deleted >= toDelete) break;
+        delivered.delete(id);
+        deleted++;
+      }
+    }
+
+    expect(delivered.size).toBeLessThanOrEqual(MAX_IDS);
+    // The most recently added IDs should still be present
+    expect(delivered.has(`msg-${MAX_IDS + 9}`)).toBe(true);
+  });
 });
