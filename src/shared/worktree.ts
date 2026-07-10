@@ -17,7 +17,7 @@
 
 import { execFileSync } from "node:child_process";
 import { randomUUID } from "node:crypto";
-import { existsSync, mkdirSync, symlinkSync, statSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, symlinkSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, dirname } from "node:path";
 
@@ -201,6 +201,42 @@ export function createWorktree(
       stdio: "pipe",
       timeout: 30000,
     });
+
+    // Add local exclude so symlinks don't get committed by git add -A (#192)
+    try {
+      const gitDir = join(worktreePath, ".git");
+      let actualGitDir: string;
+      if (existsSync(gitDir)) {
+        const gitStat = statSync(gitDir);
+        if (gitStat.isDirectory()) {
+          actualGitDir = gitDir;
+        } else {
+          // Worktree: .git is a file containing the path to the actual git dir
+          const content = readFileSync(gitDir, "utf-8").trim();
+          const prefix = "gitdir: ";
+          actualGitDir = content.startsWith(prefix)
+            ? content.slice(prefix.length)
+            : content;
+          // Resolve relative paths
+          if (!actualGitDir.startsWith("/")) {
+            actualGitDir = join(worktreePath, actualGitDir);
+          }
+        }
+      } else {
+        actualGitDir = gitDir;
+      }
+      const excludeDir = join(actualGitDir, "info");
+      mkdirSync(excludeDir, { recursive: true });
+      const excludeFile = join(excludeDir, "exclude");
+      const excludeEntries = [...PROJECT_CONTEXT_ENTRIES, "node_modules"]
+        .map((e) => `/${e}`)
+        .join("\n");
+      writeFileSync(excludeFile, `\n${excludeEntries}\n`, { flag: "a" });
+    } catch (err) {
+      console.error(
+        `[pi-swarm] createWorktree: failed to write local exclude for ${worktreePath}: ${(err as Error).message}`,
+      );
+    }
 
     // Symlink node_modules to avoid reinstalling dependencies in every worktree
     try {

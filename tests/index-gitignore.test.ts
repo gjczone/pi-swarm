@@ -57,7 +57,7 @@ describe("#123 ensureGitignore: writes to .pi/.gitignore, never project root", (
     const piGitignorePath = join(dir, ".pi", ".gitignore");
     expect(existsSync(piGitignorePath)).toBe(true);
     expect(readFileSync(piGitignorePath, "utf-8")).toContain(
-      ".pi/swarm/state/",
+      "swarm/state/",
     );
   });
 
@@ -69,14 +69,14 @@ describe("#123 ensureGitignore: writes to .pi/.gitignore, never project root", (
     ensureGitignore(dir);
     const content = readFileSync(join(piDir, ".gitignore"), "utf-8");
     expect(content).toContain("node_modules/");
-    expect(content).toContain(".pi/swarm/state/");
+    expect(content).toContain("swarm/state/");
   });
 
   it("is a no-op when .pi/.gitignore already contains the entry", () => {
     gitInit(dir);
     const piDir = join(dir, ".pi");
     mkdirSync(piDir, { recursive: true });
-    const existing = "node_modules/\n.pi/swarm/state/\n";
+    const existing = "node_modules/\nswarm/state/\n";
     writeFileSync(join(piDir, ".gitignore"), existing, "utf-8");
     ensureGitignore(dir);
     expect(readFileSync(join(piDir, ".gitignore"), "utf-8")).toBe(existing);
