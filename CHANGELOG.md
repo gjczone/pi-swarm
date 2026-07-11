@@ -5,6 +5,70 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [0.9.6] - 2026-07-11
+
+### Changed
+
+- **Rename SwarmCoordinator to SwarmTeam (#201-#206)**: The `SwarmCoordinator`
+  tool is now `SwarmTeam`. The rename reflects the conceptual model: the main
+  agent acts as a team leader orchestrating subagents across conversation turns,
+  not merely a passive coordinator. SwarmTeam is built on swarm + mailbox
+  functionality. Both `Swarm` and `SwarmTeam` do NOT hardcode fixed agents —
+  users can configure subagents via file-based agent definitions
+  (`~/.pi/agents/*.md`) or settings.json. The swarm architecture follows the
+  design of [MoonshotAI/kimi-code](https://github.com/MoonshotAI/kimi-code).
+  - Tool name: `SwarmCoordinator` → `SwarmTeam`
+  - Type: `ActiveCoordinatorRun` → `ActiveTeamRun`
+  - Function: `registerCoordinatorTools` → `registerTeamTools`
+  - runId prefix: `coord-` → `team-`
+  - manifest type: `"coordinator"` → `"team"`
+  - `FORBIDDEN_SUBAGENT_TOOLS` updated to block `SwarmTeam` instead of
+    `SwarmCoordinator`
+
+### Added
+
+- **SwarmTeam mailbox parameter (#206)**: New `mailbox` boolean parameter on
+  the `SwarmTeam` tool. When enabled, the team run sets up a JSONL mailbox
+  (inbox/outbox) so subagents can exchange messages with each other and the
+  team leader, mirroring the `/swarm-team` collaborative mode.
+- **SwarmTeam timeout parameter (#204)**: New `timeout` integer parameter on
+  the `SwarmTeam` tool. Sets a per-agent timeout in milliseconds. Default:
+  1800000 (30 minutes). `0` disables the timeout. Previously agents could run
+  indefinitely with no way to bound execution time.
+- **Running agents in SwarmStatus (#205)**: `SwarmStatus` (via `runToSummary`)
+  now lists still-running agents by name and ID in a "Running agents:" section.
+  Previously only completed/failed counts were shown, making it hard to see
+  which agents were still active. Also fixed `deriveAgentName()` to treat
+  `"general"` as a placeholder (like `"coder"` and `"subagent"`), so auto-routed
+  general-profile agents get index-derived names instead of all being named
+  "general".
+
+### Fixed
+
+- **Model parameter does not override profile model (#201, P1)**: The `model`
+  parameter on `Swarm` and `SwarmTeam` was silently ignored when a profile
+  specified a model. The precedence is now: explicit `model` parameter >
+  profile model > parent session model. A new `resolveProfileModel()` helper in
+  `shared/controller.ts` centralises resolution of `"inherit"` / `"small"` /
+  explicit model IDs, so both tools apply the same logic.
+- **Auto-routing produces "(no output)" (#202, P1)**: When auto-routing matched
+  a file-based agent with `model: small`, the literal string `"small"` was
+  passed straight to the pi CLI, causing silent failures. Fixed as a downstream
+  effect of #201 — `resolveProfileModel()` now resolves `"small"` through
+  settings (`pi-swarm.smallModel`) before passing it to the CLI.
+- **Git branch cleanup orphans commits and loses uncommitted work (#203, P1)**:
+  Three sub-fixes in `shared/worktree.ts`:
+  1. `mergeBranch()` now stashes a dirty working directory before merging and
+     restores it in a `finally` block. Previously merge failed or overwrote
+     uncommitted changes.
+  2. `cleanupWorktree()` now creates the preservation branch BEFORE removing
+     the worktree. If branch creation failed, the commit became unreachable
+     (orphaned). The new order guarantees the branch points to the commit
+     before the worktree directory is removed.
+  3. On branch-creation failure, `cleanupWorktree()` now preserves the worktree
+     instead of orphaning the commit — returning `hasChanges: true` with the
+     error so the user can recover the work.
+
 ## [0.9.5] - 2026-07-10
 
 ### Fixed

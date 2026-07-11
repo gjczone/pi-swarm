@@ -27,6 +27,7 @@ import type {
   SubagentEvent,
   SwarmHandle,
   CoordinatorOptions,
+  AgentProfile,
 } from "./types.js";
 import * as path from "node:path";
 import { updateHeartbeat } from "../state/persistence.js";
@@ -1408,4 +1409,23 @@ function getSettingsSmallModel(
   return typeof val === "string" && val.trim().length > 0
     ? val.trim()
     : undefined;
+}
+
+/**
+ * Resolve a profile's model setting to a concrete model ID.
+ *
+ * Business (#201): profile.model may be "inherit", "small", or an explicit
+ * model ID. Previously the literal "small" string was passed straight to the
+ * pi CLI, causing silent failures ("(no output)"). This helper centralises
+ * resolution so both Swarm and SwarmTeam tools apply the same logic.
+ *
+ * Returns undefined when the profile falls back to the parent session model.
+ */
+export function resolveProfileModel(
+  profile: AgentProfile,
+  cwd?: string,
+): string | undefined {
+  if (!profile.model || profile.model === "inherit") return undefined;
+  if (profile.model === "small") return resolveSwarmSmallModel(cwd);
+  return profile.model;
 }

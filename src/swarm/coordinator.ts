@@ -1,13 +1,13 @@
 /**
- * swarm/coordinator — Non-blocking coordinator mode for multi-turn swarm orchestration.
+ * swarm/coordinator — Non-blocking team mode for multi-turn swarm orchestration.
  *
- * Registers SwarmCoordinator, SendMessage, and TaskStop tools that allow
+ * Registers SwarmTeam, SendMessage, and TaskStop tools that allow
  * the main agent to launch a swarm, remain active across turns, send
  * messages to running agents, and stop individual agents.
  *
  * Unlike the blocking Swarm tool which waits for all agents to complete
- * before returning, SwarmCoordinator returns immediately with a runId.
- * The coordinator (main agent) stays in control and can:
+ * before returning, SwarmTeam returns immediately with a runId.
+ * The team leader (main agent) stays in control and can:
  * - Send messages to agents via SendMessage
  * - Stop individual agents via TaskStop
  * - Check progress and collect results
@@ -20,6 +20,7 @@ import {
   SubagentBatchController,
   resolveSwarmMaxConcurrency,
   resolveSwarmSmallModel,
+  resolveProfileModel,
 } from "../shared/controller.js";
 import {
   spawnSubagent,
@@ -53,6 +54,12 @@ import {
   readManifest,
   registerAgentInManifest,
 } from "../state/persistence.js";
+import {
+  resolveMailboxPaths,
+  ensureMailbox,
+  sendMessage,
+} from "../team/mailbox.js";
+import type { MailboxPaths } from "../team/mailbox.js";
 import * as fs from "node:fs";
 import * as path from "node:path";
 import {
@@ -73,8 +80,8 @@ function randomSuffix(length = 6): string {
     .slice(2, 2 + length);
 }
 
-/** Build the Coordinator tool description dynamically, including available agents. */
-function buildCoordinatorDescription(): string {
+/** Build the SwarmTeam tool description dynamically, including available agents. */
+function buildTeamDescription(): string {
   clearFileAgentsCache();
   const fileAgents = loadFileAgents(process.cwd());
   const builtinProfiles = getBuiltinProfiles();
@@ -82,15 +89,19 @@ function buildCoordinatorDescription(): string {
   const hasFileAgents = fileAgents && fileAgents.size > 0;
 
   const lines: string[] = [
-    "Launch a non-blocking swarm of 1-128 subagents and stay in control across turns.",
+    "Launch a non-blocking team swarm of 1-128 subagents and stay in control across turns.",
     "",
-    "Unlike the blocking Swarm tool, SwarmCoordinator returns immediately with a runId.",
-    "You (the main agent) remain active and can orchestrate agents while they run.",
+    "You are the team leader. Unlike the blocking Swarm tool, SwarmTeam returns",
+    "immediately with a runId. You remain active and can orchestrate agents while they run.",
     "",
     "After launching, you can:",
     "- Send messages to running agents with SendMessage(runId, agentName, message)",
     "- Stop individual agents with TaskStop(runId, agentName)",
+    "- Check status with SwarmStatus(runId)",
     "- Agents continue running across conversation turns until they complete or are stopped.",
+    "",
+    "Set mailbox: true to let agents exchange messages via a shared inbox/outbox.",
+    "Use mailbox for collaborative workflows where agents share findings between phases.",
     "",
     "---",
     "Agent configuration — pick ONE of these three patterns:",
@@ -125,7 +136,7 @@ function buildCoordinatorDescription(): string {
   return lines.join("\n");
 }
 
-export interface ActiveCoordinatorRun {
+export interface ActiveTeamRun {
   runId: string;
   handle: SwarmHandle<SwarmSpec>;
   results: Array<SubagentResult<SwarmSpec>>;
@@ -136,7 +147,7 @@ export interface ActiveCoordinatorRun {
   completionPromise: Promise<Array<SubagentResult<SwarmSpec>>>;
 }
 
-const activeRuns = new Map<string, ActiveCoordinatorRun>();
+const activeRuns = new Map<string, ActiveTeamRun>();
 
 /**
  * Get the per-agent message inbox path for SendMessage.
@@ -166,7 +177,7 @@ function getAgentInboxPath(
  * to proceed with an invalid id and produce confusing downstream errors.
  */
 export function resolveAgentId(
-  run: ActiveCoordinatorRun,
+  run: ActiveTeamRun,
   nameOrId: string,
 ): string | undefined {
   // First pass: match by agentName
@@ -180,7 +191,7 @@ export function resolveAgentId(
   return undefined;
 }
 
-function getRun(runId: string): ActiveCoordinatorRun {
+function getRun(runId: string): ActiveTeamRun {
   const run = activeRuns.get(runId);
   if (!run) {
     throw new Error(
@@ -191,14 +202,19 @@ function getRun(runId: string): ActiveCoordinatorRun {
 }
 
 /**
- * Produce a human-readable summary of a single coordinator run.
+ * Produce a human-readable summary of a single team run.
  *
  * Business (#104): Agent count is derived from unique agentIds in the event
  * log, NOT from the raw count of agent_started events. This is because
  * retries emit an additional agent_started event for the same agentId,
  * which would inflate the total and produce a negative "still running" count.
+ *
+ * Business (#205): The summary now includes a "Running agents" section that
+ * lists all agents that have started but not yet reached a terminal state.
+ * This gives the team leader visibility into which agents are still active
+ * without needing to cross-reference events manually.
  */
-export function runToSummary(run: ActiveCoordinatorRun): string {
+export function runToSummary(run: ActiveTeamRun): string {
   const results = run.handle.getResults();
   const completed = results.filter((r) => r.status === "completed").length;
   const failed = results.filter((r) => r.status === "failed").length;
@@ -208,12 +224,40 @@ export function runToSummary(run: ActiveCoordinatorRun): string {
   );
   const total = uniqueAgentIds.size;
   const stillRunning = total - completed - failed - aborted;
+
+  // #205: Build a map of agentId -> agentName from events so running agents
+  // can be listed by name (not just by ID).
+  const agentNames = new Map<string, string>();
+  for (const e of run.events) {
+    if (e.agentId && e.agentName) {
+      agentNames.set(e.agentId, e.agentName);
+    }
+  }
+
+  const completedAgentIds = new Set(
+    results.map((r) => r.agentId).filter((id): id is string => !!id),
+  );
+  const runningAgentIds = Array.from(uniqueAgentIds).filter(
+    (id) => !completedAgentIds.has(id),
+  );
+
   const lines = [
     `Run: ${run.runId}`,
     `Status: ${run.completed ? "completed" : "running"}`,
     `Agents: ${total} total, ${completed} completed, ${failed} failed, ${stillRunning} running`,
   ];
   if (run.description) lines.push(`Description: ${run.description}`);
+
+  // #205: Show running agents first so the team leader can see what is
+  // still in progress before reading completed/failed results.
+  if (runningAgentIds.length > 0) {
+    lines.push("");
+    lines.push("Running agents:");
+    for (const id of runningAgentIds) {
+      const name = agentNames.get(id) ?? id;
+      lines.push(`  - ${name} (${id})`);
+    }
+  }
 
   if (completed > 0) {
     lines.push("");
@@ -246,17 +290,14 @@ export function runToSummary(run: ActiveCoordinatorRun): string {
 }
 
 /**
- * Summarize one or more coordinator runs. When runId is provided, only that
+ * Summarize one or more team runs. When runId is provided, only that
  * run is summarized; otherwise all runs are included.
  *
  * Business (#103): Previously the SwarmStatus handler ignored the runId
  * parameter and always returned all runs. This helper centralizes the
  * filtering logic and makes it testable.
  */
-export function summarizeRuns(
-  runs: ActiveCoordinatorRun[],
-  runId?: string,
-): string {
+export function summarizeRuns(runs: ActiveTeamRun[], runId?: string): string {
   if (runId) {
     const run = runs.find((r) => r.runId === runId);
     if (!run) {
@@ -265,16 +306,16 @@ export function summarizeRuns(
     return runToSummary(run);
   }
   if (runs.length === 0) {
-    return "No active coordinator runs.";
+    return "No active team runs.";
   }
   return runs.map(runToSummary).join("\n\n");
 }
 
-export function registerCoordinatorTools(pi: ExtensionAPI): void {
-  const description = buildCoordinatorDescription();
+export function registerTeamTools(pi: ExtensionAPI): void {
+  const description = buildTeamDescription();
   pi.registerTool({
-    name: "SwarmCoordinator",
-    label: "SwarmCoordinator",
+    name: "SwarmTeam",
+    label: "SwarmTeam",
     description,
     parameters: Type.Object(
       {
@@ -310,6 +351,20 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
               'Model: "small" for lightweight tasks, or explicit model ID. Omit to inherit.',
           }),
         ),
+        mailbox: Type.Optional(
+          Type.Boolean({
+            description:
+              "Enable inter-agent mailbox. When true, subagents can exchange messages via shared mailbox. Use for collaborative workflows where agents share findings. Default: false.",
+            examples: [true],
+          }),
+        ),
+        timeout: Type.Optional(
+          Type.Integer({
+            description:
+              "Per-agent timeout in milliseconds. Default: 1800000 (30 minutes). 0 disables timeout.",
+            minimum: 0,
+          }),
+        ),
       },
       { additionalProperties: false },
     ),
@@ -318,15 +373,25 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       params: Record<string, unknown>,
       signal: AbortSignal | undefined,
     ) => {
-      const { description, prompt_template, items, model, profile, agentType } =
-        params as {
-          description?: string;
-          prompt_template: string;
-          items: string[];
-          model?: string;
-          profile?: string;
-          agentType?: string;
-        };
+      const {
+        description,
+        prompt_template,
+        items,
+        model,
+        mailbox,
+        timeout,
+        profile,
+        agentType,
+      } = params as {
+        description?: string;
+        prompt_template: string;
+        items: string[];
+        model?: string;
+        mailbox?: boolean;
+        timeout?: number;
+        profile?: string;
+        agentType?: string;
+      };
 
       // Validate: profile and agentType are mutually exclusive
       if (profile && agentType) {
@@ -351,9 +416,10 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         ? resolveProfile(undefined, process.cwd())
         : resolveProfile(profileSource, process.cwd());
       const profileName = agentProfile.name;
-      const profileModel =
-        agentProfile.model === "inherit" ? undefined : agentProfile.model;
-      const effectiveModel = profileModel ?? resolvedModel;
+      // #201: resolve profile "small" through settings, and let the user's
+      // explicit model parameter take precedence over the profile model.
+      const profileModel = resolveProfileModel(agentProfile);
+      const effectiveModel = resolvedModel ?? profileModel;
       const profileTools = resolveProfileTools(agentProfile);
 
       // Pre-load file agents for auto-routing
@@ -363,9 +429,9 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
 
       const swarmRoot =
         process.env.PI_SWARM_ROOT ?? resolveSwarmRoot(process.cwd());
-      // #128: append a 6-char random suffix so two coordinator calls in
+      // #128: append a 6-char random suffix so two team calls in
       // the same millisecond do not collide in activeRuns / manifest lookups.
-      const runId = `coord-${Date.now().toString(36)}-${randomSuffix()}`;
+      const runId = `team-${Date.now().toString(36)}-${randomSuffix()}`;
 
       const placeholderCount =
         prompt_template.split(PROMPT_TEMPLATE_PLACEHOLDER).length - 1;
@@ -384,15 +450,32 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
       const inboxesDir = path.join(coordDir, "inboxes");
       fs.mkdirSync(inboxesDir, { recursive: true });
 
+      // #206: Set up shared mailbox when enabled so agents can exchange
+      // messages via inbox/outbox during collaborative workflows.
+      let mailboxPath: string | undefined;
+      let mailboxPaths: MailboxPaths | undefined;
+      if (mailbox) {
+        mailboxPaths = resolveMailboxPaths(swarmRoot, runId);
+        ensureMailbox(mailboxPaths);
+        mailboxPath = mailboxPaths.root;
+      }
+
       createManifest(swarmRoot, {
         runId,
-        type: "coordinator",
+        type: "team",
         status: "running",
-        goal: description ?? "Coordinator Swarm",
+        goal: description ?? "Team Swarm",
         startedAt: Date.now(),
         agentIds: [],
       });
 
+      // #204: Use user-specified timeout or fall back to the default.
+      const resolvedTimeout =
+        timeout !== undefined && timeout > 0
+          ? timeout
+          : DEFAULT_SUBAGENT_TIMEOUT_MS;
+
+      const resolvedPaths = mailboxPaths;
       const tasks = specs.map((spec, idx): QueuedSubagentTask<SwarmSpec> => {
         const spawnSpec = spec as SwarmSpawnSpec;
         const agentName = deriveAgentName(profileName, spawnSpec.item, idx + 1);
@@ -410,9 +493,10 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           if (matched) {
             itemProfile = matched;
             itemProfileTools = resolveProfileTools(matched);
-            const matchedModel =
-              matched.model === "inherit" ? undefined : matched.model;
-            itemModel = matchedModel ?? effectiveModel;
+            // #201/#202: resolve matched agent "small" through settings,
+            // and let the user's explicit model parameter take precedence.
+            const matchedModel = resolveProfileModel(matched);
+            itemModel = resolvedModel ?? matchedModel ?? effectiveModel;
             itemAdditionalPrompt = matched.systemPrompt;
           }
         }
@@ -424,12 +508,12 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           agentName,
           parentToolCallId: toolCallId,
           prompt: spec.prompt,
-          description: `${description ?? "Coordinator"} #${spec.index} (${agentName})`,
+          description: `${description ?? "Team"} #${spec.index} (${agentName})`,
           swarmIndex: spec.index,
           runInBackground: true,
           swarmItem: spawnSpec.item,
           signal,
-          timeout: DEFAULT_SUBAGENT_TIMEOUT_MS,
+          timeout: resolvedTimeout,
           swarmRoot,
           runId,
           useWorktree: true,
@@ -438,6 +522,10 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           additionalSystemPrompt: itemAdditionalPrompt,
           roleName: agentName,
           messageInboxPath,
+          mailboxPath,
+          onMessage: resolvedPaths
+            ? (msg) => sendMessage(resolvedPaths, msg)
+            : undefined,
         };
       });
 
@@ -462,7 +550,7 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
         },
       });
 
-      const run: ActiveCoordinatorRun = {
+      const run: ActiveTeamRun = {
         runId,
         handle,
         results: [],
@@ -509,13 +597,15 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
           {
             type: "text",
             text:
-              `Coordinator swarm launched: ${runId}\n` +
+              `Team swarm launched: ${runId}\n` +
               `Agents: ${specs.length}\n` +
-              `Profile: ${profileName}\n\n` +
+              `Profile: ${profileName}\n` +
+              `Mailbox: ${mailbox ? "enabled" : "disabled"}\n\n` +
               `Agents are now running in the background. You can:\n` +
               `- Continue working while agents execute\n` +
               `- Use SendMessage(${runId}, <agentName>, <message>) to send instructions\n` +
               `- Use TaskStop(${runId}, <agentName>) to stop an agent\n` +
+              `- Use SwarmStatus(${runId}) to check progress\n` +
               `- Agent results will be available as they complete.\n\n` +
               `Agents: ${specs.map((s, i) => `${i + 1}. ${deriveAgentName(profileName, s.item, i + 1)}`).join("\n")}`,
           },
@@ -529,11 +619,11 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
     name: "SendMessage",
     label: "SendMessage",
     description:
-      "Send a message to a running agent in a coordinator swarm. The agent will receive it in their inbox and can read it during their execution.",
+      "Send a message to a running agent in a team swarm. The agent will receive it in their inbox and can read it during their execution.",
     parameters: Type.Object(
       {
         runId: Type.String({
-          description: "The run ID returned by SwarmCoordinator.",
+          description: "The run ID returned by SwarmTeam.",
         }),
         agentName: Type.String({
           description:
@@ -604,11 +694,11 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "TaskStop",
     label: "TaskStop",
-    description: "Stop a running agent in a coordinator swarm.",
+    description: "Stop a running agent in a team swarm.",
     parameters: Type.Object(
       {
         runId: Type.String({
-          description: "The run ID returned by SwarmCoordinator.",
+          description: "The run ID returned by SwarmTeam.",
         }),
         agentName: Type.String({
           description: "Agent name or ID to stop.",
@@ -655,7 +745,7 @@ export function registerCoordinatorTools(pi: ExtensionAPI): void {
   pi.registerTool({
     name: "SwarmStatus",
     label: "SwarmStatus",
-    description: "Check the status and results of a coordinator swarm run.",
+    description: "Check the status and results of a team swarm run.",
     parameters: Type.Object(
       {
         runId: Type.Optional(

@@ -5,7 +5,7 @@ describe("buildSubagentArgs tool filtering (#153)", () => {
   it("strips forbidden swarm tools from an explicit tool list", () => {
     const args = buildSubagentArgs({
       task: "do work",
-      tools: ["Read", "Swarm", "SwarmCoordinator", "SendMessage", "Write"],
+      tools: ["Read", "Swarm", "SwarmTeam", "SendMessage", "Write"],
     });
     const idx = args.indexOf("--tools");
     expect(idx).toBeGreaterThan(-1);
@@ -13,7 +13,7 @@ describe("buildSubagentArgs tool filtering (#153)", () => {
     expect(toolList).toContain("Read");
     expect(toolList).toContain("Write");
     expect(toolList).not.toContain("Swarm");
-    expect(toolList).not.toContain("SwarmCoordinator");
+    expect(toolList).not.toContain("SwarmTeam");
     expect(toolList).not.toContain("SendMessage");
   });
 

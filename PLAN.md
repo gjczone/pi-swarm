@@ -10,7 +10,7 @@
 | --------------- | -------------------- | ----------------------------------------- | ----------------------------------------------------- |
 | **Swarm**       | `/swarm <task>`      | User or LLM calls `Swarm`                 | Parallel, item-template, homogeneous agents           |
 | **Team**        | `/swarm-team <task>` | User or LLM calls `Swarm` (mailbox: true) | Collaborative, role-based, mailbox communication      |
-| **Coordinator** | `SwarmCoordinator`   | LLM calls `SwarmCoordinator`              | Non-blocking, multi-turn orchestration with messaging |
+| **Team (non-blocking)** | `SwarmTeam`   | LLM calls `SwarmTeam`              | Non-blocking, multi-turn orchestration with messaging |
 
 All three modes share the same underlying infrastructure: subagent spawning (`pi --print`), concurrency control, rate-limit handling, and TUI progress rendering.
 
@@ -93,7 +93,7 @@ pi-swarm/
     │   ├── tool.ts               # Swarm tool (parallel, item-template, profile support)
     │   ├── command.ts            # /swarm slash command
     │   ├── mode.ts               # SwarmMode state machine
-    │   └── coordinator.ts        # Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
+    │   └── coordinator.ts        # Team mode (SwarmTeam, SendMessage, TaskStop, SwarmStatus)
     ├── team/
     │   ├── command.ts            # /swarm-team slash command
     │   └── mailbox.ts            # Mailbox system (JSONL inbox/outbox/delivery)
@@ -191,10 +191,10 @@ User: /swarm-team Implement user authentication with tests
 - Task graph with dependencies: planner → coder → reviewer → tester
 - Supervisor monitors progress and can reassign/retry
 
-### 3.4 Mode: Coordinator (Non-blocking)
+### 3.4 Mode: Team (Non-blocking)
 
 ```
-LLM calls SwarmCoordinator({ prompt_template, items })
+LLM calls SwarmTeam({ prompt_template, items })
 
   ┌──────────────────────────────────────────────────────────┐
   │                 Coordinator Controller                   │
@@ -516,14 +516,14 @@ line (activated / deactivated / ended) in the transcript.
 - [x] Recovery corrupt manifest preservation — preserve unreadable manifests for debugging
 - [x] Permission mode removal — swarm activates directly without permission prompts
 
-### Phase 7: Agent Profiles & Coordinator Mode
+### Phase 7: Agent Profiles & Team Mode
 
 - [x] Agent profile system (`shared/profiles.ts`) — 4 built-in profiles, user-defined custom profiles
 - [x] Profile resolution — `resolveProfile()`, `resolveProfileTools()`, `resolveProfileModel()`
 - [x] Agent name derivation — `deriveAgentName()` from profile/item/index fallback
-- [x] Coordinator mode (`swarm/coordinator.ts`) — `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus` tools
+- [x] Team mode (`swarm/coordinator.ts`) — `SwarmTeam`, `SendMessage`, `TaskStop`, `SwarmStatus` tools
 - [x] Non-blocking `runAsync()` controller method — returns `SwarmHandle` with background execution
-- [x] Per-agent message inboxes for coordinator mode — file-based message delivery between main agent and subagents
+- [x] Per-agent message inboxes for team mode — file-based message delivery between main agent and subagents
 - [x] Swarm tool profile integration — profile parameter, tool restrictions, system prompt injection
 - [x] Spawner profile fields — `messageInboxPath`, `additionalSystemPrompt`, `agentName`
 
@@ -540,7 +540,7 @@ line (activated / deactivated / ended) in the transcript.
 | Persistence               | Durable file-based state; resume incomplete runs; disband completed                      |
 | Inter-agent communication | Mailbox pattern: JSONL files in `.pi/swarm/mailbox/`                                     |
 | Agent profiles            | Capability-based (allowWrite / allowBashWrite). Not hardcoded tool names.                |
-| Coordinator mode          | Non-blocking swarm via `runAsync()`. Main agent stays active, orchestrates via messages. |
+| Team mode (non-blocking)  | Non-blocking swarm via `runAsync()`. Main agent stays active as team leader, orchestrates via messages. |
 | Language                  | 100% English in all code, comments, docs, commits                                        |
 
 ---
@@ -549,7 +549,7 @@ line (activated / deactivated / ended) in the transcript.
 
 ### Goal
 
-Allow users to define reusable agent configurations as Markdown files in `~/.pi/agents/` or `.pi/agents/`, referenceable by name via `agentType` in Swarm/Coordinator tools.
+Allow users to define reusable agent configurations as Markdown files in `~/.pi/agents/` or `.pi/agents/`, referenceable by name via `agentType` in Swarm/SwarmTeam tools.
 
 ### Files Changed
 

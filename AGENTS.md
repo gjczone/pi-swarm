@@ -219,7 +219,7 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 **Layer dependency**: `tui/` + `state/` → `swarm/` + `team/` → `shared/` → `index.ts`
 
 - `shared/` — no pi or tui imports. Pure logic, types, process management, agent profiles.
-- `swarm/` — compose shared primitives, register pi tools/commands (Swarm, SwarmCoordinator, SendMessage, TaskStop, SwarmStatus). Must not import from `team/`.
+- `swarm/` — compose shared primitives, register pi tools/commands (Swarm, SwarmTeam, SendMessage, TaskStop, SwarmStatus). Must not import from `team/`.
 - `team/` — mailbox system and team command. Must not import from `swarm/`.
 - `tui/` — implements `Component` from `@earendil-works/pi-tui`.
 - `state/` — pure Node.js filesystem, no pi imports.
@@ -238,8 +238,8 @@ Dev env: Node.js >= 18. Extension tested by symlinking `dist/` into `~/.pi/agent
 | Swarm output format   | `<agent_swarm_result>` XML                                                                                           |
 | Mailbox communication | JSONL mailbox (inbox.jsonl / outbox.jsonl) with atomic writes and real-time polling                                  |
 | Agent profiles        | Capability-based (allowWrite / allowBashWrite). Four built-in + user-defined custom via settings                     |
-| Coordinator mode      | Non-blocking swarm via `runAsync()` + `SwarmHandle`. Main agent orchestrates with SendMessage/TaskStop               |
-| Triple mode           | `/swarm` (blocking parallel), `/swarm-team` (mailbox collaborative), `SwarmCoordinator` (non-blocking orchestration) |
+| Team mode (non-blocking) | Non-blocking swarm via `runAsync()` + `SwarmHandle`. Main agent orchestrates with SendMessage/TaskStop               |
+| Triple mode           | `/swarm` (blocking parallel), `/swarm-team` (mailbox collaborative), `SwarmTeam` (non-blocking orchestration) |
 
 ## Data & State Flows
 
@@ -279,7 +279,7 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - **Adding a new agent profile**: Add built-in to `BUILTIN_PROFILES` in `shared/profiles.ts` → add to `BuiltinProfileName` type union in `types.ts` → document in README.md
 - **Adding tool restrictions to a profile**: Set `tools` (allowlist) or `disallowedTools` (denylist) on `AgentProfile`. See `resolveProfileTools()` in `shared/profiles.ts`.
 - **Adding auto-routing rules to a file agent**: Add `matchPatterns` and `matchKeywords` frontmatter fields. See `matchItemToAgent()` in `shared/agents.ts`.
-- **Adding a coordinator tool**: Create handler in `swarm/coordinator.ts` → register via `pi.registerTool` → update `index.ts` to import and call the registration function
+- **Adding a team tool**: Create handler in `swarm/coordinator.ts` → register via `pi.registerTool` → update `index.ts` to import and call the registration function
 - **Blocking a tool at system level**: Add to `FORBIDDEN_SUBAGENT_TOOLS` in `shared/pi-invoke.ts`. This prevents the tool from ever being passed to subagents.
 - **Adding per-role model tier**: Add `ModelTier`/`SMALL_MODEL_ROLES` to `types.ts` → thread `model`/`tools`/`cwd` through `controller.ts` and `BaseQueuedSubagentTask`
 - **Changing concurrency strategy**: Modify `shared/controller.ts` → update `PLAN.md` and `docs/architecture.md`
@@ -295,7 +295,7 @@ Log locations: `.pi/swarm/state/runs/<runId>/events.jsonl` (event log), `.pi/swa
 - `src/shared/gitignore.ts` — auto-managed `.pi/.gitignore` for state directory exclusion (pattern correctness critical — see #188)
 - `src/swarm/specs.ts` — AgentSwarm input validation (createAgentSwarmSpecs, MAX_AGENT_SWARM_SUBAGENTS, duplicate prompt detection)
 - `src/swarm/tool.ts` — Swarm tool definition (output.log persistence, run manifests, profile support)
-- `src/swarm/coordinator.ts` — Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
+- `src/swarm/coordinator.ts` — Team mode (SwarmTeam, SendMessage, TaskStop, SwarmStatus)
 - `src/team/mailbox.ts` — JSONL mailbox with message acknowledgment
 - `src/team/command.ts` — /swarm-team slash command
 - `src/tui/progress.ts` — TUI braille progress panel (fixed-width baseline track)

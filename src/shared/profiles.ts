@@ -260,7 +260,7 @@ export function resolveProfileTools(
 
   // Always return explicit list. Never return undefined — the caller needs
   // an explicit --tools flag so buildSubagentArgs() can strip pi-swarm's
-  // own tools (Swarm, SwarmCoordinator, etc.) from subagent tool sets.
+  // own tools (Swarm, SwarmTeam, etc.) from subagent tool sets.
   // Without --tools, subagents get ALL tools including swarm tools.
   return tools;
 }
@@ -273,16 +273,25 @@ export function resolveProfileTools(
  * Derive a human-readable agent name.
  *
  * Priority:
- *   1. Explicit profile name
+ *   1. Explicit profile name (unless it is a generic placeholder)
  *   2. First meaningful segment of item text (e.g. "repo-inspect: ..." -> "repo-inspect")
  *   3. Fallback: agent-{index}
+ *
+ * Business (#205): "general" is the default profile used for auto-routing.
+ * Returning it as-is caused all auto-routed agents to share the same name,
+ * making them indistinguishable in SwarmStatus output. Now "general" is
+ * treated as a placeholder (like "coder"/"subagent") so the item-based
+ * naming takes over, giving each auto-routed agent a unique identity.
  */
 export function deriveAgentName(
   profileName: string | undefined,
   item: string | undefined,
   index: number,
 ): string {
-  if (profileName && profileName !== "coder" && profileName !== "subagent") {
+  // Generic placeholder names that should not be used as the agent name —
+  // fall through to item-based naming so auto-routed agents are distinguishable.
+  const placeholders = new Set(["coder", "subagent", "general"]);
+  if (profileName && !placeholders.has(profileName)) {
     return profileName;
   }
   if (item) {

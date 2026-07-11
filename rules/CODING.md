@@ -40,7 +40,7 @@ export default function (pi: ExtensionAPI): void {
 }
 ```
 
-Evidence: `grep "export function register" src/` → 5 register functions across `swarm/tool.ts` (`registerAgentSwarmTool`), `swarm/coordinator.ts` (`registerCoordinatorTools`), `swarm/command.ts` (`registerSwarmCommand`), `team/command.ts` (`registerTeamCommand`), and `state/persistence.ts` (`registerAgentInManifest`). All tool/command registrations are called in `src/index.ts`.
+Evidence: `grep "export function register" src/` → 5 register functions across `swarm/tool.ts` (`registerAgentSwarmTool`), `swarm/coordinator.ts` (`registerTeamTools`), `swarm/command.ts` (`registerSwarmCommand`), `team/command.ts` (`registerTeamCommand`), and `state/persistence.ts` (`registerAgentInManifest`). All tool/command registrations are called in `src/index.ts`.
 
 ---
 
