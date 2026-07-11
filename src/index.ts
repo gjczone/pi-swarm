@@ -8,7 +8,7 @@
 
 import type { ExtensionAPI } from "@earendil-works/pi-coding-agent";
 import { registerAgentSwarmTool } from "./swarm/tool.js";
-import { registerCoordinatorTools } from "./swarm/coordinator.js";
+import { registerTeamTools } from "./swarm/coordinator.js";
 import {
   registerSwarmCommand,
   type SwarmCommandHost,
@@ -169,7 +169,7 @@ export default function (pi: ExtensionAPI): void {
   });
 
   registerAgentSwarmTool(pi);
-  registerCoordinatorTools(pi);
+  registerTeamTools(pi);
   registerSwarmCommand(pi, commandHost);
   registerTeamCommand(pi, commandHost);
 }

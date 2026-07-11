@@ -10,6 +10,8 @@ import {
   SubagentBatchController,
   USER_CANCELLATION_MARKER,
   isUserCancellation,
+  resolveProfileModel,
+  resolveSwarmSmallModel,
 } from "../src/shared/controller.js";
 import type {
   QueuedSubagentTask,
@@ -716,4 +718,44 @@ describe("SubagentBatchController", () => {
     expect(results[0]!.status).toBe("failed");
     expect(results[0]!.error).toMatch(/rate limit/i);
   }, 35000);
+});
+
+// ---------------------------------------------------------------------------
+// #201 — resolveProfileModel resolves profile "small" and "inherit"
+// ---------------------------------------------------------------------------
+
+describe("#201 resolveProfileModel", () => {
+  const baseProfile = {
+    name: "test",
+    description: "test",
+    allowWrite: true,
+    allowBashWrite: true,
+    outputFormat: "free" as const,
+    systemPrompt: "",
+  };
+
+  it("returns undefined for 'inherit' model", () => {
+    const profile = { ...baseProfile, model: "inherit" as const };
+    expect(resolveProfileModel(profile)).toBeUndefined();
+  });
+
+  it("returns undefined when model is not set", () => {
+    const profile = { ...baseProfile };
+    expect(resolveProfileModel(profile)).toBeUndefined();
+  });
+
+  it("returns explicit model ID as-is", () => {
+    const profile = { ...baseProfile, model: "deepseek/deepseek-v4-flash" };
+    expect(resolveProfileModel(profile)).toBe("deepseek/deepseek-v4-flash");
+  });
+
+  it("resolves 'small' through resolveSwarmSmallModel", () => {
+    // The "small" keyword must be resolved via settings, not passed literally.
+    // When settings have no smallModel configured, resolveSwarmSmallModel
+    // returns undefined — so resolveProfileModel also returns undefined.
+    const profile = { ...baseProfile, model: "small" as const };
+    const result = resolveProfileModel(profile);
+    const expected = resolveSwarmSmallModel();
+    expect(result).toBe(expected);
+  });
 });

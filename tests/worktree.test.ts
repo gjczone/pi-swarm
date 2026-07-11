@@ -10,7 +10,11 @@ import * as fs from "node:fs";
 import * as path from "node:path";
 import * as os from "node:os";
 import { execFileSync } from "node:child_process";
-import { createWorktree, cleanupWorktree } from "../src/shared/worktree.js";
+import {
+  createWorktree,
+  cleanupWorktree,
+  mergeBranch,
+} from "../src/shared/worktree.js";
 
 let tmpRepo: string;
 
@@ -185,5 +189,68 @@ describe("#186 cleanupWorktree preserves worktree when git status fails", () => 
     } catch {
       // best effort
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #203 — mergeBranch stashes dirty working directory before merging
+// ---------------------------------------------------------------------------
+
+describe("#203 mergeBranch stashes dirty working directory", () => {
+  it("merges a branch even when the working directory has uncommitted changes", () => {
+    // Create a worktree and write a file (uncommitted — cleanupWorktree
+    // will stage and commit it to a new branch).
+    const worktree = createWorktree(tmpRepo, "test-203-merge", undefined);
+    expect(worktree).toBeDefined();
+    const wt = worktree!;
+
+    fs.writeFileSync(path.join(wt.path, "feature.txt"), "feature work");
+
+    // Cleanup commits the change and creates a branch in the main repo
+    const cleanupResult = cleanupWorktree(tmpRepo, wt, "test #203");
+    expect(cleanupResult.branch).toBeDefined();
+
+    // Dirty the main working directory
+    fs.writeFileSync(path.join(tmpRepo, "uncommitted.txt"), "dirty");
+
+    // mergeBranch should stash the dirty change, merge, and restore
+    const result = mergeBranch(tmpRepo, cleanupResult.branch!);
+
+    expect(result.success).toBe(true);
+    // The merged file should be present
+    expect(fs.existsSync(path.join(tmpRepo, "feature.txt"))).toBe(true);
+    // The uncommitted change should be restored (stashed then popped)
+    expect(
+      fs.readFileSync(path.join(tmpRepo, "uncommitted.txt"), "utf-8"),
+    ).toBe("dirty");
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #203 — cleanupWorktree creates branch BEFORE removing worktree
+// ---------------------------------------------------------------------------
+
+describe("#203 cleanupWorktree branch-before-remove ordering", () => {
+  it("creates a branch pointing to the commit before removing the worktree", () => {
+    const worktree = createWorktree(tmpRepo, "test-203-order", undefined);
+    expect(worktree).toBeDefined();
+    const wt = worktree!;
+
+    // Write a file in the worktree (uncommitted — cleanupWorktree will
+    // stage and commit it).
+    fs.writeFileSync(path.join(wt.path, "work.txt"), "agent work");
+
+    const result = cleanupWorktree(tmpRepo, wt, "test #203 order");
+
+    // Branch should be created successfully
+    expect(result.hasChanges).toBe(true);
+    expect(result.branch).toBeDefined();
+
+    // The branch should exist in the main repo
+    const branches = git(["branch", "--list"], tmpRepo);
+    expect(branches).toContain(result.branch!);
+
+    // The worktree should be removed
+    expect(fs.existsSync(wt.path)).toBe(false);
   });
 });

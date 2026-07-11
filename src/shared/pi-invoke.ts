@@ -17,18 +17,18 @@ import * as path from "node:path";
  * pi-swarm tools that are FORBIDDEN in any subagent.
  *
  * Subagents run as pi --print child processes. If they had access to
- * Swarm/SwarmCoordinator, they could spawn sub-sub-agents, creating
+ * Swarm/SwarmTeam, they could spawn sub-sub-agents, creating
  * unbounded recursion. This is a system-level constraint enforced
  * at arg-build time — not a profile setting.
  *
  * Blocked tools:
- * - Swarm / SwarmCoordinator — recursive spawning
- * - SendMessage — would let subagents impersonate coordinator
+ * - Swarm / SwarmTeam — recursive spawning
+ * - SendMessage — would let subagents impersonate team leader
  * - TaskStop / SwarmStatus — subagents should not manage other agents
  */
 const FORBIDDEN_SUBAGENT_TOOLS = new Set([
   "Swarm",
-  "SwarmCoordinator",
+  "SwarmTeam",
   "SendMessage",
   "TaskStop",
   "SwarmStatus",

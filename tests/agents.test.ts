@@ -14,7 +14,11 @@ import {
   clearFileAgentsCache,
   matchItemToAgent,
 } from "../src/shared/agents.js";
-import { resolveProfile, resolveProfileTools } from "../src/shared/profiles.js";
+import {
+  resolveProfile,
+  resolveProfileTools,
+  deriveAgentName,
+} from "../src/shared/profiles.js";
 import type { AgentProfile } from "../src/shared/types.js";
 
 // ---------------------------------------------------------------------------
@@ -569,7 +573,7 @@ describe("resolveProfileTools with allowlist/denylist", () => {
       model: "inherit",
       outputFormat: "free",
       systemPrompt: "",
-      disallowedTools: ["Swarm", "SwarmCoordinator"],
+      disallowedTools: ["Swarm", "SwarmTeam"],
     };
     const tools = resolveProfileTools(profile);
     expect(tools).toContain("read");
@@ -577,7 +581,7 @@ describe("resolveProfileTools with allowlist/denylist", () => {
     expect(tools).toContain("edit");
     expect(tools).toContain("write");
     expect(tools).not.toContain("Swarm");
-    expect(tools).not.toContain("SwarmCoordinator");
+    expect(tools).not.toContain("SwarmTeam");
   });
 
   it("combines explicit tools allowlist with capability filter", () => {
@@ -948,5 +952,37 @@ describe("matchItemToAgent", () => {
     expect(matchItemToAgent("ba.ts", agents)).toBeUndefined();
     expect(matchItemToAgent("a.tsx", agents)).toBeUndefined();
     expect(matchItemToAgent("a.ts.bak", agents)).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// #205 — deriveAgentName treats "general" as a placeholder
+// ---------------------------------------------------------------------------
+
+describe("#205 deriveAgentName placeholder handling", () => {
+  it("returns the profile name for explicit profiles (e.g. explore, review)", () => {
+    expect(deriveAgentName("explore", "src/auth.ts", 1)).toBe("explore");
+    expect(deriveAgentName("review", "src/api.ts", 2)).toBe("review");
+    expect(deriveAgentName("plan", "design doc", 3)).toBe("plan");
+  });
+
+  it("falls through to item-based naming for 'general' (auto-routing default)", () => {
+    // #205: "general" is the default profile for auto-routing. Previously
+    // all auto-routed agents got the name "general", making them
+    // indistinguishable. Now "general" is treated as a placeholder.
+    expect(deriveAgentName("general", "src/auth.ts", 1)).toBe("srcauthts");
+    expect(deriveAgentName("general", "repo-inspect: check repo", 2)).toBe(
+      "repo-inspect",
+    );
+  });
+
+  it("falls through to item-based naming for 'coder' and 'subagent'", () => {
+    expect(deriveAgentName("coder", "src/auth.ts", 1)).toBe("srcauthts");
+    expect(deriveAgentName("subagent", "fix bug", 2)).toBe("fix");
+  });
+
+  it("falls back to agent-{index} when item has no meaningful segment", () => {
+    expect(deriveAgentName("general", "", 5)).toBe("agent-5");
+    expect(deriveAgentName("general", "?", 3)).toBe("agent-3");
   });
 });

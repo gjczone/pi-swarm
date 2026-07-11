@@ -10,7 +10,7 @@ pi-swarm is a **subagent orchestration system** with two operational modes:
 | --------------- | -------------------------------------- | --------------------------------------------- | ------------------ |
 | **Swarm**       | Parallel, item-template, homogeneous   | `Swarm` tool or `/swarm` command              | None (independent) |
 | **Team**        | Collaborative with mailbox, role-based | `Swarm` tool (mailbox: true) or `/swarm-team` | JSONL mailbox      |
-| **Coordinator** | Non-blocking, multi-turn orchestration | `SwarmCoordinator` tool                       | File-based inboxes |
+| **Team (non-blocking)** | Non-blocking, multi-turn orchestration | `SwarmTeam` tool                       | File-based inboxes |
 
 The design follows these principles:
 
@@ -24,7 +24,7 @@ The design follows these principles:
 
 5. **Capability-based profiles.** Agent profiles control behavior through boolean flags (`allowWrite`, `allowBashWrite`) rather than hardcoded tool name allowlists. This keeps profile definitions portable across tool ecosystems.
 
-6. **Non-blocking coordinator.** The coordinator mode returns a handle immediately, allowing the main agent to stay active and orchestrate subagents across multiple conversation turns.
+6. **Non-blocking team.** The team mode returns a handle immediately, allowing the main agent to stay active as a team leader and orchestrate subagents across multiple conversation turns.
 
 7. **Zero runtime dependencies.** The only external packages are `typebox` (schema validation) and `@earendil-works/pi-tui` (rendering). All orchestration, state management, and process control are custom-built.
 
@@ -49,7 +49,7 @@ src/
 │   ├── tool.ts           # Swarm tool (pi.registerTool, profile support)
 │   ├── command.ts        # /swarm slash command
 │   ├── mode.ts           # SwarmMode lifecycle state machine
-│   └── coordinator.ts    # Coordinator mode (SwarmCoordinator, SendMessage, TaskStop, SwarmStatus)
+│   └── coordinator.ts    # Team mode (SwarmTeam, SendMessage, TaskStop, SwarmStatus)
 ├── team/                 # Team mode (imports from shared/)
 │   ├── command.ts        # /swarm-team slash command
 │   └── mailbox.ts        # JSONL inbox/outbox/delivery (atomic writes)
@@ -347,20 +347,20 @@ Supports four forms:
 
 **Permission integration**: Swarm mode activates directly without prompting for permission mode switching. The `SwarmCommandHost` interface no longer requires `getPermissionMode()` or `setPermissionMode()`. The TUI permission prompt component remains available for future use.
 
-### 4.4 Coordinator Mode (`swarm/coordinator.ts`)
+### 4.4 Team Mode (`swarm/coordinator.ts`)
 
-The coordinator mode introduces non-blocking swarm orchestration. Unlike the blocking `Swarm` tool which waits for all agents to complete before returning, `SwarmCoordinator` returns immediately with a `runId`. The main agent stays active and can orchestrate agents across conversation turns.
+The team mode introduces non-blocking swarm orchestration. Unlike the blocking `Swarm` tool which waits for all agents to complete before returning, `SwarmTeam` returns immediately with a `runId`. The main agent acts as a team leader and can orchestrate agents across conversation turns.
 
 **Registered tools**:
 
 | Tool               | Description                                                  |
 | ------------------ | ------------------------------------------------------------ |
-| `SwarmCoordinator` | Launch a non-blocking swarm. Returns `runId`.                |
+| `SwarmTeam` | Launch a non-blocking swarm. Returns `runId`.                |
 | `SendMessage`      | Send a message to a running agent (or `"broadcast"` to all). |
 | `TaskStop`         | Gracefully stop a running agent by name or ID.               |
-| `SwarmStatus`      | Check status and results of active coordinator runs.         |
+| `SwarmStatus`      | Check status and results of active team runs.         |
 
-**SwarmCoordinator parameters**: `description`, `profile`, `prompt_template`, `items`, `model` — same as the blocking `Swarm` tool.
+**SwarmTeam parameters**: `description`, `profile`, `prompt_template`, `items`, `model`, `mailbox` (optional, enable inter-agent mailbox), `timeout` (optional, per-agent timeout in ms) — same base as the blocking `Swarm` tool, plus team-specific options.
 
 **Controller integration**: `SubagentBatchController.runAsync()` launches agents in background and returns a `SwarmHandle`:
 
@@ -377,11 +377,11 @@ interface SwarmHandle<T> {
 
 **Message delivery**: When `SendMessage` is called, the message is written to a per-agent inbox file at `.pi/swarm/state/runs/{runId}/coord/inboxes/{agentId}.jsonl`. The subagent (via `pi --print`) reads this file during execution to receive coordinator instructions.
 
-**Lifecycle events**: `runAsync()` accepts a `CoordinatorOptions.onEvent` callback that fires on `agent_started` and `agent_completed` events. The coordinator uses this to track agent state and report status.
+**Lifecycle events**: `runAsync()` accepts a `CoordinatorOptions.onEvent` callback that fires on `agent_started` and `agent_completed` events. The team uses this to track agent state and report status.
 
-**Active run tracking**: All active coordinator runs are stored in an in-memory `Map<runId, ActiveCoordinatorRun>`. Runs are cleaned up when the extension shuts down. Completed runs persist their state under `.pi/swarm/state/runs/{runId}/` for debugging.
+**Active run tracking**: All active team runs are stored in an in-memory `Map<runId, ActiveTeamRun>`. Runs are cleaned up when the extension shuts down. Completed runs persist their state under `.pi/swarm/state/runs/{runId}/` for debugging.
 
-**Why non-blocking**: The blocking `Swarm` tool works well for simple parallel tasks, but for complex workflows where the main agent needs to react to subagent outputs mid-execution (e.g., fix-and-retry, dynamic reallocation), a non-blocking coordinator is essential. The main agent observes progress via `SwarmStatus` and intervenes via `SendMessage` and `TaskStop`.
+**Why non-blocking**: The blocking `Swarm` tool works well for simple parallel tasks, but for complex workflows where the main agent needs to react to subagent outputs mid-execution (e.g., fix-and-retry, dynamic reallocation), a non-blocking team is essential. The main agent observes progress via `SwarmStatus` and intervenes via `SendMessage` and `TaskStop`.
 
 ---
 
@@ -580,13 +580,13 @@ AgentSwarm.execute()
      Returned to LLM as tool result
 ```
 
-### 8.2 Coordinator Mode Execution Flow
+### 8.2 Team Mode Execution Flow
 
 ```
-LLM calls SwarmCoordinator({ prompt_template, items, profile })
+LLM calls SwarmTeam({ prompt_template, items, profile })
   │
   ▼
-SwarmCoordinator.execute()
+SwarmTeam.execute()
   │
   ├─ resolveProfile(profile)           ← resolve agent profile
   ├─ deriveAgentName()                  ← human-readable agent names
@@ -670,4 +670,4 @@ Swarm results rendered as <agent_swarm_result> XML
 4. **Model fallback chain**: If the primary model is rate-limited, fall back to a cheaper model.
 5. **Dashboard TUI**: A command showing all active and recent runs.
 6. **Run export/import**: Bundle a complete run (state + artifacts + events) for cross-machine sharing or debugging.
-7. **Coordinator result collection API**: Expose coordinator run results to the LLM as a structured tool output rather than requiring manual `SwarmStatus` polling.
+7. **Team result collection API**: Expose team run results to the LLM as a structured tool output rather than requiring manual `SwarmStatus` polling.

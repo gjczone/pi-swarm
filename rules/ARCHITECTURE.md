@@ -80,7 +80,7 @@ tools:
 # Tool denylist (optional, subtracts from resolved tool set)
 disallowedTools:
   - Swarm
-  - SwarmCoordinator
+  - SwarmTeam
   - SendMessage
 # Model routing (optional): "small" auto-resolves from settings
 model: small
@@ -120,7 +120,7 @@ pi-swarm runs on pi-coding-agent, which has a dynamic tool set varying by instal
 4. `allowWrite=false` always removes `edit` and `write` from the resolved set
 5. `allowBashWrite=false` keeps `bash` but instructs read-only via system prompt
 
-**Important**: Tool names are pi tool identifiers as registered with `pi.registerTool()`. Common native tools include: `read`, `edit`, `bash`, `write`, `search`, `think`, `web_fetch`, `batch_web_fetch`, `agent_browser`, `mcp`, `workflow`. pi-swarm registers: `Swarm`, `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus`. The exact set varies by user installation — capability flags are the portable choice.
+**Important**: Tool names are pi tool identifiers as registered with `pi.registerTool()`. Common native tools include: `read`, `edit`, `bash`, `write`, `search`, `think`, `web_fetch`, `batch_web_fetch`, `agent_browser`, `mcp`, `workflow`. pi-swarm registers: `Swarm`, `SwarmTeam`, `SendMessage`, `TaskStop`, `SwarmStatus`. The exact set varies by user installation — capability flags are the portable choice.
 
 ### Resolution Chain
 
@@ -134,7 +134,7 @@ Agent lookup order (first match wins):
 5. Fallback:             general                          ← lowest priority
 ```
 
-The same `resolveProfile()` function handles all sources. File agents, settings custom profiles, and built-in profiles all resolve to the same `AgentProfile` interface, so consumers (Swarm tool, Coordinator tool, etc.) do not need to distinguish the source.
+The same `resolveProfile()` function handles all sources. File agents, settings custom profiles, and built-in profiles all resolve to the same `AgentProfile` interface, so consumers (Swarm tool, SwarmTeam tool, etc.) do not need to distinguish the source.
 
 ### Module Architecture
 
@@ -164,12 +164,12 @@ All new code lives in `shared/` layer (pure Node.js, no pi/tui imports). `profil
 
 - File `rust-audit.md` → agent name = `rust-audit` (derived from filename, dropping `.md`)
 - Frontmatter `name` field overrides the filename-derived name (optional)
-- Reference via `agentType: "rust-audit"` in Swarm/Coordinator calls
+- Reference via `agentType: "rust-audit"` in Swarm/SwarmTeam calls
 - `agentType` and `profile` are **mutually exclusive** in tool parameters
 
 ## Auto-Routing (matchItemToAgent)
 
-When Swarm/Coordinator tools are called without explicit `profile` or `agentType`, each item is automatically routed to the best matching file-based agent:
+When Swarm/SwarmTeam tools are called without explicit `profile` or `agentType`, each item is automatically routed to the best matching file-based agent:
 
 **Matching algorithm** (`src/shared/agents.ts` → `matchItemToAgent()`):
 
@@ -197,7 +197,7 @@ matchKeywords:
 ```ts
 const FORBIDDEN_SUBAGENT_TOOLS = new Set([
   "Swarm",
-  "SwarmCoordinator",
+  "SwarmTeam",
   "SendMessage",
   "TaskStop",
   "SwarmStatus",

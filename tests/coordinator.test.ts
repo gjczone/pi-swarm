@@ -13,7 +13,7 @@ import {
   resolveAgentId,
   runToSummary,
   summarizeRuns,
-  type ActiveCoordinatorRun,
+  type ActiveTeamRun,
 } from "../src/swarm/coordinator.js";
 import type {
   SubagentEvent,
@@ -63,7 +63,7 @@ function makeRun(opts: {
   results?: SubagentResult<SwarmSpec>[];
   description?: string;
   completed?: boolean;
-}): ActiveCoordinatorRun {
+}): ActiveTeamRun {
   const runId = opts.runId ?? "run-1";
   const results = opts.results ?? [];
   return {
@@ -154,6 +154,49 @@ describe("#104 runToSummary unique agent count", () => {
 });
 
 // ---------------------------------------------------------------------------
+// #205 — runToSummary lists running agents with their names
+// ---------------------------------------------------------------------------
+
+describe("#205 runToSummary running agent visibility", () => {
+  it("lists running agents by name and id in a Running agents section", () => {
+    const run = makeRun({
+      events: [makeEvent("a-1", "alpha"), makeEvent("b-2", "beta")],
+      results: [], // neither completed — both still running
+    });
+
+    const summary = runToSummary(run);
+
+    expect(summary).toContain("Running agents:");
+    expect(summary).toContain("alpha (a-1)");
+    expect(summary).toContain("beta (b-2)");
+  });
+
+  it("does not show Running agents section when all agents completed", () => {
+    const run = makeRun({
+      events: [makeEvent("a-1", "alpha")],
+      results: [makeResult("a-1")],
+    });
+
+    const summary = runToSummary(run);
+
+    expect(summary).not.toContain("Running agents:");
+  });
+
+  it("only lists non-completed agents as running", () => {
+    const run = makeRun({
+      events: [makeEvent("a-1", "alpha"), makeEvent("b-2", "beta")],
+      results: [makeResult("a-1")], // a-1 completed; b-2 still running
+    });
+
+    const summary = runToSummary(run);
+
+    expect(summary).toContain("Running agents:");
+    expect(summary).toContain("beta (b-2)");
+    expect(summary).not.toContain("alpha (a-1)");
+  });
+});
+
+// ---------------------------------------------------------------------------
 // #103 — summarizeRuns honors runId filter
 // ---------------------------------------------------------------------------
 
@@ -191,9 +234,9 @@ describe("#103 summarizeRuns runId filter", () => {
 
 describe("#128 runId collision avoidance", () => {
   it("two calls in the same millisecond produce distinct runIds", () => {
-    // Simulate the runId format used in src/swarm/coordinator.ts:352 and
-    // src/swarm/tool.ts:289. The format is
-    //   `coord-${Date.now().toString(36)}-${randomSuffix()}` /
+    // Simulate the runId format used in src/swarm/coordinator.ts and
+    // src/swarm/tool.ts. The format is
+    //   `team-${Date.now().toString(36)}-${randomSuffix()}` /
     //   `swarm-${Date.now().toString(36)}-${randomSuffix()}`.
     function generateRunId(prefix: string): string {
       return `${prefix}-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`;
@@ -201,7 +244,7 @@ describe("#128 runId collision avoidance", () => {
 
     const ids = new Set<string>();
     for (let i = 0; i < 100; i += 1) {
-      ids.add(generateRunId("coord"));
+      ids.add(generateRunId("team"));
     }
     // 100 calls in the same millisecond should all produce distinct IDs.
     // (Worst case: ms-clock-stable + random collisions; the random suffix
@@ -212,7 +255,7 @@ describe("#128 runId collision avoidance", () => {
   it("runId format passes validateId (safe-id pattern)", () => {
     // The new format with `-${randomSuffix()}` separator must remain
     // compatible with the safe-id regex used by state/persistence.ts.
-    const runId = `swarm-${Date.now().toString(36)}-abc123`;
+    const runId = `team-${Date.now().toString(36)}-abc123`;
     expect(() => validateId(runId, "runId")).not.toThrow();
   });
 });

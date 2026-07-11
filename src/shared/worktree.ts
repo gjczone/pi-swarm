@@ -409,10 +409,11 @@ export function cleanupWorktree(
       .toString()
       .trim();
 
-    // Remove worktree first so we can create the branch in the main repo
-    removeWorktree(cwd, worktree.path);
-
-    // Create branch pointing to the commit in the main repo
+    // #203: Create branch pointing to the commit BEFORE removing the worktree.
+    // Previously the worktree was removed first, so if branch creation failed
+    // the commit became unreachable (orphaned). Creating the branch first
+    // ensures the commit is always reachable; if branch creation fails the
+    // worktree is preserved for manual recovery.
     let branchName = worktree.branch;
     try {
       execFileSync("git", ["branch", branchName, commitSha], {
@@ -433,13 +434,17 @@ export function cleanupWorktree(
           timeout: 5000,
         });
       } catch (err2) {
-        // Commit exists but branch creation failed; user can find by SHA. (#185)
+        // Branch creation failed — preserve the worktree for manual recovery
+        // instead of orphaning the commit. (#203)
         console.error(
-          `[pi-swarm] cleanupWorktree: branch creation failed for ${branchName}: ${(err2 as Error).message}`,
+          `[pi-swarm] cleanupWorktree: branch creation failed for ${branchName}: ${(err2 as Error).message}. Worktree preserved at ${worktree.path} for manual recovery.`,
         );
-        return { hasChanges: true, commitSha };
+        return { hasChanges: true, commitSha, error: String(err2) };
       }
     }
+
+    // Branch created successfully — now safe to remove the worktree.
+    removeWorktree(cwd, worktree.path);
 
     return { hasChanges: true, branch: branchName };
   } catch (err) {
@@ -485,13 +490,19 @@ export function cleanupWorktree(
  * manual resolution.
  */
 export function mergeBranch(cwd: string, branchName: string): MergeResult {
+  // #203: Stash dirty working directory before merging so multiple sequential
+  // merges (e.g. after a parallel swarm) do not all fail on the first dirty
+  // state. The stash is restored after the merge attempt, regardless of
+  // outcome. When the WD is already clean, no stash is created.
+  let stashed = false;
   try {
     if (!isWorkingTreeClean(cwd)) {
-      return {
-        success: false,
-        branch: branchName,
-        error: `Working directory is dirty. Merge branch '${branchName}' manually after committing/stashing changes.`,
-      };
+      execFileSync("git", ["stash", "push", "-u", "-m", "pi-swarm-merge"], {
+        cwd,
+        stdio: "pipe",
+        timeout: 10000,
+      });
+      stashed = true;
     }
 
     // Verify the branch exists
@@ -592,6 +603,25 @@ export function mergeBranch(cwd: string, branchName: string): MergeResult {
       branch: branchName,
       error: `Auto-merge failed: ${stderr}`,
     };
+  } finally {
+    // #203: Restore stashed changes so the working directory is returned to
+    // its pre-merge state. This allows sequential merges to proceed even
+    // when the working directory had uncommitted changes.
+    if (stashed) {
+      try {
+        execFileSync("git", ["stash", "pop"], {
+          cwd,
+          stdio: "pipe",
+          timeout: 10000,
+        });
+      } catch (err) {
+        // Stash pop failure is non-fatal but visible — the user's changes
+        // remain in the stash and can be recovered with `git stash pop`.
+        console.error(
+          `[pi-swarm] mergeBranch: git stash pop failed (changes remain in stash): ${(err as Error).message}`,
+        );
+      }
+    }
   }
 }
 

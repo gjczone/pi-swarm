@@ -1,6 +1,6 @@
 # pi-swarm
 
-Agent Swarm extension for pi-coding-agent. Run 1-20 subagents in parallel from a shared prompt template, with optional mailbox mode for inter-agent communication and non-blocking coordinator mode for multi-turn orchestration.
+Agent Swarm extension for pi-coding-agent. Run 1-20 subagents in parallel from a shared prompt template, with optional mailbox mode for inter-agent communication and non-blocking team mode for multi-turn orchestration.
 
 ## Installation
 
@@ -74,7 +74,7 @@ model: small
 outputFormat: structured
 disallowedTools:
   - Swarm
-  - SwarmCoordinator
+  - SwarmTeam
 ---
 
 You are a Rust code audit specialist operating in READ-ONLY mode.
@@ -136,9 +136,9 @@ pi-swarm runs on pi-coding-agent, which has a dynamic tool set varying by instal
 4. `allowWrite: false` always removes `edit` and `write` from the resolved set
 5. `allowBashWrite: false` keeps `bash` but instructs read-only via system prompt (recommended to add a read-only rule to the prompt body as well)
 
-**Tool names** are pi tool identifiers as registered with `pi.registerTool()`. Common native tools include: `read`, `edit`, `bash`, `write`, `search`, `think`, `web_fetch`, `batch_web_fetch`, `agent_browser`, `mcp`, `workflow`. pi-swarm registers: `Swarm`, `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus`. The exact set varies by installation — capability flags are the portable choice.
+**Tool names** are pi tool identifiers as registered with `pi.registerTool()`. Common native tools include: `read`, `edit`, `bash`, `write`, `search`, `think`, `web_fetch`, `batch_web_fetch`, `agent_browser`, `mcp`, `workflow`. pi-swarm registers: `Swarm`, `SwarmTeam`, `SendMessage`, `TaskStop`, `SwarmStatus`. The exact set varies by installation — capability flags are the portable choice.
 
-**System-level restrictions**: pi-swarm's own tools (`Swarm`, `SwarmCoordinator`, `SendMessage`, `TaskStop`, `SwarmStatus`) are hard-blocked at the subagent spawner level via `FORBIDDEN_SUBAGENT_TOOLS`. No subagent can access these tools regardless of profile configuration — this prevents recursive sub-sub-agent spawning.
+**System-level restrictions**: pi-swarm's own tools (`Swarm`, `SwarmTeam`, `SendMessage`, `TaskStop`, `SwarmStatus`) are hard-blocked at the subagent spawner level via `FORBIDDEN_SUBAGENT_TOOLS`. No subagent can access these tools regardless of profile configuration — this prevents recursive sub-sub-agent spawning.
 
 #### Resolution Priority
 
@@ -175,13 +175,13 @@ To see which agents are available and their match rules, check the tool descript
 
 Both parameters go through the same `resolveProfile()` function. The `profile` parameter accepts built-in names (`"explore"`, `"plan"`, `"general"`, `"review"`) and settings.json custom profiles. The `agentType` parameter accepts file-based agent names. They are **mutually exclusive** — use one or the other, not both.
 
-### Coordinator Mode — non-blocking swarm
+### Team Mode — non-blocking swarm
 
 ```
-Launch subagents to review 3 modules — use SwarmCoordinator
+Launch subagents to review 3 modules — use SwarmTeam
 ```
 
-Unlike the blocking `Swarm` tool, `SwarmCoordinator` returns immediately with a `runId`. The main agent stays active and can orchestrate agents across conversation turns:
+Unlike the blocking `Swarm` tool, `SwarmTeam` returns immediately with a `runId`. The main agent acts as a team leader and can orchestrate agents across conversation turns:
 
 - `SendMessage(runId, agentName, message)` — send instructions to a running agent
 - `TaskStop(runId, agentName)` — stop an individual agent

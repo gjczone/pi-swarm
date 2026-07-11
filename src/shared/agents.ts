@@ -15,7 +15,7 @@
  *   outputFormat: structured
  *   disallowedTools:
  *     - Swarm
- *     - SwarmCoordinator
+ *     - SwarmTeam
  *   ---
  *   You are a Rust audit specialist...
  *

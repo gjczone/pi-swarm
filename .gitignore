@@ -40,3 +40,4 @@ npm-debug.log*
 *.tsbuildinfo
 .zcode
 .pi/swarm/state/
+.worktrees/

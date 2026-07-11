@@ -17,6 +17,7 @@ import {
   SubagentBatchController,
   resolveSwarmMaxConcurrency,
   resolveSwarmSmallModel,
+  resolveProfileModel,
 } from "../shared/controller.js";
 import { renderSwarmResults, toSwarmRunResults } from "../shared/render.js";
 import {
@@ -280,9 +281,10 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
         ? resolveProfile(undefined, process.cwd()) // default general, overridden per-item
         : resolveProfile(profileSource, process.cwd());
       const profileName = agentProfile.name;
-      const profileModel =
-        agentProfile.model === "inherit" ? undefined : agentProfile.model;
-      const effectiveModel = profileModel ?? resolvedModel;
+      // #201: resolve profile "small" through settings, and let the user's
+      // explicit model parameter take precedence over the profile model.
+      const profileModel = resolveProfileModel(agentProfile);
+      const effectiveModel = resolvedModel ?? profileModel;
 
       // Pre-load file agents for auto-routing (shared across all items)
       const fileAgents = useAutoRoute
@@ -349,10 +351,10 @@ export function registerAgentSwarmTool(pi: ExtensionAPI): void {
             if (matched) {
               itemProfile = matched;
               itemProfileTools = resolveProfileTools(matched);
-              // Resolve model: if matched agent has explicit model, use it; else inherit
-              const matchedModel =
-                matched.model === "inherit" ? undefined : matched.model;
-              itemModel = matchedModel ?? effectiveModel;
+              // #201/#202: resolve matched agent "small" through settings,
+              // and let the user's explicit model parameter take precedence.
+              const matchedModel = resolveProfileModel(matched);
+              itemModel = resolvedModel ?? matchedModel ?? effectiveModel;
               itemAdditionalPrompt = matched.systemPrompt;
             }
           }
