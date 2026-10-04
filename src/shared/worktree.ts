@@ -658,9 +658,13 @@ export function pruneWorktrees(cwd: string): void {
       timeout: 5000,
     });
   } catch (err) {
-    // best effort — log so failures are visible. (#185)
-    console.error(
-      `[pi-swarm] pruneWorktrees: git worktree prune failed in ${cwd}: ${(err as Error).message}`,
-    );
+    // best effort — log so failures are visible (#185), except "not a git
+    // repository", which is expected whenever pi starts outside a repo.
+    const msg = String((err as Error | undefined)?.message ?? err ?? "");
+    if (!/not a git repository/i.test(msg)) {
+      console.error(
+        `[pi-swarm] pruneWorktrees: git worktree prune failed in ${cwd}: ${(err as Error).message}`,
+      );
+    }
   }
 }

@@ -65,8 +65,10 @@ export function getPiInvocation(args: string[]): {
 /**
  * Build the standard pi CLI arguments for a subagent in --print mode.
  *
- * --print mode produces JSON Lines on stdout where each line is a
- * structured event (message_end, tool_result_end, etc.).
+ * --print runs pi non-interactively and --mode json makes its stdout a
+ * stream of structured events (message_end, tool_result_end, etc.),
+ * one JSON object per line. Without --mode json the default output
+ * mode is text, which the event parser cannot consume.
  */
 export function buildSubagentArgs(opts: {
   task: string;
@@ -76,7 +78,7 @@ export function buildSubagentArgs(opts: {
   cwd?: string;
   systemPromptFile?: string;
 }): string[] {
-  const args: string[] = ["--print"];
+  const args: string[] = ["--print", "--mode", "json"];
 
   if (opts.model) {
     args.push("--model", opts.model);
